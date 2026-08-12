@@ -1,0 +1,11 @@
+# 全体のデフォルト文字コード
+AddDefaultCharset UTF-8
+
+<IfModule mod_mime.c>
+    AddCharset UTF-8 .txt
+    AddCharset UTF-8 .json
+</IfModule>
+
+<FilesMatch "\.txt$|\.json$">
+    Header set Content-Type "text/plain; charset=utf-8"
+</FilesMatch>

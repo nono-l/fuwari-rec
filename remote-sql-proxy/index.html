@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Grok Build External Storage</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-emerald-950 text-emerald-50 min-h-screen grid place-items-center p-6">
+  <div class="max-w-lg w-full rounded-3xl border border-emerald-700/50 bg-emerald-900/60 p-8 shadow-xl">
+    <p class="text-xs text-emerald-300/70">Grok Build · External Storage</p>
+    <h1 class="text-xl font-bold mt-1">HTTPS MySQL プロキシ</h1>
+    <p class="mt-2 text-sm text-emerald-200/70 leading-relaxed">
+      Vercel 上の Grok Build アプリ向けの共通コアです。顔（名前・CORS）は
+      <code class="text-emerald-200">apps/active.php</code>、
+      データは <code class="text-emerald-200">{appId}.{tenant}</code> で分かれます。
+    </p>
+    <ul class="mt-4 space-y-2 text-sm">
+      <li><a class="text-emerald-300 underline" href="install.php">install.php</a> — 初回 DB</li>
+      <li><a class="text-emerald-300 underline font-semibold" href="setup.php">setup.php</a> — 接続監視・IP</li>
+      <li><code class="text-emerald-200">api/proxy.php</code> — JSON API</li>
+      <li><a class="text-emerald-300 underline" href="dlzip.php">dlzip.php</a> — 秘密マスク ZIP</li>
+    </ul>
+  </div>
+</body>
+</html>
