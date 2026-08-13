@@ -15,4 +15,5 @@ fuwari-external-storage/
 .DS_Store
 *.local.php
 remote-sql-proxy/api/secrets.local.php
-/tmp/
+.grok/status
+
