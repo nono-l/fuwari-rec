@@ -86,19 +86,26 @@ export function TransportBar() {
         </Button>
         <Button
           type="button"
-          size="icon"
           variant={recording ? "danger" : "record"}
           onClick={() => void toggleRecord()}
-          title={recording ? "録音停止" : "録音"}
-          aria-label={recording ? "録音停止" : "録音"}
-          className={recording ? "animate-pulse" : undefined}
+          title={recording ? "録音停止" : "録音開始（時間が進みます）"}
+          aria-label={recording ? "録音停止" : "録音開始"}
+          aria-pressed={recording}
+          className={recording ? "animate-pulse min-w-[5.5rem]" : "min-w-[5.5rem]"}
         >
-          <Circle className="size-4 fill-current" />
+          <Circle className="size-3.5 fill-current" />
+          {recording ? "停止" : "録音"}
         </Button>
       </div>
 
-      <div className="rounded-full bg-muted px-3 py-2 font-mono text-sm font-semibold tabular-nums text-foreground">
-        {formatTime(currentTime)}
+      <div
+        className={
+          recording
+            ? "rounded-full bg-danger/15 px-3 py-2 font-mono text-sm font-semibold tabular-nums text-danger"
+            : "rounded-full bg-muted px-3 py-2 font-mono text-sm font-semibold tabular-nums text-foreground"
+        }
+      >
+        {recording ? `REC ${formatTime(currentTime)}` : formatTime(currentTime)}
       </div>
 
       <label className="flex items-center gap-2 rounded-full bg-muted px-3 py-1.5 text-xs text-muted-foreground">
@@ -165,7 +172,10 @@ export function TransportBar() {
           {recording ? "REC" : playing ? "PLAY" : "STOP"}
         </Badge>
         <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-          {statusMessage}
+          {recording
+            ? statusMessage
+            : statusMessage ||
+              "赤い「録音」を押すと時間が進み、もう一度押すと止まります"}
         </p>
       </div>
     </div>

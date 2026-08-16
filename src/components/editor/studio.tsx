@@ -4,6 +4,8 @@ import { AppShell } from "@/components/editor/app-shell";
 import { TrackRow } from "@/components/editor/track-row";
 import { YoutubePanel } from "@/components/editor/youtube-panel";
 import { SeparationPanel } from "@/components/editor/separation-panel";
+import { MelodyMidiPanel } from "@/components/editor/melody-midi-panel";
+import { TapRhythmPanel } from "@/components/editor/tap-rhythm-panel";
 import { DevicePanel } from "@/components/editor/device-panel";
 import { useEditorStore } from "@/lib/store/editor-store";
 import { MIX_PRESETS } from "@/lib/audio/types";
@@ -42,8 +44,14 @@ export function Studio() {
                 エンジンを初期化中…
               </div>
             ) : tracks.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center text-sm text-muted-foreground">
-                トラックを追加して始めましょう
+              <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center">
+                <p className="text-sm font-medium text-foreground">
+                  赤い「録音」を押すと、その場から録れます
+                </p>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                  押すと時計が進みます。もう一度押すと停止して、トラックに入ります。
+                  伴奏や YouTube を先に読み込んでおくと、合わせながら歌えます。
+                </p>
               </div>
             ) : (
               tracks.map((t) => <TrackRow key={t.id} track={t} />)
@@ -52,6 +60,8 @@ export function Studio() {
 
           <div className="flex flex-col gap-4">
             <SeparationPanel />
+            <MelodyMidiPanel />
+            <TapRhythmPanel />
             <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
               <h2 className="text-sm font-semibold text-foreground">
                 ほかのタブ
@@ -122,7 +132,7 @@ export function Studio() {
                   <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">
                     R
                   </kbd>{" "}
-                  録音トグル
+                  録音開始 / 停止（時間が進みます）
                 </li>
                 <li>
                   <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">

@@ -9,6 +9,8 @@ import {
   RotateCcw,
   SlidersHorizontal,
   Sparkles,
+  Speaker,
+  Trash2,
 } from "lucide-react";
 
 export function EffectsPanel({
@@ -25,6 +27,13 @@ export function EffectsPanel({
   const inputEnabled = useEditorStore((s) => s.inputEnabled);
   const outputEnabled = useEditorStore((s) => s.outputEnabled);
   const toggleLiveFx = useEditorStore((s) => s.toggleLiveFx);
+  const roomProfile = useEditorStore((s) => s.roomProfile);
+  const roomAmount = useEditorStore((s) => s.roomAmount);
+  const roomCapturing = useEditorStore((s) => s.roomCapturing);
+  const roomCaptureProgress = useEditorStore((s) => s.roomCaptureProgress);
+  const captureRoomProfile = useEditorStore((s) => s.captureRoomProfile);
+  const clearRoomProfile = useEditorStore((s) => s.clearRoomProfile);
+  const setRoomAmount = useEditorStore((s) => s.setRoomAmount);
 
   const resetFx = () => {
     applyPreset("original");
@@ -74,7 +83,7 @@ export function EffectsPanel({
             </div>
             <p className="mt-1.5 max-w-xl text-xs leading-relaxed text-muted-foreground sm:text-sm">
               録音しなくても使えます。ブラウザを開いたままマイクの声をリアルタイム加工。
-              プリセットとスライダーはそのまま耳に届きます。
+              プリセットとスライダーはそのまま耳に届きます。ノイズ抑えは部屋のサー向けです。
             </p>
           </div>
 
@@ -191,6 +200,81 @@ export function EffectsPanel({
           isPage ? "p-4 sm:p-6" : "p-4",
         )}
       >
+        <div className="mb-3">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground sm:text-base">
+            <Speaker className="size-4 text-primary" />
+            部屋／テレビを覚える
+          </h2>
+          <p className="mt-1 max-w-xl text-[11px] leading-relaxed text-muted-foreground sm:text-xs">
+            歌わずに 2〜3 秒、テレビや部屋の音だけ鳴らして記憶します。
+            そのスペクトルを、歌っているあいだ引きます。BGM や効果音向き。セリフは残りやすいです。
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            disabled={roomCapturing || !inputEnabled}
+            onClick={() => void captureRoomProfile()}
+          >
+            {roomCapturing
+              ? `記憶中 ${Math.round(roomCaptureProgress * 100)}%`
+              : roomProfile
+                ? "もう一度覚える"
+                : "部屋を覚える"}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={!roomProfile || roomCapturing}
+            onClick={() => clearRoomProfile()}
+          >
+            <Trash2 className="size-3.5" />
+            忘れる
+          </Button>
+        </div>
+
+        {roomCapturing && (
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-primary transition-[width] duration-100"
+              style={{ width: `${Math.round(roomCaptureProgress * 100)}%` }}
+            />
+          </div>
+        )}
+
+        <div className="mt-4">
+          <FxRow
+            label="部屋を引く"
+            valueLabel={
+              !roomProfile
+                ? "未記憶"
+                : roomAmount < 0.02
+                  ? "オフ"
+                  : `${Math.round(roomAmount * 100)}%`
+            }
+            hint="かけすぎると声も薄くなります"
+          >
+            <Slider
+              min={0}
+              max={100}
+              step={1}
+              disabled={!roomProfile}
+              value={[Math.round(roomAmount * 100)]}
+              onValueChange={([v]) => setRoomAmount((v ?? 0) / 100)}
+            />
+          </FxRow>
+        </div>
+      </section>
+
+      <section
+        className={cn(
+          "rounded-2xl border border-border bg-card shadow-sm",
+          isPage ? "p-4 sm:p-6" : "p-4",
+        )}
+      >
         <div className="mb-4">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground sm:text-base">
             <SlidersHorizontal className="size-4 text-primary" />
@@ -264,9 +348,27 @@ export function EffectsPanel({
             />
           </FxRow>
           <FxRow
+            label="ノイズ抑え"
+            valueLabel={
+              master.noise < 0.02
+                ? "オフ"
+                : `${Math.round(master.noise * 100)}%`
+            }
+            hint="エアコンやファンのサー向け。かけすぎると息や高音が痩せます"
+          >
+            <Slider
+              min={0}
+              max={100}
+              step={1}
+              value={[Math.round((master.noise ?? 0) * 100)]}
+              onValueChange={([v]) =>
+                setMaster({ noise: (v ?? 0) / 100, preset: "original" })
+              }
+            />
+          </FxRow>
+          <FxRow
             label="コンプレッサー"
             valueLabel={`${Math.round(master.compressor * 100)}%`}
-            className={isPage ? "sm:col-span-2" : undefined}
           >
             <Slider
               min={0}
@@ -292,7 +394,7 @@ export function EffectsPanel({
             <li>録音やトラックがなくても、このタブだけでエフェクターとして使えます</li>
             <li>トラック再生や YouTube 伴奏にも同じエフェクトが乗ります</li>
             <li>
-              100円ショップのイヤホンでもOK。スピーカーではなく、耳で聴けるものがあると安心です
+              テレビや部屋の音は、歌わずに「部屋を覚える」→「部屋を引く」
             </li>
           </ul>
         </section>

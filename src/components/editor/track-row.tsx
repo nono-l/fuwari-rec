@@ -12,6 +12,7 @@ import { Waveform } from "@/components/editor/waveform";
 import { useEditorStore } from "@/lib/store/editor-store";
 import type { Track } from "@/lib/audio/types";
 import { MEDIA_FILE_ACCEPT } from "@/lib/audio/media-decode";
+import { MIDI_INSTRUMENTS } from "@/lib/audio/midi-instruments";
 import { cn } from "@/lib/utils";
 
 export function TrackRow({ track }: { track: Track }) {
@@ -27,6 +28,8 @@ export function TrackRow({ track }: { track: Track }) {
   const duration = useEditorStore((s) => s.duration);
   const renameTrack = useEditorStore((s) => s.renameTrack);
   const isLoadingMedia = useEditorStore((s) => s.isLoadingMedia);
+  const setTrackMidiInstrument = useEditorStore((s) => s.setTrackMidiInstrument);
+  const isConvertingMidi = useEditorStore((s) => s.isConvertingMidi);
 
   const active = activeTrackId === track.id;
 
@@ -49,6 +52,11 @@ export function TrackRow({ track }: { track: Track }) {
           onChange={(e) => renameTrack(track.id, e.target.value)}
           onClick={(e) => e.stopPropagation()}
         />
+        {(track.kind === "midi" || (track.midiNotes?.length ?? 0) > 0) && (
+          <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-primary">
+            MIDI
+          </span>
+        )}
         <div className="flex items-center gap-1">
           <Button
             type="button"
@@ -134,6 +142,31 @@ export function TrackRow({ track }: { track: Track }) {
         duration={duration}
         onSeek={seek}
       />
+
+      {track.midiNotes && track.midiNotes.length > 0 && (
+        <label className="mt-3 block text-[10px] font-medium text-muted-foreground">
+          楽器
+          <select
+            className="mt-1 h-9 w-full rounded-xl border border-border bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            value={track.midiInstrument ?? "piano"}
+            disabled={isConvertingMidi}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              e.stopPropagation();
+              void setTrackMidiInstrument(
+                track.id,
+                e.target.value as (typeof MIDI_INSTRUMENTS)[number]["id"],
+              );
+            }}
+          >
+            {MIDI_INSTRUMENTS.map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
       <div className="mt-3 grid grid-cols-2 gap-3">
         <div>

@@ -17,6 +17,7 @@ export function AppShell({
   const togglePlay = useEditorStore((s) => s.togglePlay);
   const toggleRecord = useEditorStore((s) => s.toggleRecord);
   const stop = useEditorStore((s) => s.stop);
+  const tapActive = useEditorStore((s) => s.tapActive);
 
   useEffect(() => {
     initEngine();
@@ -35,6 +36,7 @@ export function AppShell({
       }
       if (e.code === "Space") {
         e.preventDefault();
+        if (tapActive) return;
         togglePlay();
       } else if (e.code === "KeyR" && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
@@ -46,7 +48,7 @@ export function AppShell({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [togglePlay, toggleRecord, stop]);
+  }, [togglePlay, toggleRecord, stop, tapActive]);
 
   return (
     <div className="min-h-dvh bg-background text-foreground">

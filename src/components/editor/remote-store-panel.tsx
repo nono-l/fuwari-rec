@@ -131,6 +131,7 @@ export function RemoteStorePanel() {
         formantDb: master.formantDb,
         reverbMix: master.reverbMix,
         compressor: master.compressor,
+        noise: master.noise,
         preset: master.preset,
       },
       range: {
@@ -171,6 +172,7 @@ export function RemoteStorePanel() {
           formantDb: data.master.formantDb,
           reverbMix: data.master.reverbMix,
           compressor: data.master.compressor,
+          noise: data.master.noise ?? 0,
           preset: data.master.preset as typeof master.preset,
         });
       }

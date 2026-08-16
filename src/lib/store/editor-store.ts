@@ -30,12 +30,27 @@ import {
   isMidiFile,
   parseMidi,
   renderMidiToAudioBuffer,
+  type MidiNote,
 } from "@/lib/audio/midi";
 import { isVideoFile } from "@/lib/audio/media-decode";
+import {
+  applyRhythmOnly,
+  encodeMidiFile,
+  melodyFromBuffer,
+  melodySummary,
+  notesToParsed,
+  type RhythmGrid,
+} from "@/lib/audio/pitch-to-midi";
 import {
   analyzeBufferVocalRange,
   type MediaRangeResult,
 } from "@/lib/audio/range-analyze";
+import {
+  DEFAULT_MIDI_INSTRUMENT,
+  instrumentLabel,
+  type MidiInstrumentId,
+} from "@/lib/audio/midi-instruments";
+import type { RoomProfile } from "@/lib/audio/room-profile";
 import {
   isYouTubePlayerReady,
   youtubeGetCurrentTime,
@@ -70,6 +85,9 @@ function makeTrack(partial?: Partial<Track>): Track {
     muted: partial?.muted ?? false,
     solo: partial?.solo ?? false,
     color: partial?.color ?? TRACK_COLORS[index % TRACK_COLORS.length]!,
+    midiNotes: partial?.midiNotes,
+    midiSourceNotes: partial?.midiSourceNotes,
+    midiInstrument: partial?.midiInstrument ?? "piano",
   };
 }
 
@@ -124,6 +142,22 @@ export interface EditorState {
   isSeparating: boolean;
   isLoadingMidi: boolean;
   isLoadingMedia: boolean;
+  isConvertingMidi: boolean;
+  midiConvertProgress: number;
+  midiRhythmOnly: boolean;
+  midiGrid: RhythmGrid;
+  midiSnap: number;
+  midiSwing: number;
+
+  tapActive: boolean;
+  tapSourceId: string | null;
+  tapPitches: number[];
+  tapGuideStarts: number[];
+  tapRecorded: MidiNote[];
+  tapIndex: number;
+  tapHeld: boolean;
+  tapFreeOriginMs: number | null;
+  midiInstrument: MidiInstrumentId;
   loopEnabled: boolean;
   loopA: number | null;
   loopB: number | null;
@@ -146,6 +180,11 @@ export interface EditorState {
   liveFxActive: boolean;
   liveFxBusy: boolean;
   liveLevel: number;
+
+  roomProfile: RoomProfile | null;
+  roomAmount: number;
+  roomCapturing: boolean;
+  roomCaptureProgress: number;
 
   rangeMeasuring: boolean;
   rangeBusy: boolean;
@@ -177,6 +216,19 @@ export interface EditorState {
   toggleSolo: (id: string) => void;
   loadFileToTrack: (id: string | null, file: File) => Promise<void>;
   loadMidiToTrack: (id: string | null, file: File) => Promise<void>;
+  convertTrackToMidi: (id?: string) => Promise<void>;
+  applyRhythmToMidiTrack: (id?: string) => Promise<void>;
+  setMidiRhythmOnly: (on: boolean) => void;
+  setMidiGrid: (g: RhythmGrid) => void;
+  setMidiSnap: (n: number) => void;
+  setMidiSwing: (n: number) => void;
+  startTapRhythm: (id?: string) => void;
+  cancelTapRhythm: () => void;
+  finishTapRhythm: () => Promise<void>;
+  tapDown: () => void;
+  tapUp: () => void;
+  setMidiInstrument: (id: MidiInstrumentId) => void;
+  setTrackMidiInstrument: (trackId: string, id: MidiInstrumentId) => Promise<void>;
   seek: (time: number) => void;
   play: () => void;
   pause: () => void;
@@ -208,6 +260,9 @@ export interface EditorState {
   startLiveFx: () => Promise<void>;
   stopLiveFx: () => void;
   toggleLiveFx: () => Promise<void>;
+  captureRoomProfile: () => Promise<void>;
+  clearRoomProfile: () => void;
+  setRoomAmount: (n: number) => void;
   startRangeTest: () => Promise<void>;
   stopRangeTest: () => void;
   resetRangeTest: () => void;
@@ -392,6 +447,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     formantDb: 0,
     reverbMix: 0.15,
     compressor: 0.3,
+    noise: 0,
     preset: "original",
   },
   statusMessage: "準備完了",
@@ -399,6 +455,22 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   isSeparating: false,
   isLoadingMidi: false,
   isLoadingMedia: false,
+  isConvertingMidi: false,
+  midiConvertProgress: 0,
+  midiRhythmOnly: false,
+  midiGrid: 8,
+  midiSnap: 0.85,
+  midiSwing: 0,
+
+  tapActive: false,
+  tapSourceId: null,
+  tapPitches: [],
+  tapGuideStarts: [],
+  tapRecorded: [],
+  tapIndex: 0,
+  tapHeld: false,
+  tapFreeOriginMs: null,
+  midiInstrument: DEFAULT_MIDI_INSTRUMENT,
   loopEnabled: false,
   loopA: null,
   loopB: null,
@@ -422,6 +494,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   liveFxBusy: false,
   liveLevel: 0,
 
+  roomProfile: null,
+  roomAmount: 0,
+  roomCapturing: false,
+  roomCaptureProgress: 0,
+
   rangeMeasuring: false,
   rangeBusy: false,
   rangeCurrentHz: null,
@@ -444,7 +521,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const engine = getAudioEngine();
     engine.setHandlers({
       onTick: (snap) => {
-        if (hasAudioBuffers(get().tracks)) {
+        if (
+          hasAudioBuffers(get().tracks) ||
+          snap.status === "recording"
+        ) {
           set({
             currentTime: snap.currentTime,
             duration: Math.max(snap.duration, get().duration),
@@ -646,28 +726,31 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
       const engine = getAudioEngine();
       const sampleRate = engine.getSampleRate();
-      const buffer = await renderMidiToAudioBuffer(parsed, sampleRate);
+      const buffer = await renderMidiToAudioBuffer(
+        parsed,
+        sampleRate,
+        get().midiInstrument,
+      );
 
       let trackId = id;
-      if (!trackId) {
-        const empty = get().tracks.find(
-          (t) => t.kind === "accompaniment" && !t.buffer,
-        );
-        trackId =
-          empty?.id ??
-          get().addTrack({
-            name: parsed.name || file.name.replace(/\.[^/.]+$/, "") || "MIDI",
-            kind: "accompaniment",
-          });
+      if (!trackId || get().tracks.find((t) => t.id === trackId)?.buffer) {
+        trackId = get().addTrack({
+          name: `MIDI · ${parsed.name || file.name.replace(/\.[^/.]+$/, "") || "読み込み"}`,
+          kind: "midi",
+        });
       }
       const baseName =
-        parsed.name || file.name.replace(/\.[^/.]+$/, "") || "MIDI";
+        get().tracks.find((t) => t.id === trackId)?.name ??
+        `MIDI · ${parsed.name || file.name.replace(/\.[^/.]+$/, "") || "読み込み"}`;
       get().updateTrack(trackId, {
         buffer,
         undoBuffer: null,
         name: baseName,
-        kind: "accompaniment",
+        kind: "midi",
         offset: 0,
+        midiNotes: parsed.notes,
+        midiSourceNotes: parsed.notes,
+        midiInstrument: get().midiInstrument,
       });
       engine.updateDuration(get().tracks);
       set({
@@ -684,6 +767,407 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       });
     } finally {
       set({ isLoadingMidi: false });
+    }
+  },
+
+  convertTrackToMidi: async (id) => {
+    if (get().isConvertingMidi) return;
+    const tracks = get().tracks;
+    const track =
+      tracks.find((t) => t.id === (id ?? get().activeTrackId)) ??
+      tracks.find((t) => t.buffer) ??
+      null;
+    if (!track?.buffer) {
+      set({ statusMessage: "MIDI 化する音源がありません。先に録音するか読み込んでください" });
+      return;
+    }
+    if (get().status === "playing") get().pause();
+    set({
+      isConvertingMidi: true,
+      midiConvertProgress: 0,
+      statusMessage: `歌を MIDI 化中… ${track.name}`,
+    });
+    try {
+      const result = await melodyFromBuffer(track.buffer, {
+        bpm: get().bpm,
+        name: `${track.name} メロディ`,
+        minHz: get().rangeMinHz ?? 70,
+        maxHz: get().rangeMaxHz ?? 1000,
+        onProgress: (p) => set({ midiConvertProgress: p }),
+      });
+      if (result.notes.length === 0) {
+        set({
+          statusMessage:
+            "安定した音程が取れませんでした。もう少しはっきり歌うか、ボーカルだけにしてから試してください",
+        });
+        return;
+      }
+      let notes = result.notes;
+      const name = `${track.name} メロディ`;
+      if (get().midiRhythmOnly) {
+        notes = applyRhythmOnly(notes, {
+          bpm: get().bpm,
+          grid: get().midiGrid,
+          strength: get().midiSnap,
+          swing: get().midiSwing,
+        });
+      }
+      const parsed = notesToParsed(notes, name);
+      const engine = getAudioEngine();
+      const inst = get().midiInstrument;
+      const buffer = await renderMidiToAudioBuffer(
+        parsed,
+        engine.getSampleRate(),
+        inst,
+      );
+      const midiId = get().addTrack({
+        name: get().midiRhythmOnly
+          ? `MIDI · ${track.name}（リズム）`
+          : `MIDI · ${track.name}`,
+        kind: "midi",
+      });
+      get().updateTrack(midiId, {
+        buffer,
+        undoBuffer: null,
+        offset: track.offset,
+        midiNotes: notes,
+        midiSourceNotes: result.notes,
+        midiInstrument: inst,
+        kind: "midi",
+      });
+      engine.updateDuration(get().tracks);
+      const midBytes = new Uint8Array(
+        encodeMidiFile(notes, { bpm: get().bpm, name, instrument: inst }),
+      );
+      const mid = new Blob([midBytes], { type: "audio/midi" });
+      const safe = track.name.replace(/[\\/:*?"<>|]+/g, "_").slice(0, 48);
+      downloadBlob(mid, `${safe || "fuwari-melody"}.mid`);
+      set({
+        duration: engine.getDuration(),
+        activeTrackId: midiId,
+        midiConvertProgress: 1,
+        statusMessage: get().midiRhythmOnly
+          ? `音程はそのまま、リズムを合わせました（${melodySummary(notes)}）`
+          : `MIDI 化しました（${melodySummary(notes)}）。.mid も保存しています`,
+      });
+    } catch (e) {
+      console.error(e);
+      set({
+        statusMessage:
+          e instanceof Error ? e.message : "MIDI 化に失敗しました",
+      });
+    } finally {
+      set({ isConvertingMidi: false });
+    }
+  },
+
+  setMidiRhythmOnly: (on) => set({ midiRhythmOnly: on }),
+  setMidiGrid: (g) => set({ midiGrid: g }),
+  setMidiSnap: (n) => set({ midiSnap: Math.max(0, Math.min(1, n)) }),
+  setMidiSwing: (n) => set({ midiSwing: Math.max(0, Math.min(1, n)) }),
+
+  applyRhythmToMidiTrack: async (id) => {
+    if (get().isConvertingMidi) return;
+    const tracks = get().tracks;
+    const track =
+      tracks.find((t) => t.id === (id ?? get().activeTrackId)) ?? null;
+    const source = track?.midiSourceNotes ?? track?.midiNotes;
+    if (!track || !source?.length) {
+      set({
+        statusMessage:
+          "リズムを変える MIDI がありません。先に歌を MIDI 化するか、.mid を読み込んでください",
+      });
+      return;
+    }
+    if (get().status === "playing") get().pause();
+    set({ isConvertingMidi: true, statusMessage: "リズムだけ整えています…" });
+    try {
+      const notes = applyRhythmOnly(source, {
+        bpm: get().bpm,
+        grid: get().midiGrid,
+        strength: get().midiSnap,
+        swing: get().midiSwing,
+      });
+      const name = track.name.replace(/（リズム）$/, "") + "（リズム）";
+      const parsed = notesToParsed(notes, name);
+      const engine = getAudioEngine();
+      const inst = track.midiInstrument ?? get().midiInstrument;
+      const buffer = await renderMidiToAudioBuffer(
+        parsed,
+        engine.getSampleRate(),
+        inst,
+      );
+      get().updateTrack(track.id, {
+        buffer,
+        midiNotes: notes,
+        name,
+        midiInstrument: inst,
+      });
+      engine.updateDuration(get().tracks);
+      const midBytes = new Uint8Array(
+        encodeMidiFile(notes, { bpm: get().bpm, name, instrument: inst }),
+      );
+      downloadBlob(
+        new Blob([midBytes], { type: "audio/midi" }),
+        `${name.replace(/[\\/:*?"<>|]+/g, "_").slice(0, 48)}.mid`,
+      );
+      set({
+        duration: engine.getDuration(),
+        statusMessage: `音程はそのまま、リズムを合わせました（${melodySummary(notes)}）`,
+      });
+    } catch (e) {
+      console.error(e);
+      set({
+        statusMessage:
+          e instanceof Error ? e.message : "リズムの適用に失敗しました",
+      });
+    } finally {
+      set({ isConvertingMidi: false });
+    }
+  },
+
+  startTapRhythm: (id) => {
+    const tracks = get().tracks;
+    const track =
+      tracks.find((t) => t.id === (id ?? get().activeTrackId)) ??
+      tracks.find((t) => (t.midiNotes?.length ?? 0) > 0) ??
+      null;
+    const notes = track?.midiSourceNotes ?? track?.midiNotes;
+    if (!track || !notes?.length) {
+      set({
+        statusMessage:
+          "タップする音程譜がありません。先に歌を MIDI 化するか、.mid を読み込んでください",
+      });
+      return;
+    }
+    const ordered = [...notes].sort((a, b) => a.start - b.start);
+    if (get().status === "recording") return;
+    try {
+      const engine = getAudioEngine();
+      engine.tapNoteOff();
+      engine.setTapInstrument(track.midiInstrument ?? get().midiInstrument);
+    } catch {
+      /* noop */
+    }
+    set({
+      tapActive: true,
+      tapSourceId: track.id,
+      tapPitches: ordered.map((n) => n.midi),
+      tapGuideStarts: ordered.map((n) => n.start + track.offset),
+      tapRecorded: [],
+      tapIndex: 0,
+      tapHeld: false,
+      tapFreeOriginMs: null,
+      statusMessage:
+        "タップ演奏 — スペース／画面を叩くと次の音程が鳴ります。終わったら記録してトラックに",
+    });
+    get().updateTrack(track.id, { muted: true });
+  },
+
+  cancelTapRhythm: () => {
+    const { tapSourceId, tapHeld } = get();
+    if (tapHeld) {
+      try {
+        getAudioEngine().tapNoteOff();
+      } catch {
+        /* noop */
+      }
+    }
+    if (tapSourceId) {
+      const src = get().tracks.find((t) => t.id === tapSourceId);
+      if (src?.muted) get().updateTrack(tapSourceId, { muted: false });
+    }
+    set({
+      tapActive: false,
+      tapHeld: false,
+      tapFreeOriginMs: null,
+      statusMessage: "タップ演奏をやめました",
+    });
+  },
+
+  tapDown: () => {
+    const s = get();
+    if (!s.tapActive || s.tapHeld) return;
+    if (s.tapIndex >= s.tapPitches.length) {
+      set({ statusMessage: "譜面の最後まで叩き終わりました" });
+      return;
+    }
+    const engine = getAudioEngine();
+    let t = engine.getCurrentTime();
+    if (s.status !== "playing") {
+      const origin = s.tapFreeOriginMs ?? performance.now();
+      if (s.tapFreeOriginMs == null) {
+        set({ tapFreeOriginMs: origin });
+        t = 0;
+      } else {
+        t = (performance.now() - origin) / 1000;
+      }
+    }
+    const midi = s.tapPitches[s.tapIndex]!;
+    const prev = s.tapRecorded;
+    const closed =
+      prev.length > 0
+        ? prev.map((n, i) =>
+            i === prev.length - 1
+              ? { ...n, duration: Math.max(0.05, t - n.start) }
+              : n,
+          )
+        : prev;
+    const next: MidiNote = {
+      midi,
+      start: t,
+      duration: 0.2,
+      velocity: 0.78,
+      channel: 0,
+    };
+    try {
+      engine.tapNoteOn(midi, 0.78);
+    } catch {
+      /* noop */
+    }
+    set({
+      tapHeld: true,
+      tapIndex: s.tapIndex + 1,
+      tapRecorded: [...closed, next],
+      statusMessage: `タップ ${s.tapIndex + 1} / ${s.tapPitches.length}`,
+    });
+  },
+
+  tapUp: () => {
+    const s = get();
+    if (!s.tapActive || !s.tapHeld) return;
+    const engine = getAudioEngine();
+    let t = engine.getCurrentTime();
+    if (s.status !== "playing") {
+      const origin = s.tapFreeOriginMs ?? performance.now();
+      t = (performance.now() - origin) / 1000;
+    }
+    try {
+      engine.tapNoteOff();
+    } catch {
+      /* noop */
+    }
+    const rec = s.tapRecorded.slice();
+    const last = rec[rec.length - 1];
+    if (last) {
+      rec[rec.length - 1] = {
+        ...last,
+        duration: Math.max(0.06, t - last.start),
+      };
+    }
+    set({ tapHeld: false, tapRecorded: rec });
+  },
+
+  setMidiInstrument: (id) => {
+    set({ midiInstrument: id });
+    try {
+      getAudioEngine().setTapInstrument(id);
+    } catch {
+      /* noop */
+    }
+  },
+
+  setTrackMidiInstrument: async (trackId, id) => {
+    const track = get().tracks.find((t) => t.id === trackId);
+    if (!track?.midiNotes?.length) {
+      get().updateTrack(trackId, { midiInstrument: id });
+      get().setMidiInstrument(id);
+      return;
+    }
+    if (get().status === "playing") get().pause();
+    set({ isConvertingMidi: true, statusMessage: "音色を差し替えています…" });
+    try {
+      const notes = track.midiNotes;
+      const parsed = notesToParsed(notes, track.name);
+      const engine = getAudioEngine();
+      const buffer = await renderMidiToAudioBuffer(
+        parsed,
+        engine.getSampleRate(),
+        id,
+      );
+      get().updateTrack(trackId, { midiInstrument: id, buffer });
+      get().setMidiInstrument(id);
+      engine.updateDuration(get().tracks);
+      set({
+        duration: engine.getDuration(),
+        statusMessage: `音色を「${instrumentLabel(id)}」にしました`,
+      });
+    } catch (e) {
+      console.error(e);
+      set({
+        statusMessage: e instanceof Error ? e.message : "音色の変更に失敗しました",
+      });
+    } finally {
+      set({ isConvertingMidi: false });
+    }
+  },
+
+  finishTapRhythm: async () => {
+    const s = get();
+    if (!s.tapActive) return;
+    if (s.tapHeld) get().tapUp();
+    const notes = get().tapRecorded.filter((n) => n.duration > 0.04);
+    const sourceId = s.tapSourceId;
+    if (sourceId) {
+      const src = get().tracks.find((t) => t.id === sourceId);
+      if (src?.muted) get().updateTrack(sourceId, { muted: false });
+    }
+    try {
+      getAudioEngine().tapNoteOff();
+    } catch {
+      /* noop */
+    }
+    set({
+      tapActive: false,
+      tapHeld: false,
+      tapFreeOriginMs: null,
+    });
+    if (!notes.length) {
+      set({ statusMessage: "タップが記録されていません" });
+      return;
+    }
+    set({
+      isConvertingMidi: true,
+      statusMessage: "タップしたリズムを書き出しています…",
+    });
+    try {
+      const name = "タップ · リズム";
+      const parsed = notesToParsed(notes, name);
+      const engine = getAudioEngine();
+      const inst = get().midiInstrument;
+      const buffer = await renderMidiToAudioBuffer(
+        parsed,
+        engine.getSampleRate(),
+        inst,
+      );
+      const id = get().addTrack({ name, kind: "midi" });
+      get().updateTrack(id, {
+        buffer,
+        midiNotes: notes,
+        midiSourceNotes: notes,
+        midiInstrument: inst,
+      });
+      engine.updateDuration(get().tracks);
+      const midBytes = new Uint8Array(
+        encodeMidiFile(notes, { bpm: get().bpm, name, instrument: inst }),
+      );
+      downloadBlob(
+        new Blob([midBytes], { type: "audio/midi" }),
+        "fuwari-tap.mid",
+      );
+      set({
+        duration: engine.getDuration(),
+        activeTrackId: id,
+        statusMessage: `タップしたタイミングで記録しました（${melodySummary(notes)}）`,
+      });
+    } catch (e) {
+      console.error(e);
+      set({
+        statusMessage:
+          e instanceof Error ? e.message : "書き出しに失敗しました",
+      });
+    } finally {
+      set({ isConvertingMidi: false });
     }
   },
 
@@ -777,6 +1261,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   stop: () => {
+    if (get().status === "recording") {
+      void get().stopRecord();
+      return;
+    }
     const engine = getAudioEngine();
     engine.stop();
     syncYoutubeStop(get);
@@ -808,14 +1296,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     try {
       const engine = getAudioEngine();
       engine.setInputDeviceId(get().inputDeviceId);
-      await engine.startRecording({ monitor: true });
+      await engine.startRecording(get().tracks, { monitor: true });
       if (get().youtubeSync && get().youtubeVideoId) {
         syncYoutubePlay(get);
         startYtClock(get, set);
       }
+      startLiveMeterPoll(get, set);
       set({
         status: "recording",
-        statusMessage: get().outputEnabled ? "録音中…" : "録音中（出力オフ）",
+        statusMessage: get().outputEnabled
+          ? "録音中 — もう一度 ● で停止。時間が進んでいます"
+          : "録音中（出力オフ）— もう一度 ● で停止",
       });
       void get().refreshAudioDevices({ requestPermission: false });
     } catch (e) {
@@ -834,9 +1325,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   stopRecord: async () => {
     try {
       const engine = getAudioEngine();
+      const punchIn = engine.getRecPunchIn();
       const buffer = await engine.stopRecording();
       syncYoutubePause(get);
       stopYtClock();
+      stopLiveMeter();
       if (!buffer) {
         set({
           status: "idle",
@@ -848,7 +1341,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
       let id = get().activeTrackId;
       const active = get().tracks.find((t) => t.id === id);
-      if (!active || active.buffer || active.kind === "accompaniment") {
+      if (!active || active.buffer || active.kind === "accompaniment" || active.kind === "midi") {
         const emptyVocal = get().tracks.find(
           (t) => t.kind === "vocal" && !t.buffer,
         );
@@ -862,7 +1355,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
             kind: "vocal",
           });
       }
-      get().updateTrack(id!, { buffer, undoBuffer: null, offset: 0 });
+      get().updateTrack(id!, { buffer, undoBuffer: null, offset: punchIn });
       engine.updateDuration(get().tracks);
       set({
         status: "idle",
@@ -904,6 +1397,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       formantDb: preset.formant,
       pitchSemitones: preset.pitch,
       compressor: preset.compressor,
+      noise: preset.noise,
     });
     set({
       statusMessage: get().liveFxActive
@@ -922,7 +1416,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({ isExporting: true, statusMessage: "書き出し中…" });
     try {
       if (get().status === "playing") get().pause();
-      const blob = await getAudioEngine().exportMix(tracks, master);
+      const blob = await getAudioEngine().exportMix(tracks, master, {
+        profile: get().roomProfile,
+        amount: get().roomAmount,
+      });
       downloadBlob(blob, `fuwari-rec-${Date.now()}.wav`);
       set({ statusMessage: "WAV 書き出し完了" });
     } catch (e) {
@@ -1218,6 +1715,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const engine = getAudioEngine();
       engine.setInputDeviceId(get().inputDeviceId);
       engine.applyMasterFx(get().master);
+      engine.setRoomProfile(get().roomProfile);
+      engine.setRoomAmount(get().roomAmount);
       await engine.startLiveFx();
       set({
         liveFxActive: true,
@@ -1256,6 +1755,67 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   toggleLiveFx: async () => {
     if (get().liveFxActive) get().stopLiveFx();
     else await get().startLiveFx();
+  },
+
+  setRoomAmount: (n) => {
+    const roomAmount = Math.max(0, Math.min(1, n));
+    set({ roomAmount });
+    try {
+      getAudioEngine().setRoomAmount(roomAmount);
+    } catch {
+      /* not ready */
+    }
+  },
+
+  clearRoomProfile: () => {
+    set({ roomProfile: null, roomAmount: 0, roomCaptureProgress: 0 });
+    try {
+      getAudioEngine().setRoomProfile(null);
+      getAudioEngine().setRoomAmount(0);
+    } catch {
+      /* not ready */
+    }
+    set({ statusMessage: "部屋の記憶を消しました" });
+  },
+
+  captureRoomProfile: async () => {
+    if (get().roomCapturing) return;
+    if (!get().inputEnabled) {
+      set({
+        statusMessage: "入力がオフです。入力をオンにしてから部屋を覚えてください",
+      });
+      return;
+    }
+    set({
+      roomCapturing: true,
+      roomCaptureProgress: 0,
+      statusMessage: "部屋を記憶中 — 歌わず、テレビや部屋の音だけ鳴らしてください",
+    });
+    try {
+      const engine = getAudioEngine();
+      engine.setInputDeviceId(get().inputDeviceId);
+      const profile = await engine.captureRoomProfile(2.6, (p) => {
+        set({ roomCaptureProgress: p });
+      });
+      const nextAmount = get().roomAmount > 0.05 ? get().roomAmount : 0.55;
+      engine.setRoomAmount(nextAmount);
+      set({
+        roomProfile: profile,
+        roomAmount: nextAmount,
+        roomCaptureProgress: 1,
+        statusMessage: "部屋を覚えました。スライダーでテレビ／部屋を引けます",
+      });
+    } catch (e) {
+      console.error(e);
+      set({
+        statusMessage:
+          e instanceof Error && e.message === "INPUT_DISABLED"
+            ? "入力がオフです"
+            : "部屋を覚えられませんでした。マイクを許可してください",
+      });
+    } finally {
+      set({ roomCapturing: false });
+    }
   },
 
   startRangeTest: async () => {

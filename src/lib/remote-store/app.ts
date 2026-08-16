@@ -17,6 +17,7 @@ export type FuwariRemoteSettings = {
     formantDb: number;
     reverbMix: number;
     compressor: number;
+    noise?: number;
     preset: string;
   };
   range?: {

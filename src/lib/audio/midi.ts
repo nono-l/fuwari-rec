@@ -3,6 +3,8 @@
  * No external deps — runs fully in the browser.
  */
 
+import { startMidiVoice, type MidiInstrumentId } from "./midi-instruments";
+
 export interface MidiNote {
   midi: number;
   start: number;
@@ -239,16 +241,13 @@ export function parseMidi(buffer: ArrayBuffer): ParsedMidi {
   };
 }
 
-function midiToHz(midi: number) {
-  return 440 * Math.pow(2, (midi - 69) / 12);
-}
-
 /**
- * Render MIDI notes to an AudioBuffer with a soft multi-oscillator synth.
+ * Render MIDI notes to an AudioBuffer with a selectable instrument patch.
  */
 export async function renderMidiToAudioBuffer(
   parsed: ParsedMidi,
   sampleRate = 44100,
+  instrument: MidiInstrumentId = "piano",
 ): Promise<AudioBuffer> {
   const length = Math.max(
     1,
@@ -256,50 +255,20 @@ export async function renderMidiToAudioBuffer(
   );
   const offline = new OfflineAudioContext(2, length, sampleRate);
   const master = offline.createGain();
-  master.gain.value = 0.55;
+  master.gain.value = 0.7;
   master.connect(offline.destination);
 
   const notes = parsed.notes.slice(0, 8000);
 
   for (const n of notes) {
     if (n.start >= 600) continue;
-    const freq = midiToHz(n.midi);
-    const dur = Math.min(n.duration, 8);
-    const t0 = n.start;
-    const vel = n.velocity;
-
-    const osc1 = offline.createOscillator();
-    const osc2 = offline.createOscillator();
-    osc1.type = "triangle";
-    osc2.type = "sine";
-    osc1.frequency.value = freq;
-    osc2.frequency.value = freq * 2;
-    osc2.detune.value = 4;
-
-    const g = offline.createGain();
-    const peak = 0.12 * vel;
-    g.gain.setValueAtTime(0.0001, t0);
-    g.gain.exponentialRampToValueAtTime(peak, t0 + 0.012);
-    g.gain.exponentialRampToValueAtTime(
-      peak * 0.55,
-      t0 + Math.min(0.12, dur * 0.3),
-    );
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-
-    const filt = offline.createBiquadFilter();
-    filt.type = "lowpass";
-    filt.frequency.value = 1800 + n.midi * 20;
-    filt.Q.value = 0.7;
-
-    osc1.connect(g);
-    osc2.connect(g);
-    g.connect(filt);
-    filt.connect(master);
-
-    osc1.start(t0);
-    osc2.start(t0);
-    osc1.stop(t0 + dur + 0.05);
-    osc2.stop(t0 + dur + 0.05);
+    startMidiVoice(offline, master, {
+      midi: n.midi,
+      velocity: n.velocity,
+      t0: n.start,
+      duration: Math.min(n.duration, 8),
+      instrument,
+    });
   }
 
   return offline.startRendering();
