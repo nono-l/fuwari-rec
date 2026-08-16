@@ -14,6 +14,10 @@ import { cn, downloadBlob, formatTime } from "@/lib/utils";
 import {
   isYouTubePlayerReady,
   youtubeGetCurrentTime,
+  youtubePause,
+  youtubePlay,
+  youtubeSeek,
+  youtubeSetMuted,
 } from "@/lib/youtube-player";
 
 /** Fixed pads for rhythm entry — labels are hits, not scale degrees. */
@@ -30,7 +34,7 @@ function hasAudioBuffers(
   return tracks.some((t) => !!t.buffer);
 }
 
-/** Transport time while recording (engine or YouTube-synced). */
+/** Live transport time (engine clock or YouTube when no local buffers). */
 function transportNow(opts: {
   tracks: { buffer: AudioBuffer | null }[];
   youtubeSync: boolean;
@@ -50,30 +54,29 @@ function transportNow(opts: {
 
 export function RhythmPadPanel() {
   const [armed, setArmed] = useState(false);
+  const [running, setRunning] = useState(false);
   const [recorded, setRecorded] = useState<MidiNote[]>([]);
   const [held, setHeld] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
-  const prevStatus = useRef<string>("idle");
+  const [clockLabel, setClockLabel] = useState(0);
+
   const recordedRef = useRef<MidiNote[]>([]);
   const heldRef = useRef<number | null>(null);
   const armedRef = useRef(false);
+  const runningRef = useRef(false);
+  const clockRaf = useRef(0);
 
   const midiInstrument = useEditorStore((s) => s.midiInstrument);
   const setMidiInstrument = useEditorStore((s) => s.setMidiInstrument);
   const youtubeVideoId = useEditorStore((s) => s.youtubeVideoId);
   const youtubeSync = useEditorStore((s) => s.youtubeSync);
   const status = useEditorStore((s) => s.status);
-  const currentTime = useEditorStore((s) => s.currentTime);
   const tracks = useEditorStore((s) => s.tracks);
   const setStatusMessage = useEditorStore((s) => s.setStatusMessage);
   const addTrack = useEditorStore((s) => s.addTrack);
   const updateTrack = useEditorStore((s) => s.updateTrack);
   const bpm = useEditorStore((s) => s.bpm);
-  const startRecord = useEditorStore((s) => s.startRecord);
-  const stopRecord = useEditorStore((s) => s.stopRecord);
-  const inputEnabled = useEditorStore((s) => s.inputEnabled);
-
-  const recording = status === "recording";
+  const outputEnabled = useEditorStore((s) => s.outputEnabled);
 
   useEffect(() => {
     recordedRef.current = recorded;
@@ -84,14 +87,60 @@ export function RhythmPadPanel() {
   useEffect(() => {
     armedRef.current = armed;
   }, [armed]);
+  useEffect(() => {
+    runningRef.current = running;
+  }, [running]);
+
+  const stopClockPoll = useCallback(() => {
+    if (clockRaf.current) {
+      cancelAnimationFrame(clockRaf.current);
+      clockRaf.current = 0;
+    }
+  }, []);
+
+  const startClockPoll = useCallback(() => {
+    stopClockPoll();
+    const tick = () => {
+      if (!runningRef.current) {
+        clockRaf.current = 0;
+        return;
+      }
+      const t = transportNow({
+        tracks: useEditorStore.getState().tracks,
+        youtubeSync: useEditorStore.getState().youtubeSync,
+        youtubeVideoId: useEditorStore.getState().youtubeVideoId,
+      });
+      setClockLabel(t);
+      useEditorStore.setState({
+        currentTime: t,
+        duration: Math.max(useEditorStore.getState().duration, t),
+      });
+      clockRaf.current = requestAnimationFrame(tick);
+    };
+    clockRaf.current = requestAnimationFrame(tick);
+  }, [stopClockPoll]);
+
+  useEffect(() => () => stopClockPoll(), [stopClockPoll]);
+
+  // If the global transport leaves recording while we were running a session,
+  // keep runningRef in sync (e.g. user hit 停止 on the top bar).
+  useEffect(() => {
+    if (!runningRef.current) return;
+    if (status === "idle" && !getAudioEngine().isTransportOnly()) {
+      // Mic record stopped from outside — finalize rhythm if any
+      runningRef.current = false;
+      setRunning(false);
+      stopClockPoll();
+    }
+  }, [status, stopClockPoll]);
 
   const now = useCallback(() => {
     return transportNow({
-      tracks,
-      youtubeSync,
-      youtubeVideoId,
+      tracks: useEditorStore.getState().tracks,
+      youtubeSync: useEditorStore.getState().youtubeSync,
+      youtubeVideoId: useEditorStore.getState().youtubeVideoId,
     });
-  }, [tracks, youtubeSync, youtubeVideoId]);
+  }, []);
 
   const padUp = useCallback(() => {
     if (heldRef.current == null) return;
@@ -118,8 +167,7 @@ export function RhythmPadPanel() {
 
   const padDown = useCallback(
     (midi: number) => {
-      if (!armedRef.current) return;
-      if (useEditorStore.getState().status !== "recording") return;
+      if (!armedRef.current || !runningRef.current) return;
       if (heldRef.current != null) padUp();
       const t = now();
       const note: MidiNote = {
@@ -149,7 +197,7 @@ export function RhythmPadPanel() {
   );
 
   useEffect(() => {
-    if (!armed) return;
+    if (!armed || !running) return;
     const down = (e: KeyboardEvent) => {
       if (e.repeat) return;
       const pad = PADS.find((p) => e.key === p.key);
@@ -171,7 +219,7 @@ export function RhythmPadPanel() {
       window.removeEventListener("keydown", down, true);
       window.removeEventListener("keyup", up, true);
     };
-  }, [armed, padDown, padUp]);
+  }, [armed, running, padDown, padUp]);
 
   const writeMidiTrack = useCallback(
     async (notesIn: MidiNote[]) => {
@@ -250,78 +298,96 @@ export function RhythmPadPanel() {
         setBusy(false);
       }
     },
-    [
-      now,
-      midiInstrument,
-      addTrack,
-      updateTrack,
-      bpm,
-      setStatusMessage,
-    ],
+    [now, midiInstrument, addTrack, updateTrack, bpm, setStatusMessage],
   );
 
-  // When transport leaves recording while armed, commit the live rhythm chart.
-  useEffect(() => {
-    const was = prevStatus.current;
-    prevStatus.current = status;
-    if (was === "recording" && status !== "recording" && armedRef.current) {
-      const notes = recordedRef.current;
-      if (notes.length > 0) {
-        void writeMidiTrack(notes);
-      }
-    }
-  }, [status, writeMidiTrack]);
-
-  const armAndRecord = async () => {
-    if (recording) return;
+  const startSession = async () => {
+    if (runningRef.current) return;
     try {
       const engine = getAudioEngine();
+      // Resume AudioContext on user gesture so the clock actually advances
+      engine.getContext();
       engine.tapNoteOff();
       engine.setTapInstrument(midiInstrument);
+
+      const state = useEditorStore.getState();
+      engine.startTransportClock(state.tracks, "recording");
+
+      if (state.youtubeSync && state.youtubeVideoId && isYouTubePlayerReady()) {
+        youtubeSeek(engine.getCurrentTime());
+        youtubeSetMuted(!outputEnabled);
+        youtubePlay();
+      }
+
+      useEditorStore.setState({
+        status: "recording",
+        statusMessage:
+          "リズム録音中 — 時間が進んでいます。パッド / キー1〜4 で打ち込み",
+      });
+
+      setArmed(true);
+      armedRef.current = true;
+      setRunning(true);
+      runningRef.current = true;
+      setRecorded([]);
+      recordedRef.current = [];
+      setHeld(null);
+      heldRef.current = null;
+      setClockLabel(engine.getCurrentTime());
+      startClockPoll();
+    } catch (e) {
+      console.error(e);
+      setStatusMessage(
+        e instanceof Error ? e.message : "リズム録音を開始できませんでした",
+      );
+    }
+  };
+
+  const stopSession = async (commit: boolean) => {
+    if (heldRef.current != null) padUp();
+    const notes = recordedRef.current.slice();
+
+    try {
+      const engine = getAudioEngine();
+      if (engine.isTransportOnly()) {
+        engine.stopTransportClock();
+      } else if (engine.getStatus() === "recording") {
+        // Mic recording was active — leave stop to the global stopRecord path
+        // but still freeze our session UI
+      } else {
+        engine.pause();
+      }
     } catch {
       /* noop */
     }
-    setArmed(true);
-    armedRef.current = true;
-    setRecorded([]);
-    recordedRef.current = [];
-    setHeld(null);
-    heldRef.current = null;
-    setStatusMessage(
-      "リズム録音準備 — 録音を開始するとパッドでリアルタイムに譜面を打てます",
-    );
-    await startRecord();
-    if (useEditorStore.getState().status === "recording") {
-      setStatusMessage(
-        "リズム録音中 — パッド / キー1〜4 で打ち込み。録音停止で MIDI 譜面になります",
-      );
-    } else {
-      setStatusMessage(
-        inputEnabled
-          ? "録音を開始できませんでした。マイク許可を確認してください。準備は維持しています"
-          : "入力がオフです。入力をオンにしてから録音を開始してください（準備は維持）",
-      );
-    }
-  };
 
-  const stopAndCommit = async () => {
-    if (recording) {
-      await stopRecord();
-      // writeMidiTrack is triggered by the status transition effect
-      return;
-    }
-    if (recorded.length > 0) {
-      await writeMidiTrack(recorded);
-    }
-  };
-
-  const disarm = () => {
-    if (held != null) {
+    if (youtubeSync && youtubeVideoId) {
       try {
-        getAudioEngine().tapNoteOff();
+        youtubePause();
       } catch {
         /* noop */
       }
+    }
+
+    stopClockPoll();
+    runningRef.current = false;
+    setRunning(false);
+    useEditorStore.setState({ status: "idle" });
+
+    if (commit && notes.length > 0) {
+      await writeMidiTrack(notes);
+    } else if (commit) {
+      setStatusMessage("リズムが記録されていません");
+    } else {
+      setStatusMessage("リズム録音を停止しました");
+      setRecorded([]);
+      recordedRef.current = [];
+    }
+  };
+
+  const disarm = async () => {
+    if (runningRef.current) {
+      await stopSession(false);
     }
     setArmed(false);
     armedRef.current = false;
@@ -332,6 +398,8 @@ export function RhythmPadPanel() {
     setStatusMessage("リズム入力の準備を解除しました");
   };
 
+  const canHit = running && !busy;
+
   return (
     <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
       <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold text-foreground">
@@ -339,8 +407,9 @@ export function RhythmPadPanel() {
         リズム入力
       </h2>
       <p className="mb-3 text-[11px] leading-relaxed text-muted-foreground">
-        録音を開始してから、パッドをリアルタイムに叩いて MIDI リズム譜面を作ります。
-        YouTube 同期中なら伴奏に合わせたタイミングで記録されます。録音停止でトラック化します。
+        開始すると時間が進みます（マイク不要）。パッドをリアルタイムに叩いて MIDI
+        リズム譜面を作り、停止でトラック化します。YouTube
+        同期中なら伴奏に合わせられます。
       </p>
 
       {!armed ? (
@@ -355,19 +424,19 @@ export function RhythmPadPanel() {
             type="button"
             className="h-auto w-full justify-start gap-3 rounded-xl px-3 py-3 text-left"
             disabled={busy}
-            onClick={() => void armAndRecord()}
+            onClick={() => void startSession()}
           >
             <span className="grid size-9 shrink-0 place-items-center rounded-full bg-danger/15 text-danger">
               <Circle className="size-4 fill-current" />
             </span>
             <span>
               <span className="block text-sm font-medium">
-                録音してリズム打ちを始める
+                リズム録音を開始
               </span>
               <span className="block text-[11px] font-normal opacity-80">
                 {youtubeVideoId
-                  ? "録音開始と同時にパッドが有効になります（YouTube 同期可）"
-                  : "録音開始 → パッドでリアルタイム入力 → 停止で MIDI 化"}
+                  ? "時間進行 + YouTube 再生に合わせてパッド入力"
+                  : "時間が進み始めたらパッドで打ち込み → 停止で MIDI 化"}
               </span>
             </span>
           </Button>
@@ -376,22 +445,22 @@ export function RhythmPadPanel() {
         <div className="space-y-3">
           <MidiInstrumentSelect
             value={midiInstrument}
-            disabled={busy || recording}
+            disabled={busy || running}
             onChange={setMidiInstrument}
           />
 
           <div
             className={cn(
               "flex items-center justify-between rounded-xl px-3 py-2 text-[11px]",
-              recording
+              running
                 ? "bg-danger/10 text-danger"
                 : "bg-muted text-muted-foreground",
             )}
           >
-            <span className="font-semibold">
-              {recording
-                ? `REC ${formatTime(currentTime)} · ${recorded.length} 打`
-                : `待機中 · ${recorded.length} 打（上の録音でも開始できます）`}
+            <span className="font-semibold tabular-nums">
+              {running
+                ? `REC ${formatTime(clockLabel)} · ${recorded.length} 打`
+                : `待機 · ${recorded.length} 打`}
             </span>
             <span className="tabular-nums opacity-80">キー 1〜4</span>
           </div>
@@ -399,7 +468,6 @@ export function RhythmPadPanel() {
           <div className="grid grid-cols-2 gap-2">
             {PADS.map((pad) => {
               const on = held === pad.midi;
-              const canHit = recording && !busy;
               return (
                 <button
                   key={pad.midi}
@@ -435,12 +503,12 @@ export function RhythmPadPanel() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {!recording ? (
+            {!running ? (
               <Button
                 type="button"
                 variant="record"
                 disabled={busy}
-                onClick={() => void armAndRecord()}
+                onClick={() => void startSession()}
               >
                 <Circle className="size-3.5 fill-current" />
                 録音開始
@@ -451,24 +519,25 @@ export function RhythmPadPanel() {
                 variant="danger"
                 disabled={busy}
                 className="animate-pulse"
-                onClick={() => void stopAndCommit()}
+                onClick={() => void stopSession(true)}
               >
                 <Circle className="size-3.5 fill-current" />
-                録音停止 → MIDI
+                停止 → MIDI
               </Button>
             )}
             <Button
               type="button"
               variant="secondary"
-              disabled={busy || recording}
-              onClick={disarm}
+              disabled={busy}
+              onClick={() => void disarm()}
             >
-              準備を解除
+              やめる
             </Button>
           </div>
 
           <p className="text-[11px] leading-relaxed text-muted-foreground">
-            上部の赤い「録音」ボタンでも同じ録音を開始・停止できます。停止したタイミングで打った譜面が MIDI トラックになります。
+            マイクは使いません。開始で時計が動き、停止で打った譜面が MIDI
+            トラックになります。
           </p>
         </div>
       )}
