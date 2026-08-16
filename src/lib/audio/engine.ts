@@ -122,6 +122,8 @@ export class AudioEngine {
   private mediaRecorder: MediaRecorder | null = null;
   private recordedChunks: Blob[] = [];
   private recPunchIn = 0;
+  /** Transport-only recording (no mic) for rhythm MIDI input */
+  private transportOnly = false;
 
   private liveSource: MediaStreamAudioSourceNode | null = null;
   private liveGain: GainNode | null = null;
@@ -209,6 +211,10 @@ export class AudioEngine {
 
   getLiveLevel() {
     return this.liveLevel;
+  }
+
+  isTransportOnly() {
+    return this.transportOnly;
   }
 
   setInputDeviceId(deviceId: string) {
@@ -638,14 +644,29 @@ export class AudioEngine {
     this.tick();
   }
 
-  play(tracks: Track[]) {
-    if (this.status === "recording") return;
-    this.updateDuration(tracks);
-    if (this.duration <= 0) return;
-    this.beginTransport(tracks, "playing");
+  /**
+   * Advance the transport clock without opening the microphone.
+   * Used by rhythm MIDI input so time runs even with no tracks / no mic.
+   */
+  startTransportClock(tracks: Track[], as: EngineStatus = "recording") {
+    if (this.status === "recording" && this.mediaRecorder) {
+      // Mic recording already owns the clock
+      return;
+    }
+    if (this.status === "playing" || this.status === "recording") {
+      if (as === "recording") this.setStatus("recording");
+      this.transportOnly = !this.mediaRecorder;
+      this.emitTick();
+      return;
+    }
+    this.transportOnly = true;
+    this.recPunchIn = this.currentTime;
+    this.beginTransport(tracks, as);
   }
 
-  pause() {
+  /** Stop transport-only clock (no MediaRecorder teardown). */
+  stopTransportClock() {
+    if (!this.transportOnly && this.mediaRecorder) return;
     if (this.status !== "playing" && this.status !== "recording") return;
     const ctx = this.ctx;
     if (ctx) {
@@ -654,12 +675,36 @@ export class AudioEngine {
     }
     this.stopSources();
     cancelAnimationFrame(this.raf);
+    this.transportOnly = false;
+    this.setStatus("idle");
+    this.emitTick();
+  }
+
+  play(tracks: Track[]) {
+    if (this.status === "recording") return;
+    this.transportOnly = false;
+    this.updateDuration(tracks);
+    if (this.duration <= 0) return;
+    this.beginTransport(tracks, "playing");
+  }
+
+  pause() {
+    if (this.status !== "playing" && this.status !== "recording") return;
+    if (this.status === "recording" && this.mediaRecorder) return;
+    const ctx = this.ctx;
+    if (ctx) {
+      this.currentTime =
+        this.playStartOffset + (ctx.currentTime - this.playStartCtxTime);
+    }
+    this.stopSources();
+    cancelAnimationFrame(this.raf);
+    this.transportOnly = false;
     this.setStatus("idle");
     this.emitTick();
   }
 
   stop() {
-    if (this.status === "recording") return;
+    if (this.status === "recording" && this.mediaRecorder) return;
     this.pause();
     this.currentTime = 0;
     this.emitTick();
@@ -685,6 +730,7 @@ export class AudioEngine {
       this.currentTime = this.duration;
       this.stopSources();
       cancelAnimationFrame(this.raf);
+      this.transportOnly = false;
       this.setStatus("idle");
       this.emitTick();
       return;
@@ -939,9 +985,16 @@ export class AudioEngine {
     tracks: Track[],
     opts?: { monitor?: boolean },
   ): Promise<number> {
-    if (this.status === "recording") return this.recPunchIn;
+    if (this.status === "recording" && this.mediaRecorder) {
+      return this.recPunchIn;
+    }
     if (!this.inputEnabled) {
       throw new Error("INPUT_DISABLED");
+    }
+
+    // If a transport-only rhythm session is running, fold into mic recording
+    if (this.transportOnly && this.status === "recording") {
+      this.transportOnly = false;
     }
 
     const ctx = this.getContext();
@@ -974,17 +1027,25 @@ export class AudioEngine {
       if (e.data.size > 0) this.recordedChunks.push(e.data);
     };
     this.mediaRecorder.start(100);
+    this.transportOnly = false;
 
-    if (!wasPlaying) {
+    if (!wasPlaying && this.status !== "recording") {
       this.beginTransport(tracks, "recording");
     } else {
       this.setStatus("recording");
+      if (!this.raf) this.tick();
     }
     this.startLevelMeter();
     return this.recPunchIn;
   }
 
   async stopRecording(): Promise<AudioBuffer | null> {
+    // Transport-only rhythm session: stop clock, no mic buffer
+    if (this.transportOnly && this.status === "recording") {
+      this.stopTransportClock();
+      return null;
+    }
+
     if (!this.mediaRecorder || this.status !== "recording") return null;
 
     const recorder = this.mediaRecorder;
@@ -1004,6 +1065,7 @@ export class AudioEngine {
     this.disconnectMonitorOnly();
     this.stopSources();
     cancelAnimationFrame(this.raf);
+    this.transportOnly = false;
     this.setStatus("idle");
     this.maybeReleaseInputStream();
     this.stopLevelMeterIfIdle();
