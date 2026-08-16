@@ -6,6 +6,7 @@ import { YoutubePanel } from "@/components/editor/youtube-panel";
 import { SeparationPanel } from "@/components/editor/separation-panel";
 import { MelodyMidiPanel } from "@/components/editor/melody-midi-panel";
 import { TapRhythmPanel } from "@/components/editor/tap-rhythm-panel";
+import { RhythmPadPanel } from "@/components/editor/rhythm-pad-panel";
 import { DevicePanel } from "@/components/editor/device-panel";
 import { useEditorStore } from "@/lib/store/editor-store";
 import { MIX_PRESETS } from "@/lib/audio/types";
@@ -61,6 +62,7 @@ export function Studio() {
           <div className="flex flex-col gap-4">
             <SeparationPanel />
             <MelodyMidiPanel />
+            <RhythmPadPanel />
             <TapRhythmPanel />
             <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
               <h2 className="text-sm font-semibold text-foreground">
