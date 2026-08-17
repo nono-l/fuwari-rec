@@ -3,6 +3,7 @@ import { Mic2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SignedIn, SignedOut, UserButton } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
+import { APP_BUILD_AT } from "@/lib/build-info";
 
 export function AppHeader() {
   const { user, isPending } = useCurrentUserState();
@@ -20,6 +21,13 @@ export function AppHeader() {
             </div>
             <div className="truncate text-[11px] text-muted-foreground">
               ブラウザでふわふわ歌う
+              <span className="mx-1 text-muted-foreground/50">·</span>
+              <span
+                className="tabular-nums text-muted-foreground/90"
+                title={`ビルド ${APP_BUILD_AT}（JST）`}
+              >
+                ビルド {APP_BUILD_AT}
+              </span>
             </div>
           </div>
         </div>
