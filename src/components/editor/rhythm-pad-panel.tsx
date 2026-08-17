@@ -34,22 +34,57 @@ function hasAudioBuffers(
   return tracks.some((t) => !!t.buffer);
 }
 
+function safeTime(t: number): number {
+  if (!Number.isFinite(t) || t < 0) return 0;
+  return t;
+}
+
 /** Live transport time (engine clock or YouTube when no local buffers). */
-function transportNow(opts: {
-  tracks: { buffer: AudioBuffer | null }[];
-  youtubeSync: boolean;
-  youtubeVideoId: string | null;
-}): number {
+function transportNow(): number {
+  const state = useEditorStore.getState();
   const engine = getAudioEngine();
   if (
-    !hasAudioBuffers(opts.tracks) &&
-    opts.youtubeSync &&
-    opts.youtubeVideoId &&
+    !hasAudioBuffers(state.tracks) &&
+    state.youtubeSync &&
+    state.youtubeVideoId &&
     isYouTubePlayerReady()
   ) {
-    return youtubeGetCurrentTime();
+    return safeTime(youtubeGetCurrentTime());
   }
-  return engine.getCurrentTime();
+  return safeTime(engine.getCurrentTime());
+}
+
+function finalizeNotes(
+  raw: MidiNote[],
+  heldMidi: number | null,
+  endTime: number,
+): MidiNote[] {
+  let notes = raw.map((n) => ({
+    ...n,
+    start: safeTime(n.start),
+    duration: Number.isFinite(n.duration) && n.duration > 0 ? n.duration : 0.15,
+    velocity: Number.isFinite(n.velocity) ? n.velocity : 0.82,
+    channel: 0,
+  }));
+
+  if (heldMidi != null && notes.length > 0) {
+    const last = notes[notes.length - 1]!;
+    notes[notes.length - 1] = {
+      ...last,
+      duration: Math.max(0.08, endTime - last.start),
+    };
+  }
+
+  notes = notes
+    .filter(
+      (n) =>
+        Number.isFinite(n.midi) &&
+        n.duration >= 0.04 &&
+        Number.isFinite(n.start),
+    )
+    .sort((a, b) => a.start - b.start);
+
+  return notes;
 }
 
 export function RhythmPadPanel() {
@@ -64,6 +99,7 @@ export function RhythmPadPanel() {
   const heldRef = useRef<number | null>(null);
   const armedRef = useRef(false);
   const runningRef = useRef(false);
+  const committingRef = useRef(false);
   const clockRaf = useRef(0);
 
   const midiInstrument = useEditorStore((s) => s.midiInstrument);
@@ -71,7 +107,6 @@ export function RhythmPadPanel() {
   const youtubeVideoId = useEditorStore((s) => s.youtubeVideoId);
   const youtubeSync = useEditorStore((s) => s.youtubeSync);
   const status = useEditorStore((s) => s.status);
-  const tracks = useEditorStore((s) => s.tracks);
   const setStatusMessage = useEditorStore((s) => s.setStatusMessage);
   const addTrack = useEditorStore((s) => s.addTrack);
   const updateTrack = useEditorStore((s) => s.updateTrack);
@@ -105,11 +140,7 @@ export function RhythmPadPanel() {
         clockRaf.current = 0;
         return;
       }
-      const t = transportNow({
-        tracks: useEditorStore.getState().tracks,
-        youtubeSync: useEditorStore.getState().youtubeSync,
-        youtubeVideoId: useEditorStore.getState().youtubeVideoId,
-      });
+      const t = transportNow();
       setClockLabel(t);
       useEditorStore.setState({
         currentTime: t,
@@ -122,54 +153,223 @@ export function RhythmPadPanel() {
 
   useEffect(() => () => stopClockPoll(), [stopClockPoll]);
 
-  // If the global transport leaves recording while we were running a session,
-  // keep runningRef in sync (e.g. user hit 停止 on the top bar).
+  const writeMidiTrack = useCallback(
+    async (rawNotes: MidiNote[], heldMidi: number | null) => {
+      if (committingRef.current) return false;
+      committingRef.current = true;
+
+      const endTime = transportNow();
+      const notes = finalizeNotes(rawNotes, heldMidi, endTime);
+
+      try {
+        getAudioEngine().tapNoteOff();
+      } catch {
+        /* noop */
+      }
+      setHeld(null);
+      heldRef.current = null;
+
+      if (!notes.length) {
+        setStatusMessage("リズムが記録されていません（パッドを叩いてから停止）");
+        committingRef.current = false;
+        return false;
+      }
+
+      setBusy(true);
+      setStatusMessage(`リズム ${notes.length} 打を MIDI トラックに追加中…`);
+
+      const name = `リズム · ${new Date().toLocaleTimeString("ja-JP", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })}`;
+
+      // 先にトラック枠を作る（波形生成が失敗しても譜面は残す）
+      const id = addTrack({ name, kind: "midi" });
+      updateTrack(id, {
+        midiNotes: notes,
+        midiSourceNotes: notes,
+        midiInstrument,
+        kind: "midi",
+      });
+
+      try {
+        const parsed = notesToParsed(notes, name);
+        // duration が壊れていると Offline が落ちるので保険
+        if (!Number.isFinite(parsed.duration) || parsed.duration <= 0) {
+          parsed.duration =
+            Math.max(...notes.map((n) => n.start + n.duration), 0.3) + 0.2;
+        }
+        const engine = getAudioEngine();
+        const buffer = await renderMidiToAudioBuffer(
+          parsed,
+          engine.getSampleRate(),
+          midiInstrument,
+        );
+        updateTrack(id, {
+          buffer,
+          midiNotes: notes,
+          midiSourceNotes: notes,
+          midiInstrument,
+          kind: "midi",
+        });
+        engine.updateDuration(useEditorStore.getState().tracks);
+
+        try {
+          const midBytes = new Uint8Array(
+            encodeMidiFile(notes, {
+              bpm,
+              name,
+              instrument: midiInstrument,
+            }),
+          );
+          downloadBlob(
+            new Blob([midBytes], { type: "audio/midi" }),
+            "fuwari-rhythm.mid",
+          );
+        } catch {
+          /* download は任意 */
+        }
+
+        useEditorStore.setState({
+          duration: engine.getDuration(),
+          activeTrackId: id,
+          statusMessage: `リズムをトラックに追加しました（${melodySummary(notes)}）`,
+        });
+        setRecorded([]);
+        recordedRef.current = [];
+        return true;
+      } catch (e) {
+        console.error(e);
+        // トラック枠は残っている
+        useEditorStore.setState({
+          activeTrackId: id,
+          statusMessage:
+            e instanceof Error
+              ? `トラックは追加済み（波形生成エラー: ${e.message}）`
+              : "トラックは追加済み（波形生成に失敗）",
+        });
+        return true;
+      } finally {
+        setBusy(false);
+        committingRef.current = false;
+      }
+    },
+    [midiInstrument, addTrack, updateTrack, bpm, setStatusMessage],
+  );
+
+  const haltTransport = useCallback(() => {
+    try {
+      const engine = getAudioEngine();
+      if (engine.isTransportOnly() || engine.getStatus() === "recording") {
+        if (engine.isTransportOnly()) engine.stopTransportClock();
+        else if (!engine.isTransportOnly() && engine.getStatus() === "recording") {
+          // mic recording owned elsewhere — just mark idle for rhythm UI
+        } else {
+          engine.pause();
+        }
+      } else if (engine.getStatus() === "playing") {
+        engine.pause();
+      }
+    } catch {
+      /* noop */
+    }
+    if (youtubeSync && youtubeVideoId) {
+      try {
+        youtubePause();
+      } catch {
+        /* noop */
+      }
+    }
+    stopClockPoll();
+    runningRef.current = false;
+    setRunning(false);
+    useEditorStore.setState({ status: "idle" });
+  }, [youtubeSync, youtubeVideoId, stopClockPoll]);
+
+  const stopSession = useCallback(
+    async (commit: boolean) => {
+      if (!runningRef.current && !commit) {
+        haltTransport();
+        return;
+      }
+
+      const heldMidi = heldRef.current;
+      const raw = recordedRef.current.slice();
+
+      // 先に時計を止めてから書き出す
+      haltTransport();
+
+      if (commit) {
+        const ok = await writeMidiTrack(raw, heldMidi);
+        if (ok) {
+          setArmed(false);
+          armedRef.current = false;
+        }
+      } else {
+        try {
+          getAudioEngine().tapNoteOff();
+        } catch {
+          /* noop */
+        }
+        setHeld(null);
+        heldRef.current = null;
+        setRecorded([]);
+        recordedRef.current = [];
+        setStatusMessage("リズム録音をやめました");
+      }
+    },
+    [haltTransport, writeMidiTrack, setStatusMessage],
+  );
+
+  // 上部の停止などで status が idle になったときも、打った譜面を捨てない
   useEffect(() => {
     if (!runningRef.current) return;
-    if (status === "idle" && !getAudioEngine().isTransportOnly()) {
-      // Mic record stopped from outside — finalize rhythm if any
-      runningRef.current = false;
-      setRunning(false);
-      stopClockPoll();
+    if (status !== "idle") return;
+    if (committingRef.current) return;
+    // 外部停止: ノートがあれば自動コミット
+    const raw = recordedRef.current.slice();
+    const heldMidi = heldRef.current;
+    runningRef.current = false;
+    setRunning(false);
+    stopClockPoll();
+    if (raw.length > 0) {
+      void writeMidiTrack(raw, heldMidi).then((ok) => {
+        if (ok) {
+          setArmed(false);
+          armedRef.current = false;
+        }
+      });
     }
-  }, [status, stopClockPoll]);
-
-  const now = useCallback(() => {
-    return transportNow({
-      tracks: useEditorStore.getState().tracks,
-      youtubeSync: useEditorStore.getState().youtubeSync,
-      youtubeVideoId: useEditorStore.getState().youtubeVideoId,
-    });
-  }, []);
+  }, [status, stopClockPoll, writeMidiTrack]);
 
   const padUp = useCallback(() => {
     if (heldRef.current == null) return;
-    const t = now();
+    const t = transportNow();
     try {
       getAudioEngine().tapNoteOff();
     } catch {
       /* noop */
     }
-    setRecorded((prev) => {
-      if (!prev.length) return prev;
+    const prev = recordedRef.current;
+    if (prev.length) {
       const next = prev.slice();
       const last = next[next.length - 1]!;
       next[next.length - 1] = {
         ...last,
-        duration: Math.max(0.06, t - last.start),
+        duration: Math.max(0.08, t - last.start),
       };
       recordedRef.current = next;
-      return next;
-    });
+      setRecorded(next);
+    }
     setHeld(null);
     heldRef.current = null;
-  }, [now]);
+  }, []);
 
   const padDown = useCallback(
     (midi: number) => {
       if (!armedRef.current || !runningRef.current) return;
       if (heldRef.current != null) padUp();
-      const t = now();
+      const t = transportNow();
       const note: MidiNote = {
         midi,
         start: t,
@@ -186,14 +386,12 @@ export function RhythmPadPanel() {
       }
       setHeld(midi);
       heldRef.current = midi;
-      setRecorded((prev) => {
-        const next = [...prev, note];
-        recordedRef.current = next;
-        setStatusMessage(`リズム録音 ${next.length} 打 · ${formatTime(t)}`);
-        return next;
-      });
+      const next = [...recordedRef.current, note];
+      recordedRef.current = next;
+      setRecorded(next);
+      setStatusMessage(`リズム録音 ${next.length} 打 · ${formatTime(t)}`);
     },
-    [padUp, now, midiInstrument, setStatusMessage],
+    [padUp, midiInstrument, setStatusMessage],
   );
 
   useEffect(() => {
@@ -221,92 +419,15 @@ export function RhythmPadPanel() {
     };
   }, [armed, running, padDown, padUp]);
 
-  const writeMidiTrack = useCallback(
-    async (notesIn: MidiNote[]) => {
-      let notes = notesIn.slice();
-      if (heldRef.current != null && notes.length) {
-        const t = now();
-        const last = notes[notes.length - 1]!;
-        notes[notes.length - 1] = {
-          ...last,
-          duration: Math.max(0.06, t - last.start),
-        };
-      }
-      notes = notes.filter((n) => n.duration > 0.04);
-      try {
-        getAudioEngine().tapNoteOff();
-      } catch {
-        /* noop */
-      }
-      setHeld(null);
-      heldRef.current = null;
-
-      if (!notes.length) {
-        setStatusMessage("リズムが記録されていません");
-        return false;
-      }
-
-      setBusy(true);
-      setStatusMessage("リズム譜面を MIDI トラックに書き出しています…");
-      try {
-        const name = `リズム · ${new Date().toLocaleTimeString("ja-JP", {
-          hour: "2-digit",
-          minute: "2-digit",
-        })}`;
-        const parsed = notesToParsed(notes, name);
-        const engine = getAudioEngine();
-        const buffer = await renderMidiToAudioBuffer(
-          parsed,
-          engine.getSampleRate(),
-          midiInstrument,
-        );
-        const id = addTrack({ name, kind: "midi" });
-        updateTrack(id, {
-          buffer,
-          midiNotes: notes,
-          midiSourceNotes: notes,
-          midiInstrument,
-          kind: "midi",
-        });
-        engine.updateDuration(useEditorStore.getState().tracks);
-        const midBytes = new Uint8Array(
-          encodeMidiFile(notes, {
-            bpm,
-            name,
-            instrument: midiInstrument,
-          }),
-        );
-        downloadBlob(
-          new Blob([midBytes], { type: "audio/midi" }),
-          "fuwari-rhythm.mid",
-        );
-        useEditorStore.setState({
-          duration: engine.getDuration(),
-          activeTrackId: id,
-          statusMessage: `リズム譜面を MIDI にしました（${melodySummary(notes)}）`,
-        });
-        setRecorded([]);
-        recordedRef.current = [];
-        return true;
-      } catch (e) {
-        console.error(e);
-        setStatusMessage(
-          e instanceof Error ? e.message : "リズムの書き出しに失敗しました",
-        );
-        return false;
-      } finally {
-        setBusy(false);
-      }
-    },
-    [now, midiInstrument, addTrack, updateTrack, bpm, setStatusMessage],
-  );
-
   const startSession = async () => {
-    if (runningRef.current) return;
+    if (runningRef.current || committingRef.current) return;
     try {
       const engine = getAudioEngine();
-      // Resume AudioContext on user gesture so the clock actually advances
-      engine.getContext();
+      // ユーザー操作内で AudioContext を確実に起こす
+      const ctx = engine.getContext();
+      if (ctx.state === "suspended") {
+        await ctx.resume();
+      }
       engine.tapNoteOff();
       engine.setTapInstrument(midiInstrument);
 
@@ -314,7 +435,7 @@ export function RhythmPadPanel() {
       engine.startTransportClock(state.tracks, "recording");
 
       if (state.youtubeSync && state.youtubeVideoId && isYouTubePlayerReady()) {
-        youtubeSeek(engine.getCurrentTime());
+        youtubeSeek(safeTime(engine.getCurrentTime()));
         youtubeSetMuted(!outputEnabled);
         youtubePlay();
       }
@@ -333,55 +454,13 @@ export function RhythmPadPanel() {
       recordedRef.current = [];
       setHeld(null);
       heldRef.current = null;
-      setClockLabel(engine.getCurrentTime());
+      setClockLabel(safeTime(engine.getCurrentTime()));
       startClockPoll();
     } catch (e) {
       console.error(e);
       setStatusMessage(
         e instanceof Error ? e.message : "リズム録音を開始できませんでした",
       );
-    }
-  };
-
-  const stopSession = async (commit: boolean) => {
-    if (heldRef.current != null) padUp();
-    const notes = recordedRef.current.slice();
-
-    try {
-      const engine = getAudioEngine();
-      if (engine.isTransportOnly()) {
-        engine.stopTransportClock();
-      } else if (engine.getStatus() === "recording") {
-        // Mic recording was active — leave stop to the global stopRecord path
-        // but still freeze our session UI
-      } else {
-        engine.pause();
-      }
-    } catch {
-      /* noop */
-    }
-
-    if (youtubeSync && youtubeVideoId) {
-      try {
-        youtubePause();
-      } catch {
-        /* noop */
-      }
-    }
-
-    stopClockPoll();
-    runningRef.current = false;
-    setRunning(false);
-    useEditorStore.setState({ status: "idle" });
-
-    if (commit && notes.length > 0) {
-      await writeMidiTrack(notes);
-    } else if (commit) {
-      setStatusMessage("リズムが記録されていません");
-    } else {
-      setStatusMessage("リズム録音を停止しました");
-      setRecorded([]);
-      recordedRef.current = [];
     }
   };
 
@@ -408,8 +487,7 @@ export function RhythmPadPanel() {
       </h2>
       <p className="mb-3 text-[11px] leading-relaxed text-muted-foreground">
         開始すると時間が進みます（マイク不要）。パッドをリアルタイムに叩いて MIDI
-        リズム譜面を作り、停止でトラック化します。YouTube
-        同期中なら伴奏に合わせられます。
+        リズム譜面を作り、停止でトラックに追加します。
       </p>
 
       {!armed ? (
@@ -435,8 +513,8 @@ export function RhythmPadPanel() {
               </span>
               <span className="block text-[11px] font-normal opacity-80">
                 {youtubeVideoId
-                  ? "時間進行 + YouTube 再生に合わせてパッド入力"
-                  : "時間が進み始めたらパッドで打ち込み → 停止で MIDI 化"}
+                  ? "時間進行 + YouTube に合わせてパッド入力"
+                  : "時間が進んだらパッドで打ち込み → 停止でトラック追加"}
               </span>
             </span>
           </Button>
@@ -485,9 +563,13 @@ export function RhythmPadPanel() {
                   onPointerDown={(e) => {
                     if (!canHit) return;
                     e.preventDefault();
-                    (e.currentTarget as HTMLButtonElement).setPointerCapture(
-                      e.pointerId,
-                    );
+                    try {
+                      (e.currentTarget as HTMLButtonElement).setPointerCapture(
+                        e.pointerId,
+                      );
+                    } catch {
+                      /* noop */
+                    }
                     padDown(pad.midi);
                   }}
                   onPointerUp={() => padUp()}
@@ -522,7 +604,7 @@ export function RhythmPadPanel() {
                 onClick={() => void stopSession(true)}
               >
                 <Circle className="size-3.5 fill-current" />
-                停止 → MIDI
+                停止 → トラック追加
               </Button>
             )}
             <Button
@@ -536,8 +618,7 @@ export function RhythmPadPanel() {
           </div>
 
           <p className="text-[11px] leading-relaxed text-muted-foreground">
-            マイクは使いません。開始で時計が動き、停止で打った譜面が MIDI
-            トラックになります。
+            打数（〇 打）が増えていることを確認してから停止してください。停止すると左のトラック一覧に追加されます。
           </p>
         </div>
       )}
