@@ -3,6 +3,8 @@ import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useEditorStore } from "@/lib/store/editor-store";
+import { SpectrumAnalyzer } from "@/components/editor/spectrum-analyzer";
+import { FxLibraryPanel } from "@/components/editor/fx-library-panel";
 import {
   AudioLines,
   Power,
@@ -34,6 +36,13 @@ export function EffectsPanel({
   const captureRoomProfile = useEditorStore((s) => s.captureRoomProfile);
   const clearRoomProfile = useEditorStore((s) => s.clearRoomProfile);
   const setRoomAmount = useEditorStore((s) => s.setRoomAmount);
+  const voiceProfile = useEditorStore((s) => s.voiceProfile);
+  const voiceAmount = useEditorStore((s) => s.voiceAmount);
+  const voiceCapturing = useEditorStore((s) => s.voiceCapturing);
+  const voiceCaptureProgress = useEditorStore((s) => s.voiceCaptureProgress);
+  const captureVoiceProfile = useEditorStore((s) => s.captureVoiceProfile);
+  const clearVoiceProfile = useEditorStore((s) => s.clearVoiceProfile);
+  const setVoiceAmount = useEditorStore((s) => s.setVoiceAmount);
 
   const resetFx = () => {
     applyPreset("original");
@@ -82,8 +91,11 @@ export function EffectsPanel({
               </h2>
             </div>
             <p className="mt-1.5 max-w-xl text-xs leading-relaxed text-muted-foreground sm:text-sm">
-              録音しなくても使えます。ブラウザを開いたままマイクの声をリアルタイム加工。
-              プリセットとスライダーはそのまま耳に届きます。ノイズ抑えは部屋のサー向けです。
+              録音しなくても使えます。ブラウザを開いたままマイクの声をリアルタイム加工。{" "}
+              <span className="line-through decoration-muted-foreground/80">
+                スピーカーではなく、100円ショップのイヤホンでもいいので耳に届くもので聞いてください。
+              </span>{" "}
+              スペクトラム解析とフィルターを追加しましたので、ハウリングも消せます。
             </p>
           </div>
 
@@ -128,6 +140,7 @@ export function EffectsPanel({
               style={{ width: liveFxActive ? `${levelPct}%` : "0%" }}
             />
           </div>
+          <SpectrumAnalyzer compact={!isPage} />
           {!inputEnabled && (
             <p className="text-[11px] text-danger">
               入力がオフです。スタジオのデバイスパネルでオンにしてください。
@@ -275,6 +288,81 @@ export function EffectsPanel({
           isPage ? "p-4 sm:p-6" : "p-4",
         )}
       >
+        <div className="mb-3">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground sm:text-base">
+            <AudioLines className="size-4 text-primary" />
+            自分の声を覚える
+          </h2>
+          <p className="mt-1 max-w-xl text-[11px] leading-relaxed text-muted-foreground sm:text-xs">
+            テレビを消した静かな状態で、自分の声を数秒出して記憶します。
+            フォルマント（声の音色）を残し、同じ高さの他人やテレビを引きます。
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            disabled={voiceCapturing || !inputEnabled}
+            onClick={() => void captureVoiceProfile()}
+          >
+            {voiceCapturing
+              ? `記憶中 ${Math.round(voiceCaptureProgress * 100)}%`
+              : voiceProfile
+                ? "もう一度覚える"
+                : "自分の声を覚える"}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={!voiceProfile || voiceCapturing}
+            onClick={() => clearVoiceProfile()}
+          >
+            <Trash2 className="size-3.5" />
+            忘れる
+          </Button>
+        </div>
+
+        {voiceCapturing && (
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-primary transition-[width] duration-100"
+              style={{ width: `${Math.round(voiceCaptureProgress * 100)}%` }}
+            />
+          </div>
+        )}
+
+        <div className="mt-4">
+          <FxRow
+            label="自分以外を引く"
+            valueLabel={
+              !voiceProfile
+                ? "未記憶"
+                : voiceAmount < 0.02
+                  ? "オフ"
+                  : `${Math.round(voiceAmount * 100)}%`
+            }
+            hint="かけすぎると自分の声も薄くなります"
+          >
+            <Slider
+              min={0}
+              max={100}
+              step={1}
+              disabled={!voiceProfile}
+              value={[Math.round(voiceAmount * 100)]}
+              onValueChange={([v]) => setVoiceAmount((v ?? 0) / 100)}
+            />
+          </FxRow>
+        </div>
+      </section>
+
+      <section
+        className={cn(
+          "rounded-2xl border border-border bg-card shadow-sm",
+          isPage ? "p-4 sm:p-6" : "p-4",
+        )}
+      >
         <div className="mb-4">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground sm:text-base">
             <SlidersHorizontal className="size-4 text-primary" />
@@ -306,16 +394,19 @@ export function EffectsPanel({
           </FxRow>
           <FxRow
             label="簡易ピッチシフト"
-            valueLabel={`${master.pitchSemitones > 0 ? "+" : ""}${master.pitchSemitones} 半音`}
-            hint="トラック再生向け（ライブマイクには非対応）"
+            valueLabel={formatPitchLabel(master.pitchSemitones)}
+            hint="段階なし。2 cent（0.02 半音）単位。ライブマイクとトラックの両方"
           >
             <Slider
               min={-12}
               max={12}
-              step={1}
+              step={0.02}
               value={[master.pitchSemitones]}
               onValueChange={([v]) =>
-                setMaster({ pitchSemitones: v ?? 0, preset: "original" })
+                setMaster({
+                  pitchSemitones: Math.round((v ?? 0) * 100) / 100,
+                  preset: "original",
+                })
               }
             />
           </FxRow>
@@ -383,6 +474,8 @@ export function EffectsPanel({
         </div>
       </section>
 
+      <FxLibraryPanel />
+
       {isPage && (
         <section className="rounded-2xl border border-dashed border-border bg-muted/30 p-4 text-xs text-muted-foreground sm:p-5">
           <p className="font-medium text-foreground">使い方</p>
@@ -401,6 +494,13 @@ export function EffectsPanel({
       )}
     </div>
   );
+}
+
+function formatPitchLabel(st: number) {
+  const cents = Math.round(st * 100);
+  if (cents === 0) return "0";
+  const sign = cents > 0 ? "+" : "";
+  return `${sign}${(cents / 100).toFixed(2)} 半音（${sign}${cents} cent）`;
 }
 
 function FxRow({

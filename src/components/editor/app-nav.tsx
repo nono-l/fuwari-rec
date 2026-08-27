@@ -26,6 +26,10 @@ export function AppNav() {
   const rangeMaxNote = useEditorStore((s) => s.rangeMaxNote);
   const mediaRangeResult = useEditorStore((s) => s.mediaRangeResult);
   const mediaRangeAnalyzing = useEditorStore((s) => s.mediaRangeAnalyzing);
+  const youtubeVideoId = useEditorStore((s) => s.youtubeVideoId);
+  const youtubeClips = useEditorStore((s) => s.youtubeClips);
+  const youtubePinned = useEditorStore((s) => s.youtubePinned);
+  const toggleYoutubePinned = useEditorStore((s) => s.toggleYoutubePinned);
   const master = useEditorStore((s) => s.master);
   const presetLabel =
     MIX_PRESETS.find((p) => p.id === master.preset)?.label ?? master.preset;
@@ -99,6 +103,24 @@ export function AppNav() {
               {mediaRangeResult.minNote}〜{mediaRangeResult.maxNote}
             </span>
           </span>
+        )}
+        {youtubeVideoId && (
+          <button
+            type="button"
+            onClick={() => toggleYoutubePinned()}
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+              youtubePinned
+                ? "border-primary bg-primary/10 text-foreground"
+                : "border-border bg-muted/50 text-muted-foreground hover:text-foreground",
+            )}
+            aria-pressed={youtubePinned}
+          >
+            📍{" "}
+            {youtubePinned
+              ? `YouTube 追従中${youtubeClips.length > 1 ? `（${youtubeClips.length}）` : ""}`
+              : `YouTube をピン留め${youtubeClips.length > 1 ? `（${youtubeClips.length}）` : ""}`}
+          </button>
         )}
       </div>
     </div>

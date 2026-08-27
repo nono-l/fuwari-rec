@@ -22,7 +22,7 @@ export function SeparationPanel() {
       <p className="mb-3 text-[11px] leading-relaxed text-muted-foreground">
         選択中トラックの<strong className="font-medium text-foreground">読み込み音源</strong>
         に対して、ステレオのセンター成分を分離します（古典的な mid/side 方式）。
-        AI分離ではありません。YouTube埋め込み音声には適用できません。
+        AI分離ではありません。YouTube 埋め込みの音は直接加工できないので、同じ曲のファイルを読み込んでください（YouTube パネルからもできます）。
       </p>
 
       <label className="mb-3 block text-xs font-medium text-muted-foreground">

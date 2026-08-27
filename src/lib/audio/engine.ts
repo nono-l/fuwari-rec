@@ -11,7 +11,13 @@ import {
   subtractRoomFromBuffer,
   type RoomProfile,
 } from "./room-profile";
+import {
+  applyFilterToBiquad,
+  chainSpectrumFilters,
+  type SpectrumFilter,
+} from "./spectrum-filters";
 import roomWorkletUrl from "./worklets/room-subtract.js?url";
+import pitchWorkletUrl from "./worklets/pitch-shift.js?url";
 
 function createImpulse(ctx: BaseAudioContext, duration = 1.8, decay = 2.2) {
   const rate = ctx.sampleRate;
@@ -107,6 +113,13 @@ export class AudioEngine {
   private roomProfile: RoomProfile | null = null;
   private roomAmount = 0;
   private roomWorkletReady = false;
+  private voiceProfile: RoomProfile | null = null;
+  private voiceAmount = 0;
+  private livePitchNode: AudioWorkletNode | null = null;
+  private livePitchReady = false;
+  private livePitchSemitones = 0;
+  private livePitchInserted = false;
+  private liveChainWired = false;
   private tapVoice: LiveVoice | null = null;
   private tapInstrument: MidiInstrumentId = "piano";
   private reverb: ConvolverNode | null = null;
@@ -132,6 +145,13 @@ export class AudioEngine {
   private analyser: AnalyserNode | null = null;
   private levelRaf = 0;
   private levelData: Uint8Array | null = null;
+  private specAnalyser: AnalyserNode | null = null;
+  private specData: Uint8Array | null = null;
+  private specWave: Uint8Array | null = null;
+  private eqIn: GainNode | null = null;
+  private eqOut: GainNode | null = null;
+  private eqNodes: BiquadFilterNode[] = [];
+  private spectrumFilters: SpectrumFilter[] = [];
 
   private pitchSource: MediaStreamAudioSourceNode | null = null;
   private pitchAnalyser: AnalyserNode | null = null;
@@ -181,8 +201,90 @@ export class AudioEngine {
     return this.ctx;
   }
 
+  async resumeContext() {
+    const ctx = this.getContext();
+    if (ctx.state === "suspended") {
+      try {
+        await ctx.resume();
+      } catch {
+        /* autoplay policy */
+      }
+    }
+    return ctx;
+  }
+
   getSampleRate() {
     return this.getContext().sampleRate;
+  }
+
+  /** FFT bin count for the post-EQ (LP/HP/notch/bandpass) spectrum tap. */
+  getSpectrumBinCount() {
+    this.getContext();
+    return this.specAnalyser?.frequencyBinCount ?? 0;
+  }
+
+  /** Fill `out` with 0–255 magnitude bins. Returns sampleRate, or 0 if unavailable. */
+  fillSpectrum(out: Uint8Array): number {
+    this.getContext();
+    if (!this.specAnalyser || !this.specData) return 0;
+    // @ts-expect-error TS lib sometimes wants ArrayBufferView strictness
+    this.specAnalyser.getByteFrequencyData(this.specData);
+    const n = Math.min(out.length, this.specData.length);
+    out.set(this.specData.subarray(0, n));
+    if (n < out.length) out.fill(0, n);
+    return this.ctx?.sampleRate ?? 0;
+  }
+
+  /** Time-domain samples (0–255, 128 = 0) of the same post-FX output tap. */
+  fillOutputWave(out: Uint8Array): number {
+    this.getContext();
+    if (!this.specAnalyser || !this.specWave) return 0;
+    // @ts-expect-error TS lib sometimes wants ArrayBufferView strictness
+    this.specAnalyser.getByteTimeDomainData(this.specWave);
+    const n = Math.min(out.length, this.specWave.length);
+    out.set(this.specWave.subarray(0, n));
+    if (n < out.length) out.fill(128, n);
+    return this.specWave.length;
+  }
+
+  setSpectrumFilters(filters: SpectrumFilter[]) {
+    this.spectrumFilters = filters.slice(0, 8);
+    if (!this.ctx || !this.eqIn || !this.eqOut) return;
+    const active = this.spectrumFilters.filter((f) => f.enabled);
+    if (active.length === this.eqNodes.length && this.eqNodes.length > 0) {
+      for (let i = 0; i < active.length; i++) {
+        applyFilterToBiquad(this.eqNodes[i]!, active[i]!);
+      }
+      return;
+    }
+    this.rebuildEq();
+  }
+
+  private rebuildEq() {
+    if (!this.ctx || !this.eqIn || !this.eqOut) return;
+    for (const n of this.eqNodes) {
+      try {
+        n.disconnect();
+      } catch {
+        /* noop */
+      }
+    }
+    this.eqNodes = [];
+    try {
+      this.eqIn.disconnect();
+    } catch {
+      /* noop */
+    }
+    let prev: AudioNode = this.eqIn;
+    for (const f of this.spectrumFilters) {
+      if (!f.enabled) continue;
+      const bq = this.ctx.createBiquadFilter();
+      applyFilterToBiquad(bq, f);
+      prev.connect(bq);
+      this.eqNodes.push(bq);
+      prev = bq;
+    }
+    prev.connect(this.eqOut);
   }
 
   getInputDeviceId() {
@@ -327,6 +429,17 @@ export class AudioEngine {
     this.analyser.smoothingTimeConstant = 0.8;
     this.levelData = new Uint8Array(this.analyser.frequencyBinCount);
 
+    this.specAnalyser = ctx.createAnalyser();
+    this.specAnalyser.fftSize = 2048;
+    this.specAnalyser.smoothingTimeConstant = 0.45;
+    this.specAnalyser.minDecibels = -90;
+    this.specAnalyser.maxDecibels = -18;
+    this.specData = new Uint8Array(this.specAnalyser.frequencyBinCount);
+    this.specWave = new Uint8Array(this.specAnalyser.fftSize);
+
+    this.eqIn = ctx.createGain();
+    this.eqOut = ctx.createGain();
+
     this.masterGain = ctx.createGain();
     this.masterGain.gain.value = this.outputEnabled ? this.masterVolume : 0;
 
@@ -336,7 +449,10 @@ export class AudioEngine {
     this.noiseHp.connect(this.noiseLp);
     this.noiseLp.connect(this.gateGain);
     this.noiseHp.connect(this.gateAnalyser);
-    this.gateGain.connect(this.highShelf);
+    this.gateGain.connect(this.eqIn);
+    this.eqIn.connect(this.eqOut);
+    this.eqOut.connect(this.highShelf);
+    this.eqOut.connect(this.specAnalyser);
     this.highShelf.connect(this.compressor);
     this.compressor.connect(this.dryGain);
     this.compressor.connect(this.reverb);
@@ -345,6 +461,7 @@ export class AudioEngine {
     this.wetGain.connect(this.analyser);
     this.analyser.connect(this.masterGain);
     this.masterGain.connect(ctx.destination);
+    this.rebuildEq();
   }
 
   applyMasterFx(fx: MasterFx) {
@@ -362,7 +479,9 @@ export class AudioEngine {
     }
     this.applyNoiseAmount(fx.noise ?? 0);
     this.pitchRate = Math.pow(2, fx.pitchSemitones / 12);
+    this.livePitchSemitones = fx.pitchSemitones ?? 0;
     void this.ensureRoomWorklet();
+    void this.ensurePitchWorklet().then(() => this.reconnectLiveChain());
   }
 
   private applyNoiseAmount(amount: number) {
@@ -451,6 +570,18 @@ export class AudioEngine {
       this.roomNode.port.postMessage({ type: "clear" });
     }
     this.roomNode.port.postMessage({ type: "amount", value: this.roomAmount });
+    if (this.voiceProfile?.bins.length) {
+      this.roomNode.port.postMessage({
+        type: "voice-profile",
+        bins: this.voiceProfile.bins,
+      });
+    } else {
+      this.roomNode.port.postMessage({ type: "clear-voice" });
+    }
+    this.roomNode.port.postMessage({
+      type: "voice-amount",
+      value: this.voiceAmount,
+    });
   }
 
   setRoomAmount(amount: number) {
@@ -461,6 +592,81 @@ export class AudioEngine {
   setRoomProfile(profile: RoomProfile | null) {
     this.roomProfile = profile;
     this.pushRoomToWorklet();
+  }
+
+  setVoiceAmount(amount: number) {
+    this.voiceAmount = Math.max(0, Math.min(1, amount));
+    this.pushRoomToWorklet();
+  }
+
+  setVoiceProfile(profile: RoomProfile | null) {
+    this.voiceProfile = profile;
+    this.pushRoomToWorklet();
+  }
+
+  private async ensurePitchWorklet() {
+    if (this.livePitchReady || !this.ctx) return;
+    if (typeof AudioWorkletNode === "undefined") return;
+    try {
+      await this.ctx.audioWorklet.addModule(pitchWorkletUrl);
+      this.livePitchReady = true;
+    } catch {
+      this.livePitchReady = false;
+    }
+  }
+
+  private ensureLivePitchNode() {
+    if (!this.ctx || !this.livePitchReady || this.livePitchNode) return;
+    try {
+      this.livePitchNode = new AudioWorkletNode(this.ctx, "pitch-shift", {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+      });
+    } catch {
+      this.livePitchNode = null;
+    }
+  }
+
+  private reconnectLiveChain() {
+    if (!this.liveGain || !this.bus || !this.liveActive) return;
+    const wantShift = Math.abs(this.livePitchSemitones) >= 0.015;
+    if (wantShift) this.ensureLivePitchNode();
+    if (this.livePitchNode) {
+      this.livePitchNode.port.postMessage({
+        type: "rate",
+        value: Math.pow(2, this.livePitchSemitones / 12),
+      });
+    }
+    if (
+      this.liveChainWired &&
+      wantShift === this.livePitchInserted
+    ) {
+      if (wantShift && this.livePitchNode) return;
+      if (!wantShift) return;
+    }
+    try {
+      this.liveGain.disconnect();
+    } catch {
+      /* noop */
+    }
+    if (this.livePitchNode) {
+      try {
+        this.livePitchNode.disconnect();
+      } catch {
+        /* noop */
+      }
+    }
+    if (wantShift && this.livePitchNode) {
+      this.liveGain.connect(this.livePitchNode);
+      this.livePitchNode.connect(this.bus);
+      this.livePitchInserted = true;
+      this.liveChainWired = true;
+      return;
+    }
+    this.liveGain.connect(this.bus);
+    this.livePitchInserted = false;
+    this.liveChainWired = true;
   }
 
   async captureRoomProfile(
@@ -513,6 +719,89 @@ export class AudioEngine {
       capturedAt: Date.now(),
     };
     this.setRoomProfile(profile);
+    return profile;
+  }
+
+  async captureVoiceProfile(
+    durationSec = 3.2,
+    onProgress?: (p: number) => void,
+  ): Promise<RoomProfile> {
+    const ctx = this.getContext();
+    await this.ensureRoomWorklet();
+    const stream = await this.ensureInputStream();
+    const src = ctx.createMediaStreamSource(stream);
+    const an = ctx.createAnalyser();
+    an.fftSize = ROOM_FFT;
+    an.smoothingTimeConstant = 0;
+    src.connect(an);
+    const count = an.frequencyBinCount;
+    const acc = new Float64Array(count);
+    const tmp = new Float32Array(count);
+    const time = new Float32Array(an.fftSize);
+    const started = performance.now();
+    const total = durationSec * 1000;
+    let frames = 0;
+
+    await new Promise<void>((resolve) => {
+      const tick = () => {
+        an.getFloatTimeDomainData(time);
+        let sq = 0;
+        for (let i = 0; i < time.length; i++) {
+          const s = time[i] ?? 0;
+          sq += s * s;
+        }
+        const rms = Math.sqrt(sq / time.length);
+        an.getFloatFrequencyData(tmp);
+        // only remember voiced frames — quiet room should not dilute formants
+        if (rms > 0.018) {
+          for (let i = 0; i < count; i++) {
+            const db = tmp[i] ?? -100;
+            acc[i]! += db > -88 ? 10 ** (db / 20) : 0;
+          }
+          frames += 1;
+        }
+        const elapsed = performance.now() - started;
+        onProgress?.(Math.min(1, elapsed / total));
+        if (elapsed < total) requestAnimationFrame(tick);
+        else resolve();
+      };
+      tick();
+    });
+
+    try {
+      src.disconnect();
+    } catch {
+      /* noop */
+    }
+    this.maybeReleaseInputStream();
+
+    if (frames < 4) {
+      throw new Error("VOICE_TOO_QUIET");
+    }
+
+    // Smooth to formant envelope (not harmonic teeth)
+    const raw = Array.from(acc, (v) => v / frames);
+    const bins = raw.slice();
+    const radius = 4;
+    for (let i = 0; i < raw.length; i++) {
+      let s = 0;
+      let n = 0;
+      for (let k = -radius; k <= radius; k++) {
+        const j = i + k;
+        if (j < 0 || j >= raw.length) continue;
+        s += raw[j]!;
+        n += 1;
+      }
+      bins[i] = (s / Math.max(1, n)) * 1.08;
+    }
+
+    const profile: RoomProfile = {
+      bins,
+      fftSize: ROOM_FFT,
+      frames,
+      capturedAt: Date.now(),
+    };
+    this.setVoiceProfile(profile);
     return profile;
   }
 
@@ -864,7 +1153,7 @@ export class AudioEngine {
     if (!this.inputEnabled) {
       throw new Error("INPUT_DISABLED");
     }
-    const ctx = this.getContext();
+    const ctx = await this.resumeContext();
     await this.ensureRoomWorklet();
     const stream = await this.ensureInputStream();
 
@@ -874,8 +1163,10 @@ export class AudioEngine {
     this.liveGain = ctx.createGain();
     this.liveGain.gain.value = this.inputEnabled ? 0.95 : 0;
     this.liveSource.connect(this.liveGain);
-    this.liveGain.connect(this.bus!);
     this.liveActive = true;
+    this.liveChainWired = false;
+    await this.ensurePitchWorklet();
+    this.reconnectLiveChain();
     this.startLevelMeter();
   }
 
@@ -897,6 +1188,15 @@ export class AudioEngine {
         /* noop */
       }
       this.liveGain = null;
+    }
+    this.livePitchInserted = false;
+    this.liveChainWired = false;
+    if (this.livePitchNode) {
+      try {
+        this.livePitchNode.disconnect();
+      } catch {
+        /* noop */
+      }
     }
     this.maybeReleaseInputStream();
     this.stopLevelMeterIfIdle();
@@ -1082,6 +1382,7 @@ export class AudioEngine {
     tracks: Track[],
     fx: MasterFx,
     room?: { profile: RoomProfile | null; amount: number },
+    spectrumFilters: SpectrumFilter[] = [],
   ): Promise<Blob> {
     this.updateDuration(tracks);
     if (this.duration <= 0) {
@@ -1127,7 +1428,8 @@ export class AudioEngine {
 
     bus.connect(noiseHp);
     noiseHp.connect(noiseLp);
-    noiseLp.connect(highShelf);
+    const afterEq = chainSpectrumFilters(offline, noiseLp, spectrumFilters);
+    afterEq.connect(highShelf);
     highShelf.connect(compressor);
     compressor.connect(dry);
     compressor.connect(reverb);

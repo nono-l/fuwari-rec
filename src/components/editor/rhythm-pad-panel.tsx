@@ -436,7 +436,7 @@ export function RhythmPadPanel() {
 
       if (state.youtubeSync && state.youtubeVideoId && isYouTubePlayerReady()) {
         youtubeSeek(safeTime(engine.getCurrentTime()));
-        youtubeSetMuted(!outputEnabled);
+        youtubeSetMuted(!outputEnabled || useEditorStore.getState().youtubeMuteForCancel);
         youtubePlay();
       }
 

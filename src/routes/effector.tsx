@@ -14,7 +14,7 @@ function EffectorPage() {
   return (
     <AppShell
       title="エフェクター"
-      description="録音なしでも使えるライブエフェクト。プリセットとスライダーで声を整えられます。"
+      description="録音なしでも使えるライブエフェクト。スペクトラム解析とフィルターでハウリングも消せます。"
     >
       <div className="space-y-4">
         <DevicePanel />

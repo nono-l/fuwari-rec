@@ -177,6 +177,7 @@ export function DevicePanel() {
       </div>
 
       <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+        モニターはスピーカーではなく、耳に届くもので聞いてください。100円ショップのイヤホンで十分です。
         「一時オフ」はデバイス選択を保ったままミュートします。
         入力オフ中は録音できません。出力オフはトラック再生と YouTube をミュートします。
         {devicesPermission !== "granted" && (

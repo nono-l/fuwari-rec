@@ -1,4 +1,4 @@
-/* AudioWorklet: spectral subtraction against a captured room/TV profile. */
+/* AudioWorklet: room/TV subtract + keep-my-voice formant mask. */
 const FFT = 1024;
 const HOP = 512;
 const BINS = FFT / 2;
@@ -61,6 +61,10 @@ class RoomSubtractProcessor extends AudioWorkletProcessor {
     this.noise = new Float32Array(BINS);
     this.hasNoise = false;
     this.amount = 0;
+    this.voice = new Float32Array(BINS);
+    this.hasVoice = false;
+    this.voiceAmount = 0;
+    this.voicePeak = 1;
     this.inBuf = new Float32Array(FFT * 4);
     this.inLen = 0;
     this.outBuf = new Float32Array(FFT * 4);
@@ -80,9 +84,30 @@ class RoomSubtractProcessor extends AudioWorkletProcessor {
       if (msg.type === "amount") {
         this.amount = Math.max(0, Math.min(1, Number(msg.value) || 0));
       }
+      if (msg.type === "voice-profile" && msg.bins) {
+        const src = msg.bins;
+        const n = Math.min(BINS, src.length);
+        this.voice.fill(0);
+        let peak = 0;
+        for (let i = 0; i < n; i++) {
+          const v = Number(src[i]) || 0;
+          this.voice[i] = v;
+          if (v > peak) peak = v;
+        }
+        this.voicePeak = Math.max(peak, 1e-8);
+        this.hasVoice = peak > 0;
+      }
+      if (msg.type === "voice-amount") {
+        this.voiceAmount = Math.max(0, Math.min(1, Number(msg.value) || 0));
+      }
       if (msg.type === "clear") {
         this.hasNoise = false;
         this.noise.fill(0);
+      }
+      if (msg.type === "clear-voice") {
+        this.hasVoice = false;
+        this.voice.fill(0);
+        this.voicePeak = 1;
       }
     };
   }
@@ -105,6 +130,29 @@ class RoomSubtractProcessor extends AudioWorkletProcessor {
         const mag = Math.hypot(re[k], im[k]);
         const phase = Math.atan2(im[k], re[k]);
         const next = Math.max(mag - alpha * this.noise[k], mag * floor);
+        const cr = next * Math.cos(phase);
+        const ci = next * Math.sin(phase);
+        re[k] = cr;
+        im[k] = ci;
+        if (k > 0) {
+          re[FFT - k] = cr;
+          im[FFT - k] = -ci;
+        }
+      }
+    }
+
+    const vAmt = this.voiceAmount;
+    if (this.hasVoice && vAmt > 0.01) {
+      const peak = this.voicePeak;
+      for (let k = 0; k < BINS; k++) {
+        const mag = Math.hypot(re[k], im[k]);
+        const phase = Math.atan2(im[k], re[k]);
+        const env = this.voice[k] / peak;
+        // formant envelope keep — same pitch, different person/TV is weaker
+        let keep = Math.pow(Math.max(env, 0.02), 0.45);
+        const over = mag / (this.voice[k] * 2.4 + 1e-8);
+        if (over > 1) keep /= 1 + (over - 1) * vAmt;
+        const next = mag * ((1 - vAmt) + vAmt * keep);
         const cr = next * Math.cos(phase);
         const ci = next * Math.sin(phase);
         re[k] = cr;
@@ -142,8 +190,11 @@ class RoomSubtractProcessor extends AudioWorkletProcessor {
     if (!output || !output[0]) return true;
     const frames = output[0].length;
     const ch0 = input && input[0] ? input[0] : null;
+    const active =
+      (this.hasNoise && this.amount > 0.01) ||
+      (this.hasVoice && this.voiceAmount > 0.01);
 
-    if (!ch0 || !this.hasNoise || this.amount < 0.01) {
+    if (!ch0 || !active) {
       for (let c = 0; c < output.length; c++) {
         const src = input && input[c] ? input[c] : ch0;
         if (src) output[c].set(src);
@@ -170,7 +221,6 @@ class RoomSubtractProcessor extends AudioWorkletProcessor {
       this.outBuf.copyWithin(0, frames);
       this.outLen -= frames;
     } else {
-      // warm-up: pass through until OLA has enough
       out0.set(ch0);
     }
     for (let c = 1; c < output.length; c++) output[c].set(out0);

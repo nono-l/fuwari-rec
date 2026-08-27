@@ -24,21 +24,21 @@ export type MidiInstrument = {
 };
 
 export const MIDI_INSTRUMENTS: MidiInstrument[] = [
-  { id: "piano", label: "ピアノ", hint: "短い減衰", gm: 0 },
-  { id: "epiano", label: "エレピ", hint: "ベル寄りの鍵盤", gm: 4 },
-  { id: "organ", label: "オルガン", hint: "持続する倍音", gm: 16 },
-  { id: "strings", label: "ストリングス", hint: "ゆっくり立ち上がる", gm: 48 },
-  { id: "choir", label: "コーラス", hint: "厚めの声", gm: 52 },
-  { id: "flute", label: "フルート", hint: "細い息", gm: 73 },
-  { id: "clarinet", label: "クラリネット", hint: "少しこもった管", gm: 71 },
-  { id: "sax", label: "サックス", hint: "鼻にかかるリード", gm: 66 },
-  { id: "guitar", label: "ギター", hint: "爪弾き", gm: 24 },
-  { id: "bass", label: "ベース", hint: "低い芯", gm: 33 },
-  { id: "lead", label: "シンセリード", hint: "目立つ鋸波", gm: 80 },
-  { id: "bells", label: "ベル", hint: "金属の残響", gm: 14 },
-  { id: "pad", label: "パッド", hint: "長い空間", gm: 89 },
-  { id: "square", label: "チップチューン", hint: "四角波", gm: 80 },
-  { id: "pluck", label: "プラック", hint: "短いシンセ爪弾き", gm: 5 },
+  { id: "piano", label: "ピアノ", hint: "ハンマー＋倍音減衰", gm: 0 },
+  { id: "epiano", label: "エレピ", hint: "タインのFM", gm: 4 },
+  { id: "organ", label: "オルガン", hint: "ドローバー", gm: 16 },
+  { id: "strings", label: "ストリングス", hint: "アンサンブル", gm: 48 },
+  { id: "choir", label: "コーラス", hint: "フォルマント", gm: 52 },
+  { id: "flute", label: "フルート", hint: "息＋ビブラート", gm: 73 },
+  { id: "clarinet", label: "クラリネット", hint: "奇数倍音", gm: 71 },
+  { id: "sax", label: "サックス", hint: "リード＋フォルマント", gm: 66 },
+  { id: "guitar", label: "ギター", hint: "弦の減衰", gm: 24 },
+  { id: "bass", label: "ベース", hint: "太い低音", gm: 33 },
+  { id: "lead", label: "シンセリード", hint: "ユニゾン鋸波", gm: 80 },
+  { id: "bells", label: "ベル", hint: "非整数倍音", gm: 14 },
+  { id: "pad", label: "パッド", hint: "厚い空間", gm: 89 },
+  { id: "square", label: "チップチューン", hint: "パルス", gm: 80 },
+  { id: "pluck", label: "プラック", hint: "はじき", gm: 5 },
 ];
 
 export const DEFAULT_MIDI_INSTRUMENT: MidiInstrumentId = "piano";
@@ -55,245 +55,104 @@ export function instrumentGm(id: MidiInstrumentId | undefined) {
   return MIDI_INSTRUMENTS.find((i) => i.id === (id ?? "piano"))?.gm ?? 0;
 }
 
-type OscType = OscillatorType;
-
-type VoicePatch = {
-  oscs: { type: OscType; ratio: number; detune: number; mix: number }[];
-  filterType: BiquadFilterType;
-  cutoff: (midi: number) => number;
-  q: number;
-  attack: number;
-  decay: number;
-  sustain: number;
-  release: number;
-  peak: number;
-};
-
-const PATCHES: Record<MidiInstrumentId, VoicePatch> = {
-  piano: {
-    oscs: [
-      { type: "triangle", ratio: 1, detune: 0, mix: 1 },
-      { type: "sine", ratio: 2, detune: 3, mix: 0.22 },
-    ],
-    filterType: "lowpass",
-    cutoff: (m) => 1400 + m * 28,
-    q: 0.7,
-    attack: 0.008,
-    decay: 0.28,
-    sustain: 0.18,
-    release: 0.18,
-    peak: 0.15,
-  },
-  epiano: {
-    oscs: [
-      { type: "sine", ratio: 1, detune: 0, mix: 1 },
-      { type: "sine", ratio: 4.02, detune: 0, mix: 0.18 },
-    ],
-    filterType: "lowpass",
-    cutoff: (m) => 2200 + m * 18,
-    q: 0.9,
-    attack: 0.006,
-    decay: 0.4,
-    sustain: 0.22,
-    release: 0.22,
-    peak: 0.14,
-  },
-  organ: {
-    oscs: [
-      { type: "sine", ratio: 1, detune: 0, mix: 0.7 },
-      { type: "sine", ratio: 2, detune: 0, mix: 0.35 },
-      { type: "sine", ratio: 3, detune: 0, mix: 0.18 },
-      { type: "square", ratio: 1, detune: 0, mix: 0.06 },
-    ],
-    filterType: "lowpass",
-    cutoff: () => 4200,
-    q: 0.4,
-    attack: 0.02,
-    decay: 0.05,
-    sustain: 0.85,
-    release: 0.06,
-    peak: 0.1,
-  },
-  strings: {
-    oscs: [
-      { type: "sawtooth", ratio: 1, detune: -8, mix: 0.55 },
-      { type: "sawtooth", ratio: 1, detune: 9, mix: 0.55 },
-      { type: "triangle", ratio: 1, detune: 0, mix: 0.25 },
-    ],
-    filterType: "lowpass",
-    cutoff: (m) => 900 + m * 16,
-    q: 0.5,
-    attack: 0.14,
-    decay: 0.25,
-    sustain: 0.7,
-    release: 0.28,
-    peak: 0.09,
-  },
-  choir: {
-    oscs: [
-      { type: "triangle", ratio: 1, detune: -11, mix: 0.5 },
-      { type: "triangle", ratio: 1, detune: 12, mix: 0.5 },
-      { type: "sine", ratio: 2, detune: 0, mix: 0.2 },
-    ],
-    filterType: "lowpass",
-    cutoff: () => 1800,
-    q: 0.4,
-    attack: 0.16,
-    decay: 0.2,
-    sustain: 0.75,
-    release: 0.3,
-    peak: 0.1,
-  },
-  flute: {
-    oscs: [
-      { type: "sine", ratio: 1, detune: 0, mix: 1 },
-      { type: "triangle", ratio: 2, detune: 4, mix: 0.12 },
-    ],
-    filterType: "lowpass",
-    cutoff: (m) => 1800 + m * 12,
-    q: 0.3,
-    attack: 0.06,
-    decay: 0.1,
-    sustain: 0.7,
-    release: 0.1,
-    peak: 0.11,
-  },
-  clarinet: {
-    oscs: [
-      { type: "square", ratio: 1, detune: 0, mix: 0.7 },
-      { type: "sine", ratio: 3, detune: 0, mix: 0.18 },
-    ],
-    filterType: "lowpass",
-    cutoff: () => 1400,
-    q: 0.8,
-    attack: 0.05,
-    decay: 0.12,
-    sustain: 0.72,
-    release: 0.1,
-    peak: 0.09,
-  },
-  sax: {
-    oscs: [
-      { type: "sawtooth", ratio: 1, detune: 0, mix: 0.7 },
-      { type: "square", ratio: 1, detune: 5, mix: 0.2 },
-    ],
-    filterType: "bandpass",
-    cutoff: (m) => 700 + m * 10,
-    q: 1.4,
-    attack: 0.04,
-    decay: 0.14,
-    sustain: 0.7,
-    release: 0.12,
-    peak: 0.1,
-  },
-  guitar: {
-    oscs: [
-      { type: "sawtooth", ratio: 1, detune: 0, mix: 0.55 },
-      { type: "triangle", ratio: 1, detune: 0, mix: 0.45 },
-    ],
-    filterType: "lowpass",
-    cutoff: (m) => 2200 + m * 10,
-    q: 1.1,
-    attack: 0.004,
-    decay: 0.22,
-    sustain: 0.12,
-    release: 0.16,
-    peak: 0.13,
-  },
-  bass: {
-    oscs: [
-      { type: "sine", ratio: 1, detune: 0, mix: 1 },
-      { type: "square", ratio: 1, detune: 0, mix: 0.18 },
-    ],
-    filterType: "lowpass",
-    cutoff: () => 700,
-    q: 0.7,
-    attack: 0.01,
-    decay: 0.16,
-    sustain: 0.55,
-    release: 0.1,
-    peak: 0.16,
-  },
-  lead: {
-    oscs: [
-      { type: "sawtooth", ratio: 1, detune: -6, mix: 0.6 },
-      { type: "sawtooth", ratio: 1, detune: 7, mix: 0.5 },
-    ],
-    filterType: "lowpass",
-    cutoff: (m) => 1800 + m * 22,
-    q: 1.2,
-    attack: 0.02,
-    decay: 0.12,
-    sustain: 0.65,
-    release: 0.1,
-    peak: 0.1,
-  },
-  bells: {
-    oscs: [
-      { type: "sine", ratio: 1, detune: 0, mix: 0.7 },
-      { type: "sine", ratio: 2.76, detune: 0, mix: 0.28 },
-      { type: "sine", ratio: 5.4, detune: 0, mix: 0.1 },
-    ],
-    filterType: "lowpass",
-    cutoff: () => 5000,
-    q: 0.3,
-    attack: 0.004,
-    decay: 0.7,
-    sustain: 0.08,
-    release: 0.45,
-    peak: 0.12,
-  },
-  pad: {
-    oscs: [
-      { type: "sawtooth", ratio: 1, detune: -14, mix: 0.4 },
-      { type: "sawtooth", ratio: 1, detune: 15, mix: 0.4 },
-      { type: "triangle", ratio: 0.5, detune: 0, mix: 0.3 },
-    ],
-    filterType: "lowpass",
-    cutoff: () => 1100,
-    q: 0.4,
-    attack: 0.28,
-    decay: 0.4,
-    sustain: 0.75,
-    release: 0.45,
-    peak: 0.08,
-  },
-  square: {
-    oscs: [
-      { type: "square", ratio: 1, detune: 0, mix: 0.85 },
-      { type: "square", ratio: 2, detune: 0, mix: 0.15 },
-    ],
-    filterType: "lowpass",
-    cutoff: (m) => 2400 + m * 15,
-    q: 0.3,
-    attack: 0.006,
-    decay: 0.08,
-    sustain: 0.7,
-    release: 0.06,
-    peak: 0.09,
-  },
-  pluck: {
-    oscs: [
-      { type: "sawtooth", ratio: 1, detune: 0, mix: 0.7 },
-      { type: "triangle", ratio: 2, detune: 0, mix: 0.2 },
-    ],
-    filterType: "lowpass",
-    cutoff: (m) => 2600 + m * 8,
-    q: 1.6,
-    attack: 0.003,
-    decay: 0.16,
-    sustain: 0.05,
-    release: 0.12,
-    peak: 0.13,
-  },
-};
-
 export type LiveVoice = {
   stop: (when?: number) => void;
 };
 
 function midiToHz(midi: number) {
   return 440 * Math.pow(2, (midi - 69) / 12);
+}
+
+function envExp(
+  g: AudioParam,
+  t0: number,
+  peak: number,
+  atk: number,
+  dec: number,
+  sus: number,
+  relAt: number,
+  rel: number,
+) {
+  const p = Math.max(0.0002, peak);
+  const s = Math.max(0.0002, sus);
+  g.cancelScheduledValues(t0);
+  g.setValueAtTime(0.0001, t0);
+  g.exponentialRampToValueAtTime(p, t0 + Math.max(0.003, atk));
+  g.exponentialRampToValueAtTime(s, t0 + Math.max(0.003, atk) + Math.max(0.01, dec));
+  g.setValueAtTime(s, relAt);
+  g.exponentialRampToValueAtTime(0.0001, relAt + Math.max(0.02, rel));
+}
+
+function noiseBurst(
+  ctx: BaseAudioContext,
+  seconds: number,
+  color: "white" | "pink",
+): AudioBuffer {
+  const n = Math.max(32, Math.floor(ctx.sampleRate * seconds));
+  const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  let b0 = 0;
+  let b1 = 0;
+  let b2 = 0;
+  for (let i = 0; i < n; i++) {
+    const w = Math.random() * 2 - 1;
+    if (color === "white") {
+      d[i] = w;
+    } else {
+      b0 = 0.99765 * b0 + w * 0.099046;
+      b1 = 0.963 * b1 + w * 0.2965164;
+      b2 = 0.57 * b2 + w * 1.0526913;
+      d[i] = b0 + b1 + b2 + w * 0.1848;
+    }
+  }
+  return buf;
+}
+
+function karplusBuffer(
+  ctx: BaseAudioContext,
+  freq: number,
+  seconds: number,
+  brightness: number,
+  decay: number,
+): AudioBuffer {
+  const sr = ctx.sampleRate;
+  const period = Math.max(2, Math.round(sr / Math.max(40, freq)));
+  const len = Math.max(period + 8, Math.floor(sr * seconds));
+  const buf = ctx.createBuffer(1, len, sr);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < period; i++) {
+    d[i] = (Math.random() * 2 - 1) * brightness;
+  }
+  // one-pole average in the loop — classic plucked string
+  const damp = Math.min(0.998, Math.max(0.9, decay));
+  for (let i = period; i < len; i++) {
+    const a = d[i - period] ?? 0;
+    const b = d[i - period + 1] ?? a;
+    d[i] = ((a + b) * 0.5) * damp;
+  }
+  return buf;
+}
+
+function addSine(
+  ctx: BaseAudioContext,
+  dest: AudioNode,
+  freq: number,
+  t0: number,
+  stopAt: number,
+  mix: number,
+  detune = 0,
+): OscillatorNode {
+  const osc = ctx.createOscillator();
+  osc.type = "sine";
+  osc.frequency.value = Math.max(20, freq);
+  osc.detune.value = detune;
+  const g = ctx.createGain();
+  g.gain.value = mix;
+  osc.connect(g);
+  g.connect(dest);
+  osc.start(t0);
+  osc.stop(stopAt);
+  return osc;
 }
 
 /** Schedule a note into dest. Live: pass a long duration and call stop() on release. */
@@ -308,74 +167,466 @@ export function startMidiVoice(
     instrument?: MidiInstrumentId;
   },
 ): LiveVoice {
-  const patch = PATCHES[opts.instrument ?? "piano"] ?? PATCHES.piano;
+  const id = opts.instrument ?? "piano";
   const freq = midiToHz(opts.midi);
-  const vel = Math.max(0.15, Math.min(1, opts.velocity));
-  const peak = patch.peak * vel;
+  const vel = Math.max(0.12, Math.min(1, opts.velocity));
   const t0 = opts.t0;
-  const dur = Math.max(0.04, opts.duration);
-  const atk = patch.attack;
-  const dec = patch.decay;
-  const rel = patch.release;
-  const sus = peak * patch.sustain;
-
+  const dur = Math.max(0.05, opts.duration);
+  const sources: AudioScheduledSourceNode[] = [];
   const amp = ctx.createGain();
-  amp.gain.setValueAtTime(0.0001, t0);
-  amp.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t0 + atk);
-  amp.gain.exponentialRampToValueAtTime(
-    Math.max(0.0002, sus),
-    t0 + atk + dec,
-  );
-  const releaseAt = t0 + dur;
-  amp.gain.setValueAtTime(Math.max(0.0002, sus), releaseAt);
-  amp.gain.exponentialRampToValueAtTime(0.0001, releaseAt + rel);
+  amp.gain.value = 1;
 
-  const filt = ctx.createBiquadFilter();
-  filt.type = patch.filterType;
-  filt.frequency.setValueAtTime(patch.cutoff(opts.midi), t0);
-  filt.Q.value = patch.q;
-  // Pluck / guitar: close the filter over the note
-  if (opts.instrument === "guitar" || opts.instrument === "pluck") {
-    filt.frequency.exponentialRampToValueAtTime(
-      Math.max(180, patch.cutoff(opts.midi) * 0.25),
-      t0 + Math.min(0.35, dur + rel),
-    );
-  }
+  const stopAtDefault = t0 + dur + 1.4;
+  let releaseAt = t0 + dur;
+  let releaseSec = 0.12;
 
-  amp.connect(filt);
-  filt.connect(dest);
-
-  const oscs: OscillatorNode[] = [];
-  for (const o of patch.oscs) {
-    const osc = ctx.createOscillator();
-    osc.type = o.type;
-    osc.frequency.value = freq * o.ratio;
-    osc.detune.value = o.detune;
-    const mix = ctx.createGain();
-    mix.gain.value = o.mix;
-    osc.connect(mix);
-    mix.connect(amp);
-    osc.start(t0);
-    osc.stop(releaseAt + rel + 0.05);
-    oscs.push(osc);
-  }
-
-  return {
-    stop: (when) => {
-      const t = when ?? ctx.currentTime;
+  const stop = (when?: number) => {
+    const t = when ?? ctx.currentTime;
+    try {
+      amp.gain.cancelScheduledValues(t);
+      amp.gain.setTargetAtTime(0.0001, t, 0.045);
+    } catch {
+      /* noop */
+    }
+    for (const s of sources) {
       try {
-        amp.gain.cancelScheduledValues(t);
-        amp.gain.setTargetAtTime(0.0001, t, 0.04);
+        s.stop(t + 0.18);
       } catch {
-        /* noop */
+        /* already */
       }
-      for (const osc of oscs) {
-        try {
-          osc.stop(t + 0.12);
-        } catch {
-          /* noop */
-        }
-      }
-    },
+    }
   };
+
+  const out = (node: AudioNode) => {
+    node.connect(amp);
+  };
+
+  if (id === "piano") {
+    releaseSec = 0.28;
+    const body = ctx.createGain();
+    out(body);
+    const B = 0.00032;
+    const partials = [
+      [1, 1],
+      [2, 0.48],
+      [3, 0.24],
+      [4, 0.14],
+      [5, 0.09],
+      [6, 0.055],
+      [7, 0.032],
+      [8, 0.02],
+    ] as const;
+    const peak = 0.13 * vel;
+    for (const [n, ampN] of partials) {
+      const g = ctx.createGain();
+      const decay = 1.7 / Math.pow(n, 0.72);
+      envExp(
+        g.gain,
+        t0,
+        peak * ampN,
+        0.004,
+        decay * 0.35,
+        peak * ampN * 0.08,
+        releaseAt,
+        releaseSec + 0.08 * n,
+      );
+      const stretch = n * freq * Math.sqrt(1 + B * n * n);
+      sources.push(addSine(ctx, g, stretch, t0, stopAtDefault, 1));
+      g.connect(body);
+    }
+    const hammer = ctx.createBufferSource();
+    hammer.buffer = noiseBurst(ctx, 0.012, "white");
+    const hp = ctx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = 1800 + opts.midi * 18;
+    const hg = ctx.createGain();
+    hg.gain.setValueAtTime(0.0001, t0);
+    hg.gain.exponentialRampToValueAtTime(0.07 * vel, t0 + 0.004);
+    hg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.035);
+    hammer.connect(hp);
+    hp.connect(hg);
+    hg.connect(body);
+    hammer.start(t0);
+    hammer.stop(t0 + 0.05);
+    sources.push(hammer);
+    amp.connect(dest);
+    return { stop };
+  }
+
+  if (id === "epiano") {
+    releaseSec = 0.32;
+    const car = ctx.createOscillator();
+    car.type = "sine";
+    car.frequency.value = freq;
+    const mod = ctx.createOscillator();
+    mod.type = "sine";
+    mod.frequency.value = freq * 14;
+    const idx = ctx.createGain();
+    const indexPeak = freq * (2.2 + vel * 3.4);
+    idx.gain.setValueAtTime(0.0001, t0);
+    idx.gain.exponentialRampToValueAtTime(indexPeak, t0 + 0.005);
+    idx.gain.exponentialRampToValueAtTime(indexPeak * 0.12, t0 + 0.42);
+    idx.gain.setValueAtTime(indexPeak * 0.12, releaseAt);
+    idx.gain.exponentialRampToValueAtTime(0.0001, releaseAt + releaseSec);
+    mod.connect(idx);
+    idx.connect(car.frequency);
+    const tone = ctx.createGain();
+    envExp(tone.gain, t0, 0.16 * vel, 0.004, 0.38, 0.035 * vel, releaseAt, releaseSec);
+    car.connect(tone);
+    // tine click
+    const tine = ctx.createOscillator();
+    tine.type = "sine";
+    tine.frequency.value = freq * 7.2;
+    const tg = ctx.createGain();
+    tg.gain.setValueAtTime(0.04 * vel, t0);
+    tg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.07);
+    tine.connect(tg);
+    tg.connect(tone);
+    out(tone);
+    car.start(t0);
+    mod.start(t0);
+    tine.start(t0);
+    car.stop(stopAtDefault);
+    mod.stop(stopAtDefault);
+    tine.stop(t0 + 0.1);
+    sources.push(car, mod, tine);
+    amp.connect(dest);
+    return { stop };
+  }
+
+  if (id === "organ") {
+    releaseSec = 0.05;
+    const mix = ctx.createGain();
+    mix.gain.value = 1;
+    // Hammond-ish drawbars 16' 8' 5⅓' 4' 2⅔' 2' 1⅗'
+    const bars: [number, number][] = [
+      [0.5, 0.55],
+      [1, 0.85],
+      [1.5, 0.32],
+      [2, 0.45],
+      [3, 0.22],
+      [4, 0.16],
+      [6, 0.08],
+    ];
+    const peak = 0.07 * vel;
+    envExp(amp.gain, t0, 1, 0.008, 0.03, 0.92, releaseAt, releaseSec);
+    for (const [ratio, w] of bars) {
+      sources.push(addSine(ctx, mix, freq * ratio, t0, stopAtDefault, peak * w));
+    }
+    const click = ctx.createBufferSource();
+    click.buffer = noiseBurst(ctx, 0.008, "white");
+    const cg = ctx.createGain();
+    cg.gain.setValueAtTime(0.05 * vel, t0);
+    cg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.02);
+    click.connect(cg);
+    cg.connect(mix);
+    click.start(t0);
+    click.stop(t0 + 0.03);
+    sources.push(click);
+    out(mix);
+    amp.connect(dest);
+    return { stop };
+  }
+
+  if (id === "strings" || id === "pad") {
+    const slow = id === "pad";
+    releaseSec = slow ? 0.55 : 0.38;
+    const filt = ctx.createBiquadFilter();
+    filt.type = "lowpass";
+    const open = slow ? 1400 : 2200 + opts.midi * 8;
+    filt.frequency.setValueAtTime(400, t0);
+    filt.frequency.exponentialRampToValueAtTime(open, t0 + (slow ? 0.45 : 0.22));
+    filt.Q.value = 0.7;
+    envExp(
+      amp.gain,
+      t0,
+      1,
+      slow ? 0.32 : 0.16,
+      0.22,
+      0.82,
+      releaseAt,
+      releaseSec,
+    );
+    const detunes = slow ? [-16, -6, 6, 17] : [-11, -4, 5, 12];
+    const peak = (slow ? 0.045 : 0.055) * vel;
+    for (const cents of detunes) {
+      const osc = ctx.createOscillator();
+      osc.type = "sawtooth";
+      osc.frequency.value = freq;
+      osc.detune.value = cents;
+      const g = ctx.createGain();
+      g.gain.value = peak;
+      osc.connect(g);
+      g.connect(filt);
+      osc.start(t0);
+      osc.stop(stopAtDefault);
+      sources.push(osc);
+    }
+    out(filt);
+    amp.connect(dest);
+    return { stop };
+  }
+
+  if (id === "choir") {
+    releaseSec = 0.4;
+    envExp(amp.gain, t0, 1, 0.18, 0.2, 0.8, releaseAt, releaseSec);
+    const body = ctx.createGain();
+    body.gain.value = 0.07 * vel;
+    const formants: [number, number][] = [
+      [620, 1],
+      [1220, 0.55],
+      [2550, 0.22],
+    ];
+    for (const cents of [-10, 0, 11]) {
+      const osc = ctx.createOscillator();
+      osc.type = "sawtooth";
+      osc.frequency.value = freq;
+      osc.detune.value = cents;
+      osc.start(t0);
+      osc.stop(stopAtDefault);
+      sources.push(osc);
+      for (const [hz, w] of formants) {
+        const bp = ctx.createBiquadFilter();
+        bp.type = "bandpass";
+        bp.frequency.value = hz;
+        bp.Q.value = 6;
+        const g = ctx.createGain();
+        g.gain.value = w;
+        osc.connect(bp);
+        bp.connect(g);
+        g.connect(body);
+      }
+    }
+    out(body);
+    amp.connect(dest);
+    return { stop };
+  }
+
+  if (id === "flute") {
+    releaseSec = 0.12;
+    envExp(amp.gain, t0, 1, 0.055, 0.1, 0.75, releaseAt, releaseSec);
+    const mix = ctx.createGain();
+    sources.push(addSine(ctx, mix, freq, t0, stopAtDefault, 0.16 * vel));
+    sources.push(addSine(ctx, mix, freq * 2, t0, stopAtDefault, 0.025 * vel));
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 5.2;
+    const lfoG = ctx.createGain();
+    lfoG.gain.setValueAtTime(0, t0);
+    lfoG.gain.linearRampToValueAtTime(9, t0 + 0.35);
+    lfo.connect(lfoG);
+    // apply to first sine via detune — reconnect through mix children is hard;
+    // add a carrier we can detune
+    const vib = ctx.createOscillator();
+    vib.type = "sine";
+    vib.frequency.value = freq;
+    lfoG.connect(vib.detune);
+    const vg = ctx.createGain();
+    vg.gain.value = 0.12 * vel;
+    vib.connect(vg);
+    vg.connect(mix);
+    vib.start(t0);
+    lfo.start(t0);
+    vib.stop(stopAtDefault);
+    lfo.stop(stopAtDefault);
+    sources.push(vib, lfo);
+    const breath = ctx.createBufferSource();
+    breath.buffer = noiseBurst(ctx, Math.min(dur + 0.2, 2.5), "pink");
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = freq * 2.2;
+    bp.Q.value = 0.7;
+    const bg = ctx.createGain();
+    bg.gain.setValueAtTime(0.03 * vel, t0);
+    bg.gain.exponentialRampToValueAtTime(0.008 * vel, t0 + 0.12);
+    breath.connect(bp);
+    bp.connect(bg);
+    bg.connect(mix);
+    breath.start(t0);
+    breath.stop(stopAtDefault);
+    sources.push(breath);
+    out(mix);
+    amp.connect(dest);
+    return { stop };
+  }
+
+  if (id === "clarinet") {
+    releaseSec = 0.12;
+    envExp(amp.gain, t0, 1, 0.045, 0.12, 0.78, releaseAt, releaseSec);
+    const mix = ctx.createGain();
+    const odds: [number, number][] = [
+      [1, 0.16],
+      [3, 0.07],
+      [5, 0.035],
+      [7, 0.018],
+      [9, 0.01],
+    ];
+    for (const [n, w] of odds) {
+      sources.push(addSine(ctx, mix, freq * n, t0, stopAtDefault, w * vel));
+    }
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 1600;
+    mix.connect(lp);
+    out(lp);
+    amp.connect(dest);
+    return { stop };
+  }
+
+  if (id === "sax") {
+    releaseSec = 0.14;
+    envExp(amp.gain, t0, 1, 0.04, 0.14, 0.76, releaseAt, releaseSec);
+    const osc = ctx.createOscillator();
+    osc.type = "sawtooth";
+    osc.frequency.value = freq;
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = 720 + opts.midi * 6;
+    bp.Q.value = 2.2;
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 2800;
+    const g = ctx.createGain();
+    g.gain.value = 0.12 * vel;
+    osc.connect(bp);
+    bp.connect(lp);
+    lp.connect(g);
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 4.8;
+    const lg = ctx.createGain();
+    lg.gain.setValueAtTime(0, t0);
+    lg.gain.linearRampToValueAtTime(7, t0 + 0.28);
+    lfo.connect(lg);
+    lg.connect(osc.detune);
+    osc.start(t0);
+    lfo.start(t0);
+    osc.stop(stopAtDefault);
+    lfo.stop(stopAtDefault);
+    sources.push(osc, lfo);
+    out(g);
+    amp.connect(dest);
+    return { stop };
+  }
+
+  if (id === "guitar" || id === "pluck") {
+    releaseSec = id === "pluck" ? 0.08 : 0.16;
+    const bright = (id === "pluck" ? 0.95 : 0.72) * (0.55 + vel * 0.45);
+    const decay = id === "pluck" ? 0.972 : 0.988 - (opts.midi - 40) * 0.00025;
+    const buf = karplusBuffer(ctx, freq, Math.min(dur + 1.2, 3.2), bright, decay);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.setValueAtTime(3200 + vel * 1800, t0);
+    lp.frequency.exponentialRampToValueAtTime(420, t0 + (id === "pluck" ? 0.18 : 0.4));
+    const g = ctx.createGain();
+    envExp(g.gain, t0, 0.34 * vel, 0.002, 0.08, 0.12 * vel, releaseAt, releaseSec);
+    src.connect(lp);
+    lp.connect(g);
+    src.start(t0);
+    src.stop(stopAtDefault);
+    sources.push(src);
+    out(g);
+    amp.connect(dest);
+    return { stop };
+  }
+
+  if (id === "bass") {
+    releaseSec = 0.12;
+    envExp(amp.gain, t0, 1, 0.006, 0.14, 0.62, releaseAt, releaseSec);
+    const mix = ctx.createGain();
+    sources.push(addSine(ctx, mix, freq, t0, stopAtDefault, 0.22 * vel));
+    sources.push(addSine(ctx, mix, freq * 2, t0, stopAtDefault, 0.05 * vel));
+    const click = ctx.createOscillator();
+    click.type = "triangle";
+    click.frequency.value = freq * 3;
+    const cg = ctx.createGain();
+    cg.gain.setValueAtTime(0.08 * vel, t0);
+    cg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.05);
+    click.connect(cg);
+    cg.connect(mix);
+    click.start(t0);
+    click.stop(t0 + 0.08);
+    sources.push(click);
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 520;
+    mix.connect(lp);
+    out(lp);
+    amp.connect(dest);
+    return { stop };
+  }
+
+  if (id === "lead") {
+    releaseSec = 0.1;
+    const filt = ctx.createBiquadFilter();
+    filt.type = "lowpass";
+    filt.Q.value = 1.6;
+    const open = 900 + vel * 2800 + opts.midi * 12;
+    filt.frequency.setValueAtTime(open, t0);
+    filt.frequency.exponentialRampToValueAtTime(480, t0 + 0.22);
+    envExp(amp.gain, t0, 1, 0.012, 0.1, 0.7, releaseAt, releaseSec);
+    for (const cents of [-7, 0, 8]) {
+      const osc = ctx.createOscillator();
+      osc.type = "sawtooth";
+      osc.frequency.value = freq;
+      osc.detune.value = cents;
+      const g = ctx.createGain();
+      g.gain.value = 0.07 * vel;
+      osc.connect(g);
+      g.connect(filt);
+      osc.start(t0);
+      osc.stop(stopAtDefault);
+      sources.push(osc);
+    }
+    out(filt);
+    amp.connect(dest);
+    return { stop };
+  }
+
+  if (id === "bells") {
+    releaseSec = 0.7;
+    envExp(amp.gain, t0, 1, 0.003, 0.55, 0.06, releaseAt, releaseSec);
+    const mix = ctx.createGain();
+    const parts: [number, number][] = [
+      [1, 0.14],
+      [2.76, 0.07],
+      [5.4, 0.035],
+      [8.21, 0.016],
+    ];
+    for (const [r, w] of parts) {
+      sources.push(addSine(ctx, mix, freq * r, t0, stopAtDefault, w * vel));
+    }
+    out(mix);
+    amp.connect(dest);
+    return { stop };
+  }
+
+  // square / chip
+  releaseSec = 0.05;
+  envExp(amp.gain, t0, 1, 0.004, 0.05, 0.72, releaseAt, releaseSec);
+  const osc = ctx.createOscillator();
+  osc.type = "square";
+  osc.frequency.value = freq;
+  const sub = ctx.createOscillator();
+  sub.type = "square";
+  sub.frequency.value = freq * 2;
+  const lp = ctx.createBiquadFilter();
+  lp.type = "lowpass";
+  lp.frequency.value = 3200 + opts.midi * 20;
+  const g1 = ctx.createGain();
+  g1.gain.value = 0.1 * vel;
+  const g2 = ctx.createGain();
+  g2.gain.value = 0.025 * vel;
+  osc.connect(g1);
+  sub.connect(g2);
+  g1.connect(lp);
+  g2.connect(lp);
+  osc.start(t0);
+  sub.start(t0);
+  osc.stop(stopAtDefault);
+  sub.stop(stopAtDefault);
+  sources.push(osc, sub);
+  out(lp);
+  amp.connect(dest);
+  return { stop };
 }

@@ -7,6 +7,7 @@ import {
 
 import appCss from "../styles.css?url";
 import { CreatedWithGrokBanner } from "@/components/created-with-grok-banner";
+import { YoutubePlayerHost } from "@/components/editor/youtube-player-host";
 import { AuthProvider } from "@/lib/auth/provider";
 
 const APP_NAME = "Fuwari REC";
@@ -59,6 +60,7 @@ function RootComponent() {
       <body>
         <AuthProvider>
           <Outlet />
+          <YoutubePlayerHost />
           <CreatedWithGrokBanner />
         </AuthProvider>
         <Scripts />

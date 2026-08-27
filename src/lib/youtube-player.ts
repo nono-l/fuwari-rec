@@ -1,7 +1,4 @@
-/**
- * Thin controller around the official YouTube IFrame API.
- * Lets the studio transport play / pause / stop / seek the embed.
- */
+export const YT_PLAYER_ELEMENT_ID = "fuwari-yt-player";
 
 export type YtPlayerState = -1 | 0 | 1 | 2 | 3 | 5;
 
@@ -45,11 +42,11 @@ declare global {
   }
 }
 
-let player: YtPlayer | null = null;
-let ready = false;
+type Slot = { player: YtPlayer; ready: boolean };
+
+const slots = new Map<string, Slot>();
 let apiPromise: Promise<void> | null = null;
-let onEndedCb: (() => void) | null = null;
-let onReadyCb: (() => void) | null = null;
+let onEndedCb: ((clipId: string) => void) | null = null;
 
 export function loadYouTubeApi(): Promise<void> {
   if (typeof window === "undefined") return Promise.resolve();
@@ -86,15 +83,25 @@ export function loadYouTubeApi(): Promise<void> {
   return apiPromise;
 }
 
-export function setYouTubeEndedHandler(cb: (() => void) | null) {
+export function setYouTubeEndedHandler(cb: ((clipId: string) => void) | null) {
   onEndedCb = cb;
 }
 
-export function setYouTubeReadyHandler(cb: (() => void) | null) {
-  onReadyCb = cb;
+export function setYouTubeReadyHandler(_cb: (() => void) | null) {
+  /* kept for compatibility */
+}
+
+function idsOf(ids?: string[]) {
+  if (ids?.length) return ids.filter((id) => slots.has(id));
+  return [...slots.keys()];
+}
+
+function readyIds(ids?: string[]) {
+  return idsOf(ids).filter((id) => slots.get(id)?.ready);
 }
 
 export async function mountYouTubePlayer(
+  clipId: string,
   elementId: string,
   videoId: string,
 ): Promise<void> {
@@ -104,8 +111,7 @@ export async function mountYouTubePlayer(
     throw new Error("YouTube API を読み込めませんでした");
   }
 
-  destroyYouTubePlayer();
-  ready = false;
+  destroyYouTubePlayer(clipId);
 
   await new Promise<void>((resolve, reject) => {
     let settled = false;
@@ -116,7 +122,7 @@ export async function mountYouTubePlayer(
     };
 
     try {
-      player = new YT.Player(elementId, {
+      const player = new YT.Player(elementId, {
         videoId,
         width: "100%",
         height: "100%",
@@ -132,13 +138,13 @@ export async function mountYouTubePlayer(
         },
         events: {
           onReady: () => {
-            ready = true;
-            onReadyCb?.();
+            const slot = slots.get(clipId);
+            if (slot) slot.ready = true;
             finish();
           },
           onStateChange: (e: { data: number }) => {
             if (e.data === YT.PlayerState.ENDED) {
-              onEndedCb?.();
+              onEndedCb?.(clipId);
             }
           },
           onError: () => {
@@ -146,6 +152,7 @@ export async function mountYouTubePlayer(
           },
         },
       });
+      slots.set(clipId, { player, ready: false });
     } catch (err) {
       reject(err);
       return;
@@ -155,84 +162,102 @@ export async function mountYouTubePlayer(
   });
 }
 
-export function destroyYouTubePlayer() {
-  if (player) {
+export function destroyYouTubePlayer(clipId?: string) {
+  const ids = clipId ? [clipId] : [...slots.keys()];
+  for (const id of ids) {
+    const slot = slots.get(id);
+    if (!slot) continue;
     try {
-      player.destroy();
+      slot.player.destroy();
     } catch {
       /* already gone */
     }
-  }
-  player = null;
-  ready = false;
-}
-
-export function isYouTubePlayerReady() {
-  return ready && !!player;
-}
-
-export function youtubePlay() {
-  if (!ready || !player) return false;
-  try {
-    player.playVideo();
-    return true;
-  } catch {
-    return false;
+    slots.delete(id);
   }
 }
 
-export function youtubePause() {
-  if (!ready || !player) return;
-  try {
-    player.pauseVideo();
-  } catch {
-    /* noop */
+export function isYouTubePlayerReady(clipId?: string) {
+  if (clipId) return !!slots.get(clipId)?.ready;
+  return [...slots.values()].some((s) => s.ready);
+}
+
+export function youtubePlay(ids?: string[]) {
+  let ok = false;
+  for (const id of readyIds(ids)) {
+    try {
+      slots.get(id)!.player.playVideo();
+      ok = true;
+    } catch {
+      /* noop */
+    }
+  }
+  return ok;
+}
+
+export function youtubePause(ids?: string[]) {
+  for (const id of readyIds(ids)) {
+    try {
+      slots.get(id)!.player.pauseVideo();
+    } catch {
+      /* noop */
+    }
   }
 }
 
-export function youtubeStop() {
-  if (!ready || !player) return;
-  try {
-    player.stopVideo();
-    player.seekTo(0, true);
-  } catch {
-    /* noop */
+export function youtubeStop(ids?: string[]) {
+  for (const id of readyIds(ids)) {
+    try {
+      const p = slots.get(id)!.player;
+      p.stopVideo();
+      p.seekTo(0, true);
+    } catch {
+      /* noop */
+    }
   }
 }
 
-export function youtubeSeek(seconds: number) {
-  if (!ready || !player) return;
-  try {
-    player.seekTo(Math.max(0, seconds), true);
-  } catch {
-    /* noop */
+export function youtubeSeek(seconds: number, ids?: string[]) {
+  const t = Math.max(0, seconds);
+  for (const id of readyIds(ids)) {
+    try {
+      slots.get(id)!.player.seekTo(t, true);
+    } catch {
+      /* noop */
+    }
   }
 }
 
-export function youtubeGetCurrentTime() {
-  if (!ready || !player) return 0;
-  try {
-    return player.getCurrentTime() || 0;
-  } catch {
-    return 0;
+export function youtubeGetCurrentTime(ids?: string[]) {
+  for (const id of readyIds(ids)) {
+    try {
+      return slots.get(id)!.player.getCurrentTime() || 0;
+    } catch {
+      /* next */
+    }
   }
+  return 0;
 }
 
-export function youtubeGetDuration() {
-  if (!ready || !player) return 0;
-  try {
-    return player.getDuration() || 0;
-  } catch {
-    return 0;
+export function youtubeGetDuration(ids?: string[]) {
+  let max = 0;
+  for (const id of readyIds(ids)) {
+    try {
+      max = Math.max(max, slots.get(id)!.player.getDuration() || 0);
+    } catch {
+      /* next */
+    }
   }
+  return max;
 }
 
-export function youtubeSetMuted(muted: boolean) {
-  if (!ready || !player) return;
-  try {
-    if (muted) player.mute();
-    else player.unMute();
-  } catch {
-    /* noop */
+export function youtubeSetMuted(muted: boolean, ids?: string[]) {
+  for (const id of readyIds(ids)) {
+    try {
+      const p = slots.get(id)!.player;
+      if (muted) p.mute();
+      else p.unMute();
+    } catch {
+      /* noop */
+    }
   }
 }

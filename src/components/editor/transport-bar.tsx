@@ -57,7 +57,8 @@ export function TransportBar() {
   };
 
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-3 shadow-sm sm:flex-row sm:flex-wrap sm:items-center sm:p-4">
+    <div className="sticky top-[calc(var(--grok-banner-h,0px)+3.5rem)] z-30 -mx-4 mb-3 border-y border-border bg-background/92 px-4 py-2.5 shadow-sm backdrop-blur-md sm:-mx-6 sm:px-6">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
       <div className="flex items-center gap-2">
         <Button
           type="button"
@@ -177,6 +178,7 @@ export function TransportBar() {
             : statusMessage ||
               "赤い「録音」を押すと時間が進み、もう一度押すと止まります"}
         </p>
+      </div>
       </div>
     </div>
   );
