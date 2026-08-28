@@ -248,10 +248,20 @@ export class AudioEngine {
   }
 
   setSpectrumFilters(filters: SpectrumFilter[]) {
-    this.spectrumFilters = filters.slice(0, 8);
+    const next = filters.slice(0, 8);
+    const prevChain = this.spectrumFilters
+      .filter((f) => f.enabled)
+      .map((f) => f.id)
+      .join(">");
+    this.spectrumFilters = next;
     if (!this.ctx || !this.eqIn || !this.eqOut) return;
     const active = this.spectrumFilters.filter((f) => f.enabled);
-    if (active.length === this.eqNodes.length && this.eqNodes.length > 0) {
+    const nextChain = active.map((f) => f.id).join(">");
+    if (
+      nextChain === prevChain &&
+      active.length === this.eqNodes.length &&
+      this.eqNodes.length > 0
+    ) {
       for (let i = 0; i < active.length; i++) {
         applyFilterToBiquad(this.eqNodes[i]!, active[i]!);
       }

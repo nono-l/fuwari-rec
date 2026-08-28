@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Activity, Check, Pencil, Trash2 } from "lucide-react";
+import { Activity, Check, ChevronDown, ChevronUp, Pencil, Trash2 } from "lucide-react";
 import { getAudioEngine } from "@/lib/audio/engine";
 import {
   FILTER_KINDS,
@@ -97,6 +97,7 @@ export function SpectrumAnalyzer({
   const updateSpectrumFilter = useEditorStore((s) => s.updateSpectrumFilter);
   const removeSpectrumFilter = useEditorStore((s) => s.removeSpectrumFilter);
   const toggleSpectrumFilter = useEditorStore((s) => s.toggleSpectrumFilter);
+  const moveSpectrumFilter = useEditorStore((s) => s.moveSpectrumFilter);
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
 
@@ -637,6 +638,7 @@ export function SpectrumAnalyzer({
       <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
         ローパス／ハイパス／ノッチ／バンドパスをかけた直後の音です。切れ方がバーと波形に出ます。
         縦線をタップするとすぐフィルターがかかります。種類・周波数・幅は動かした瞬間に反映されます。
+        リストは上から下の順にかかります。↑↓で入れ替えできます。
       </p>
 
       {draft && (
@@ -802,7 +804,7 @@ export function SpectrumAnalyzer({
 
       {filters.length > 0 && (
         <ul className="mt-3 space-y-1.5">
-          {filters.map((f) => (
+          {filters.map((f, i) => (
             <li
               key={f.id}
               className={cn(
@@ -810,6 +812,31 @@ export function SpectrumAnalyzer({
                 !f.enabled && "opacity-55",
               )}
             >
+              <div className="flex shrink-0 flex-col">
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="ghost"
+                  disabled={i === 0}
+                  onClick={() => moveSpectrumFilter(f.id, -1)}
+                  aria-label="上へ（先にかける）"
+                >
+                  <ChevronUp className="size-3.5" />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="ghost"
+                  disabled={i === filters.length - 1}
+                  onClick={() => moveSpectrumFilter(f.id, 1)}
+                  aria-label="下へ（後にかける）"
+                >
+                  <ChevronDown className="size-3.5" />
+                </Button>
+              </div>
+              <span className="w-4 shrink-0 text-center text-[10px] tabular-nums text-muted-foreground">
+                {i + 1}
+              </span>
               <button
                 type="button"
                 onClick={() => toggleSpectrumFilter(f.id)}

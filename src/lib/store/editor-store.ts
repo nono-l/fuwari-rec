@@ -48,6 +48,7 @@ import {
 import {
   MAX_SPECTRUM_FILTERS,
   newSpectrumFilter,
+  shiftSpectrumFilter,
   type SpectrumFilter,
   type SpectrumFilterKind,
 } from "@/lib/audio/spectrum-filters";
@@ -72,6 +73,7 @@ import {
   youtubeSeek,
   youtubeStop,
   youtubeSetMuted,
+  youtubeKeepPlaying,
   setYouTubeEndedHandler,
 } from "@/lib/youtube-player";
 import { downloadBlob } from "@/lib/utils";
@@ -104,6 +106,7 @@ function makeTrack(partial?: Partial<Track>): Track {
 }
 
 let ytClockRaf = 0;
+let ytKeepAt = 0;
 let liveMeterRaf = 0;
 let rangeRaf = 0;
 let deviceUnsub: (() => void) | null = null;
@@ -307,6 +310,7 @@ export interface EditorState {
   updateSpectrumFilter: (id: string, patch: Partial<SpectrumFilter>) => void;
   removeSpectrumFilter: (id: string) => void;
   toggleSpectrumFilter: (id: string) => void;
+  moveSpectrumFilter: (id: string, delta: -1 | 1) => void;
   replaceSpectrumFilters: (filters: SpectrumFilter[]) => void;
   applyFxSnapshot: (snap: FxSnapshot) => void;
   captureFxSnapshot: (name: string) => FxSnapshot;
@@ -380,6 +384,12 @@ function startYtClock(
       });
     } else if (ytDur > 0 && ytDur > s.duration) {
       set({ duration: ytDur });
+    }
+
+    const now = typeof performance !== "undefined" ? performance.now() : 0;
+    if (now - ytKeepAt > 200) {
+      ytKeepAt = now;
+      youtubeKeepPlaying(ids);
     }
 
     ytClockRaf = requestAnimationFrame(tick);
@@ -494,9 +504,15 @@ function syncYoutubePlay(get: () => EditorState) {
   const s = get();
   const ids = syncedClipIds(s);
   if (!ids.length || !ids.some((id) => isYouTubePlayerReady(id))) return false;
-  youtubeSeek(s.currentTime, ids);
   applyYoutubeMutes(s);
-  return youtubePlay(ids);
+  // Play first in the same user-gesture tick. Seek after — seekTo often
+  // swallows a playVideo issued in the same moment.
+  const ok = youtubePlay(ids);
+  if (s.currentTime > 0.2) {
+    youtubeSeek(s.currentTime, ids);
+    window.setTimeout(() => youtubePlay(ids), 120);
+  }
+  return ok;
 }
 
 function syncYoutubePause(get: () => EditorState) {
@@ -1604,10 +1620,22 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         : get().statusMessage,
     });
     if (ready) {
-      const ids = syncedClipIds(get());
+      const st = get();
+      const ids = syncedClipIds(st);
       const d = youtubeGetDuration(ids);
-      if (d > 0) set({ duration: Math.max(get().duration, d) });
-      applyYoutubeMutes(get());
+      if (d > 0) set({ duration: Math.max(st.duration, d) });
+      applyYoutubeMutes(st);
+      if (
+        clipId &&
+        (st.status === "playing" || st.status === "recording") &&
+        ids.includes(clipId)
+      ) {
+        youtubePlay([clipId]);
+        if (st.currentTime > 0.2) {
+          youtubeSeek(st.currentTime, [clipId]);
+          window.setTimeout(() => youtubePlay([clipId]), 120);
+        }
+      }
     }
   },
 
@@ -1627,6 +1655,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       c.id === id ? { ...c, sync } : c,
     );
     set(clipDerived(clips));
+    const st = get();
+    if (!sync) {
+      youtubePause([id]);
+      return;
+    }
+    if (
+      st.youtubeSync &&
+      (st.status === "playing" || st.status === "recording")
+    ) {
+      applyYoutubeMutes(st);
+      youtubePlay([id]);
+      if (st.currentTime > 0.2) youtubeSeek(st.currentTime, [id]);
+    }
   },
 
   setYoutubeClipMuted: (id, muted) => {
@@ -2114,6 +2155,24 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       f.id === id ? { ...f, enabled: !f.enabled } : f,
     );
     set({ spectrumFilters });
+    try {
+      getAudioEngine().setSpectrumFilters(spectrumFilters);
+    } catch {
+      /* not ready */
+    }
+  },
+
+  moveSpectrumFilter: (id, delta) => {
+    const spectrumFilters = shiftSpectrumFilter(get().spectrumFilters, id, delta);
+    if (spectrumFilters === get().spectrumFilters) return;
+    const idx = spectrumFilters.findIndex((f) => f.id === id);
+    set({
+      spectrumFilters,
+      statusMessage:
+        idx >= 0
+          ? `フィルター順 ${idx + 1}/${spectrumFilters.length}（上が先）`
+          : "フィルター順を変更",
+    });
     try {
       getAudioEngine().setSpectrumFilters(spectrumFilters);
     } catch {

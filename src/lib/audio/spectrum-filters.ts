@@ -191,3 +191,21 @@ export function chainSpectrumFilters(
   }
   return prev;
 }
+
+/** List order is the DSP chain: index 0 (top) is applied first. */
+export function shiftSpectrumFilter(
+  filters: SpectrumFilter[],
+  id: string,
+  delta: -1 | 1,
+): SpectrumFilter[] {
+  const i = filters.findIndex((f) => f.id === id);
+  if (i < 0) return filters;
+  const j = i + delta;
+  if (j < 0 || j >= filters.length) return filters;
+  const next = filters.slice();
+  const [item] = next.splice(i, 1);
+  if (!item) return filters;
+  next.splice(j, 0, item);
+  return next;
+}
+
