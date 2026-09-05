@@ -125,15 +125,7 @@ export function RemoteStorePanel() {
     return {
       version: 1,
       savedAt: new Date().toISOString(),
-      master: {
-        volume: master.volume,
-        pitchSemitones: master.pitchSemitones,
-        formantDb: master.formantDb,
-        reverbMix: master.reverbMix,
-        compressor: master.compressor,
-        noise: master.noise,
-        preset: master.preset,
-      },
+      master: { ...master },
       range: {
         minHz: rangeMinHz,
         maxHz: rangeMaxHz,
@@ -166,15 +158,7 @@ export function RemoteStorePanel() {
   const applySettings = useCallback(
     (data: FuwariRemoteSettings) => {
       if (data.master) {
-        setMaster({
-          volume: data.master.volume,
-          pitchSemitones: data.master.pitchSemitones,
-          formantDb: data.master.formantDb,
-          reverbMix: data.master.reverbMix,
-          compressor: data.master.compressor,
-          noise: data.master.noise ?? 0,
-          preset: data.master.preset as typeof master.preset,
-        });
+        setMaster({ ...data.master });
       }
       if (typeof data.bpm === "number") setBpm(data.bpm);
       useEditorStore.setState({

@@ -1,4 +1,6 @@
 /** Fuwari-specific profile. Core stays app-agnostic. */
+import type { MasterFx } from "@/lib/audio/types";
+
 export const FUWARI_APP = {
   id: "fuwari",
   name: "Fuwari REC",
@@ -11,15 +13,7 @@ export const FUWARI_APP = {
 export type FuwariRemoteSettings = {
   version: 1;
   savedAt: string;
-  master: {
-    volume: number;
-    pitchSemitones: number;
-    formantDb: number;
-    reverbMix: number;
-    compressor: number;
-    noise?: number;
-    preset: string;
-  };
+  master: MasterFx;
   range?: {
     minHz: number | null;
     maxHz: number | null;

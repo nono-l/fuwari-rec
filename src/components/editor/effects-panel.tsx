@@ -5,6 +5,8 @@ import { cn } from "@/lib/utils";
 import { useEditorStore } from "@/lib/store/editor-store";
 import { SpectrumAnalyzer } from "@/components/editor/spectrum-analyzer";
 import { FxLibraryPanel } from "@/components/editor/fx-library-panel";
+import { ObsFilterRack } from "@/components/editor/obs-filter-rack";
+import { DEFAULT_MASTER_FX } from "@/lib/audio/obs-filters";
 import {
   AudioLines,
   Power,
@@ -45,8 +47,7 @@ export function EffectsPanel({
   const setVoiceAmount = useEditorStore((s) => s.setVoiceAmount);
 
   const resetFx = () => {
-    applyPreset("original");
-    setMaster({ volume: 1 });
+    setMaster({ ...DEFAULT_MASTER_FX });
   };
 
   const isPage = layout === "page";
@@ -153,6 +154,8 @@ export function EffectsPanel({
           )}
         </div>
       </section>
+
+      <ObsFilterRack />
 
       <section
         className={cn(
@@ -366,10 +369,10 @@ export function EffectsPanel({
         <div className="mb-4">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground sm:text-base">
             <SlidersHorizontal className="size-4 text-primary" />
-            エフェクト
+            MIX・声色
           </h2>
           <p className="mt-1 text-[11px] text-muted-foreground sm:text-xs">
-            ライブマイクとトラック再生の両方にかかります。録音しなくても使えます。
+            ピッチ・フォルマント・残響。音量とダイナミクスは上のフィルター表から。
           </p>
         </div>
 
@@ -380,18 +383,6 @@ export function EffectsPanel({
               "sm:grid sm:grid-cols-2 sm:gap-x-8 sm:gap-y-6 sm:space-y-0",
           )}
         >
-          <FxRow
-            label="マスター音量"
-            valueLabel={`${Math.round(master.volume * 100)}%`}
-          >
-            <Slider
-              min={0}
-              max={150}
-              step={1}
-              value={[Math.round(master.volume * 100)]}
-              onValueChange={([v]) => setMaster({ volume: (v ?? 100) / 100 })}
-            />
-          </FxRow>
           <FxRow
             label="簡易ピッチシフト"
             valueLabel={formatPitchLabel(master.pitchSemitones)}
@@ -435,39 +426,6 @@ export function EffectsPanel({
               value={[Math.round(master.reverbMix * 100)]}
               onValueChange={([v]) =>
                 setMaster({ reverbMix: (v ?? 0) / 100, preset: "original" })
-              }
-            />
-          </FxRow>
-          <FxRow
-            label="ノイズ抑え"
-            valueLabel={
-              master.noise < 0.02
-                ? "オフ"
-                : `${Math.round(master.noise * 100)}%`
-            }
-            hint="エアコンやファンのサー向け。かけすぎると息や高音が痩せます"
-          >
-            <Slider
-              min={0}
-              max={100}
-              step={1}
-              value={[Math.round((master.noise ?? 0) * 100)]}
-              onValueChange={([v]) =>
-                setMaster({ noise: (v ?? 0) / 100, preset: "original" })
-              }
-            />
-          </FxRow>
-          <FxRow
-            label="コンプレッサー"
-            valueLabel={`${Math.round(master.compressor * 100)}%`}
-          >
-            <Slider
-              min={0}
-              max={100}
-              step={1}
-              value={[Math.round(master.compressor * 100)]}
-              onValueChange={([v]) =>
-                setMaster({ compressor: (v ?? 0) / 100, preset: "original" })
               }
             />
           </FxRow>

@@ -1,4 +1,5 @@
 import type { MasterFx, MixPresetId } from "./types";
+import { normalizeMasterFx } from "./obs-filters";
 import type { RoomProfile } from "./room-profile";
 import { ROOM_FFT } from "./room-profile";
 import {
@@ -133,25 +134,11 @@ function normalizeProfile(raw: unknown): RoomProfile | null {
 
 export function normalizeSnapshot(raw: Partial<FxSnapshot>): FxSnapshot {
   const masterRaw = (raw.master ?? {}) as Partial<MasterFx>;
-  const mix = MIX_IDS.has(masterRaw.preset as MixPresetId)
-    ? (masterRaw.preset as MixPresetId)
-    : "original";
   return {
     id: str(raw.id, newFxId()),
     name: str(raw.name, "無名").trim() || "無名",
     savedAt: str(raw.savedAt, new Date().toISOString()),
-    master: {
-      volume: clamp01(num(masterRaw.volume, 1)),
-      pitchSemitones: Math.max(
-        -12,
-        Math.min(12, num(masterRaw.pitchSemitones, 0)),
-      ),
-      formantDb: Math.max(-12, Math.min(12, num(masterRaw.formantDb, 0))),
-      reverbMix: clamp01(num(masterRaw.reverbMix, 0.15)),
-      compressor: clamp01(num(masterRaw.compressor, 0.3)),
-      noise: clamp01(num(masterRaw.noise, 0)),
-      preset: mix,
-    },
+    master: normalizeMasterFx(masterRaw),
     filters: (raw.filters ?? [])
       .map((f) => normalizeFilter(f))
       .filter((f): f is SpectrumFilter => !!f)
@@ -193,7 +180,7 @@ export function snapshotToXml(snap: FxSnapshot): string {
     )
     .join("\n");
   return `  <preset id="${esc(snap.id)}" name="${esc(snap.name)}" savedAt="${esc(snap.savedAt)}">
-    <master volume="${m.volume}" pitch="${m.pitchSemitones}" formant="${m.formantDb}" reverb="${m.reverbMix}" compressor="${m.compressor}" noise="${m.noise}" mix="${m.preset}"/>
+    <master volume="${m.volume}" pitch="${m.pitchSemitones}" formant="${m.formantDb}" reverb="${m.reverbMix}" compressor="${m.compressor}" noise="${m.noise}" gate="${m.gate}" eqLow="${m.eqLow}" eqMid="${m.eqMid}" eqHigh="${m.eqHigh}" upward="${m.upward}" expander="${m.expander}" limiter="${m.limiter}" phase="${m.phaseInvert ? "true" : "false"}" mix="${m.preset}"/>
     <filters>
 ${filters || "      <!-- none -->"}
     </filters>
@@ -274,6 +261,14 @@ function parsePresetEl(el: Element): FxSnapshot {
       reverbMix: num(masterEl ? attr(masterEl, "reverb") : 0.15, 0.15),
       compressor: num(masterEl ? attr(masterEl, "compressor") : 0.3, 0.3),
       noise: num(masterEl ? attr(masterEl, "noise") : 0, 0),
+      gate: num(masterEl ? attr(masterEl, "gate") : 0, 0),
+      eqLow: num(masterEl ? attr(masterEl, "eqLow") : 0, 0),
+      eqMid: num(masterEl ? attr(masterEl, "eqMid") : 0, 0),
+      eqHigh: num(masterEl ? attr(masterEl, "eqHigh") : 0, 0),
+      upward: num(masterEl ? attr(masterEl, "upward") : 0, 0),
+      expander: num(masterEl ? attr(masterEl, "expander") : 0, 0),
+      limiter: num(masterEl ? attr(masterEl, "limiter") : 0.25, 0.25),
+      phaseInvert: (masterEl ? attr(masterEl, "phase") : "false") === "true",
       preset: MIX_IDS.has(mixRaw) ? mixRaw : "original",
     },
     filters: filters.filter((f): f is SpectrumFilter => !!f),

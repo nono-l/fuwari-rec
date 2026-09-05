@@ -7,6 +7,7 @@ import {
   type Track,
   type TrackKind,
 } from "@/lib/audio/types";
+import { DEFAULT_MASTER_FX, normalizeMasterFx } from "@/lib/audio/obs-filters";
 import { getAudioEngine, type EngineStatus } from "@/lib/audio/engine";
 import {
   cloneAudioBuffer,
@@ -271,7 +272,7 @@ export interface EditorState {
   exportWav: () => Promise<void>;
   setLoopPoint: (which: "a" | "b" | "clear") => void;
   setYoutubeInput: (v: string) => void;
-  loadYoutube: (videoId: string) => void;
+  loadYoutube: (videoId: string, source?: string) => void;
   clearYoutube: () => void;
   removeYoutubeClip: (id: string) => void;
   setYoutubeReady: (ready: boolean, clipId?: string) => void;
@@ -537,15 +538,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   currentTime: 0,
   duration: 0,
   bpm: 120,
-  master: {
-    volume: 1,
-    pitchSemitones: 0,
-    formantDb: 0,
-    reverbMix: 0.15,
-    compressor: 0.3,
-    noise: 0,
-    preset: "original",
-  },
+  master: { ...DEFAULT_MASTER_FX },
   statusMessage: "準備完了",
   isExporting: false,
   isSeparating: false,
@@ -1490,7 +1483,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setMaster: (patch) => {
     set((s) => {
-      const master = { ...s.master, ...patch };
+      const master = normalizeMasterFx({ ...s.master, ...patch });
       try {
         getAudioEngine().applyMasterFx(master);
       } catch {
@@ -1557,7 +1550,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setYoutubeInput: (v) => set({ youtubeInput: v }),
 
-  loadYoutube: (videoId) => {
+  loadYoutube: (videoId, source) => {
     const s = get();
     if (s.youtubeClips.length >= MAX_YOUTUBE_CLIPS) {
       set({
@@ -1567,7 +1560,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
     const clip = newYoutubeClip(
       videoId,
-      s.youtubeInput,
+      (source ?? s.youtubeInput).trim() || videoId,
       s.youtubeClips.length,
     );
     clip.sync = s.youtubeSync;
@@ -2213,7 +2206,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   applyFxSnapshot: (snap) => {
-    const master = { ...snap.master };
+    const master = normalizeMasterFx(snap.master);
     const spectrumFilters = snap.filters.map((f) => ({ ...f }));
     set({
       master,

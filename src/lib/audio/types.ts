@@ -41,6 +41,15 @@ export interface MasterFx {
   compressor: number;
   /** 0 = off. High-pass + expander-style gate for room hiss / fan. */
   noise: number;
+  /** Independent noise gate amount (OBS ノイズゲート). */
+  gate: number;
+  eqLow: number;
+  eqMid: number;
+  eqHigh: number;
+  upward: number;
+  expander: number;
+  limiter: number;
+  phaseInvert: boolean;
   preset: MixPresetId;
 }
 

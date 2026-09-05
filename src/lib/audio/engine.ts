@@ -16,8 +16,17 @@ import {
   chainSpectrumFilters,
   type SpectrumFilter,
 } from "./spectrum-filters";
+import {
+  applyCompressorParams,
+  applyEq3,
+  applyLimiterParams,
+  createEq3,
+  processObsDynamics,
+  DEFAULT_MASTER_FX,
+} from "./obs-filters";
 import roomWorkletUrl from "./worklets/room-subtract.js?url";
 import pitchWorkletUrl from "./worklets/pitch-shift.js?url";
+import dynamicsWorkletUrl from "./worklets/obs-dynamics.js?url";
 
 function createImpulse(ctx: BaseAudioContext, duration = 1.8, decay = 2.2) {
   const rate = ctx.sampleRate;
@@ -99,14 +108,27 @@ export class AudioEngine {
   private ctx: AudioContextWithSink | null = null;
   private masterGain: GainNode | null = null;
   private compressor: DynamicsCompressorNode | null = null;
+  private limiter: DynamicsCompressorNode | null = null;
+  private phaseGain: GainNode | null = null;
   private highShelf: BiquadFilterNode | null = null;
+  private eq3: {
+    lo: BiquadFilterNode;
+    mid: BiquadFilterNode;
+    hi: BiquadFilterNode;
+  } | null = null;
   private noiseHp: BiquadFilterNode | null = null;
   private noiseLp: BiquadFilterNode | null = null;
   private gateGain: GainNode | null = null;
   private gateAnalyser: AnalyserNode | null = null;
   private gateData: Uint8Array | null = null;
   private noiseAmount = 0;
+  private gateAmount = 0;
   private gateSmoothed = 1;
+  private dynIn: GainNode | null = null;
+  private dynOut: GainNode | null = null;
+  private dynNode: AudioWorkletNode | null = null;
+  private dynWorkletReady = false;
+  private lastFx: MasterFx | null = null;
   private roomPre: GainNode | null = null;
   private roomPost: GainNode | null = null;
   private roomNode: AudioWorkletNode | null = null;
@@ -419,12 +441,22 @@ export class AudioEngine {
     this.highShelf.frequency.value = 3200;
     this.highShelf.gain.value = 0;
 
+    const eq3 = createEq3(ctx, DEFAULT_MASTER_FX);
+    this.eq3 = { lo: eq3.lo, mid: eq3.mid, hi: eq3.hi };
+
     this.compressor = ctx.createDynamicsCompressor();
-    this.compressor.threshold.value = -24;
-    this.compressor.knee.value = 12;
-    this.compressor.ratio.value = 4;
-    this.compressor.attack.value = 0.01;
-    this.compressor.release.value = 0.25;
+    applyCompressorParams(this.compressor, 0.3);
+
+    this.dynIn = ctx.createGain();
+    this.dynOut = ctx.createGain();
+    this.dynIn.gain.value = 1;
+    this.dynOut.gain.value = 1;
+
+    this.limiter = ctx.createDynamicsCompressor();
+    applyLimiterParams(this.limiter, 0.25);
+
+    this.phaseGain = ctx.createGain();
+    this.phaseGain.gain.value = 1;
 
     this.reverb = ctx.createConvolver();
     this.reverb.buffer = createImpulse(ctx);
@@ -459,38 +491,48 @@ export class AudioEngine {
     this.noiseHp.connect(this.noiseLp);
     this.noiseLp.connect(this.gateGain);
     this.noiseHp.connect(this.gateAnalyser);
-    this.gateGain.connect(this.eqIn);
+    this.gateGain.connect(eq3.input);
+    eq3.output.connect(this.eqIn);
     this.eqIn.connect(this.eqOut);
     this.eqOut.connect(this.highShelf);
     this.eqOut.connect(this.specAnalyser);
     this.highShelf.connect(this.compressor);
-    this.compressor.connect(this.dryGain);
-    this.compressor.connect(this.reverb);
+    this.compressor.connect(this.dynIn);
+    this.dynIn.connect(this.dynOut);
+    this.dynOut.connect(this.limiter);
+    this.limiter.connect(this.phaseGain);
+    this.phaseGain.connect(this.dryGain);
+    this.phaseGain.connect(this.reverb);
     this.reverb.connect(this.wetGain);
     this.dryGain.connect(this.analyser);
     this.wetGain.connect(this.analyser);
     this.analyser.connect(this.masterGain);
     this.masterGain.connect(ctx.destination);
     this.rebuildEq();
+    void this.ensureDynamicsWorklet();
   }
 
   applyMasterFx(fx: MasterFx) {
     this.getContext();
+    this.lastFx = fx;
     this.masterVolume = fx.volume;
     this.applyOutputMute();
     if (this.highShelf) this.highShelf.gain.value = fx.formantDb;
+    if (this.eq3) applyEq3(this.eq3, fx);
     if (this.dryGain && this.wetGain) {
       this.dryGain.gain.value = 1 - fx.reverbMix;
       this.wetGain.gain.value = fx.reverbMix;
     }
-    if (this.compressor) {
-      this.compressor.threshold.value = -12 - fx.compressor * 24;
-      this.compressor.ratio.value = 2 + fx.compressor * 10;
-    }
+    if (this.compressor) applyCompressorParams(this.compressor, fx.compressor);
+    if (this.limiter) applyLimiterParams(this.limiter, fx.limiter ?? 0);
+    if (this.phaseGain) this.phaseGain.gain.value = fx.phaseInvert ? -1 : 1;
     this.applyNoiseAmount(fx.noise ?? 0);
+    this.gateAmount = Math.max(0, Math.min(1, fx.gate ?? 0));
+    this.pushDynamicsParams();
     this.pitchRate = Math.pow(2, fx.pitchSemitones / 12);
     this.livePitchSemitones = fx.pitchSemitones ?? 0;
     void this.ensureRoomWorklet();
+    void this.ensureDynamicsWorklet();
     void this.ensurePitchWorklet().then(() => this.reconnectLiveChain());
   }
 
@@ -499,15 +541,12 @@ export class AudioEngine {
     const p = noiseParams(this.noiseAmount);
     if (this.noiseHp) this.noiseHp.frequency.value = p.hp;
     if (this.noiseLp) this.noiseLp.frequency.value = p.lp;
-    if (!p.gateOn && this.gateGain) {
-      this.gateSmoothed = 1;
-      this.gateGain.gain.value = 1;
-    }
   }
 
   private tickNoiseGate() {
+    if (this.dynNode) return;
     if (!this.gateAnalyser || !this.gateData || !this.gateGain) return;
-    const p = noiseParams(this.noiseAmount);
+    const p = noiseParams(this.gateAmount);
     if (!p.gateOn) {
       if (this.gateSmoothed !== 1) {
         this.gateSmoothed = 1;
@@ -531,6 +570,57 @@ export class AudioEngine {
       this.ctx?.currentTime ?? 0,
       0.015,
     );
+  }
+
+  private pushDynamicsParams() {
+    if (!this.dynNode || !this.lastFx) return;
+    const t = this.ctx?.currentTime ?? 0;
+    const set = (name: string, value: number) => {
+      const p = this.dynNode?.parameters.get(name);
+      if (!p) return;
+      p.setTargetAtTime(value, t, 0.03);
+    };
+    set("gate", this.lastFx.gate ?? 0);
+    set("upward", this.lastFx.upward ?? 0);
+    set("expander", this.lastFx.expander ?? 0);
+  }
+
+  private async ensureDynamicsWorklet() {
+    if (this.dynWorkletReady || !this.ctx) return;
+    if (typeof AudioWorkletNode === "undefined") return;
+    try {
+      await this.ctx.audioWorklet.addModule(dynamicsWorkletUrl);
+      this.dynWorkletReady = true;
+      this.attachDynamicsNode();
+    } catch {
+      this.dynWorkletReady = false;
+    }
+  }
+
+  private attachDynamicsNode() {
+    if (!this.ctx || !this.dynIn || !this.dynOut || !this.dynWorkletReady) return;
+    if (this.dynNode) return;
+    try {
+      this.dynNode = new AudioWorkletNode(this.ctx, "obs-dynamics", {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [2],
+      });
+    } catch {
+      return;
+    }
+    try {
+      this.dynIn.disconnect();
+    } catch {
+      /* noop */
+    }
+    this.dynIn.connect(this.dynNode);
+    this.dynNode.connect(this.dynOut);
+    if (this.gateGain) {
+      this.gateSmoothed = 1;
+      this.gateGain.gain.value = 1;
+    }
+    this.pushDynamicsParams();
   }
 
   private async ensureRoomWorklet() {
@@ -1419,12 +1509,16 @@ export class AudioEngine {
     highShelf.frequency.value = 3200;
     highShelf.gain.value = fx.formantDb;
 
+    const eq3 = createEq3(offline, fx);
+
     const compressor = offline.createDynamicsCompressor();
-    compressor.threshold.value = -12 - fx.compressor * 24;
-    compressor.knee.value = 12;
-    compressor.ratio.value = 2 + fx.compressor * 10;
-    compressor.attack.value = 0.01;
-    compressor.release.value = 0.25;
+    applyCompressorParams(compressor, fx.compressor);
+
+    const limiter = offline.createDynamicsCompressor();
+    applyLimiterParams(limiter, fx.limiter ?? 0);
+
+    const phase = offline.createGain();
+    phase.gain.value = fx.phaseInvert ? -1 : 1;
 
     const reverb = offline.createConvolver();
     reverb.buffer = createImpulse(offline);
@@ -1438,11 +1532,14 @@ export class AudioEngine {
 
     bus.connect(noiseHp);
     noiseHp.connect(noiseLp);
-    const afterEq = chainSpectrumFilters(offline, noiseLp, spectrumFilters);
-    afterEq.connect(highShelf);
+    noiseLp.connect(eq3.input);
+    const afterSpec = chainSpectrumFilters(offline, eq3.output, spectrumFilters);
+    afterSpec.connect(highShelf);
     highShelf.connect(compressor);
-    compressor.connect(dry);
-    compressor.connect(reverb);
+    compressor.connect(limiter);
+    limiter.connect(phase);
+    phase.connect(dry);
+    phase.connect(reverb);
     reverb.connect(wet);
     dry.connect(master);
     wet.connect(master);
@@ -1457,14 +1554,12 @@ export class AudioEngine {
       if (track.muted) continue;
       if (anySolo && !track.solo) continue;
 
-      const prepared = np.gateOn
-        ? gateAudioBuffer(track.buffer, fx.noise ?? 0)
-        : track.buffer;
+      const gated = processObsDynamics(track.buffer, fx);
       const src = offline.createBufferSource();
       src.buffer =
         room?.profile && roomAmt > 0.02
-          ? subtractRoomFromBuffer(prepared, room.profile, roomAmt)
-          : prepared;
+          ? subtractRoomFromBuffer(gated, room.profile, roomAmt)
+          : gated;
       src.playbackRate.value = rate;
 
       const g = offline.createGain();
