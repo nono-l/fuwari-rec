@@ -94,3 +94,50 @@ export function identitiesToFields(ids: XproofIdentity[]) {
     .map((i) => i.username);
   return { xHandle: x, youtube };
 }
+
+export const XPROOF_CONNECT_SOURCE = "xproof-connect";
+
+export type XproofGrantMessage = {
+  source: typeof XPROOF_CONNECT_SOURCE;
+  type: "granted";
+  client?: string;
+  token: string;
+  state?: string;
+  identities?: XproofIdentity[];
+};
+
+export function parseXproofGrant(
+  origin: string,
+  data: unknown,
+  expectedState: string | null,
+): XproofGrantMessage | null {
+  if (origin !== XPROOF_ORIGIN) return null;
+  if (!data || typeof data !== "object") return null;
+  const rec = data as Record<string, unknown>;
+  if (rec.source !== XPROOF_CONNECT_SOURCE || rec.type !== "granted") return null;
+  if (typeof rec.token !== "string" || !rec.token.trim()) return null;
+  if (rec.state && expectedState && rec.state !== expectedState) return null;
+  const identities: XproofIdentity[] = [];
+  if (Array.isArray(rec.identities)) {
+    for (const item of rec.identities) {
+      if (!item || typeof item !== "object") continue;
+      const row = item as Record<string, unknown>;
+      const platform = String(row.platform ?? "");
+      const username = slugifyHandle(String(row.username ?? ""));
+      if (
+        (platform === "x" || platform === "youtube" || platform === "dns") &&
+        username
+      ) {
+        identities.push({ platform, username });
+      }
+    }
+  }
+  return {
+    source: XPROOF_CONNECT_SOURCE,
+    type: "granted",
+    client: typeof rec.client === "string" ? rec.client : undefined,
+    token: rec.token.trim(),
+    state: typeof rec.state === "string" ? rec.state : undefined,
+    identities,
+  };
+}

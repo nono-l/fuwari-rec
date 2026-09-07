@@ -31,6 +31,7 @@ import { XPROOF_ORIGIN } from "@/lib/profile/types";
 import {
   clearXproofState,
   newXproofState,
+  parseXproofGrant,
   parseYoutubeHandle,
   readXproofState,
   slugifyHandle,
@@ -44,8 +45,6 @@ import { semitoneSpan, hzToMidi } from "@/lib/audio/pitch";
 const searchSchema = z.object({
   token: z.string().optional(),
   state: z.string().optional(),
-  x: z.string().optional(),
-  youtube: z.string().optional(),
   error: z.string().optional(),
 });
 
@@ -124,58 +123,54 @@ function ProfileEditor() {
       );
   }, [user?.displayName]);
 
+  const applyGrant = async (grantToken: string) => {
+    setBusy(true);
+    try {
+      const result = await linkXproof({ data: { token: grantToken } });
+      clearXproofState();
+      setProfile(result.profile);
+      setXInput(result.profile.xHandle);
+      setYtInput(result.profile.youtube.join(", "));
+      setMessage(
+        result.profile.xproofLinked
+          ? "XProof とつなぎました"
+          : result.consumeError || "許可情報を受け取れませんでした",
+      );
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "連携に失敗しました");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   useEffect(() => {
-    if (!search.token && !search.x && !search.youtube) return;
+    if (!search.token) return;
     const expected = readXproofState();
     if (search.state && expected && search.state !== expected) {
       setMessage("連携の状態が一致しません。もう一度つなぎ直してください。");
       return;
     }
-    void (async () => {
-      setBusy(true);
-      try {
-        const youtube = (search.youtube ?? "")
-          .split(/[,\s]+/)
-          .map((s) => parseYoutubeHandle(s))
-          .filter((s): s is string => Boolean(s));
-        const result = await linkXproof({
-          data: {
-            token: search.token,
-            xHandle: search.x,
-            youtube,
-            identities: [
-              ...(search.x
-                ? ([{ platform: "x" as const, username: search.x }] as const)
-                : []),
-              ...youtube.map((u) => ({
-                platform: "youtube" as const,
-                username: u,
-              })),
-            ],
-          },
-        });
-        clearXproofState();
-        setProfile(result.profile);
-        setXInput(result.profile.xHandle);
-        setYtInput(result.profile.youtube.join(", "));
-        setMessage(
-          result.profile.xproofLinked
-            ? "XProof とつなぎました"
-            : result.consumeError ||
-                "トークンは受け取りました。X と YouTube を確認して保存してください",
-        );
-      } catch (e) {
-        setMessage(e instanceof Error ? e.message : "連携に失敗しました");
-      } finally {
-        setBusy(false);
-      }
-    })();
-  }, [search.token, search.x, search.youtube, search.state]);
+    void applyGrant(search.token);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.token, search.state]);
+
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      const grant = parseXproofGrant(e.origin, e.data, readXproofState());
+      if (!grant) return;
+      void applyGrant(grant.token);
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const startConnect = () => {
     const state = newXproofState();
     const returnTo = `${window.location.origin}/profile`;
-    window.location.href = xproofConnectUrl(returnTo, state);
+    const url = xproofConnectUrl(returnTo, state);
+    const popup = window.open(url, "xproof-connect", "width=480,height=780");
+    if (!popup) window.location.href = url;
   };
 
   const saveBasics = async () => {
@@ -299,8 +294,8 @@ function ProfileEditor() {
               XProof と連携
             </h2>
             <p className="mt-1 max-w-xl text-[11px] leading-relaxed text-muted-foreground sm:text-xs">
-              XProof で X や YouTube の所有者証明をしたあと、ここに戻します。
-              ニックネームは「Fuwari REC」で発行してください。
+              XProof で渡してよい X / YouTube を選ぶと、JSON で戻ります。
+              URL にハンドルは出ません。
             </p>
           </div>
           <a
@@ -367,8 +362,8 @@ function ProfileEditor() {
 
         <ol className="mt-4 list-decimal space-y-1 pl-5 text-[11px] text-muted-foreground sm:text-xs">
           <li>「XProof でつなぐ」で証明アプリを開く</li>
-          <li>X / YouTube を証明し、Tauth チャレンジを発行する</li>
-          <li>戻ってきたら完了。戻らないときは下にトークンを貼る</li>
+          <li>渡してよいアカウントにチェックして許可する</li>
+          <li>この画面に JSON で戻る。戻らないときは下にトークンを貼る</li>
         </ol>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
