@@ -63,6 +63,7 @@ export function RemoteStorePanel() {
   const [ipStats, setIpStats] = useState<AccessIpItem[]>([]);
 
   const master = useEditorStore((s) => s.master);
+  const obsInserts = useEditorStore((s) => s.obsInserts);
   const bpm = useEditorStore((s) => s.bpm);
   const rangeMinHz = useEditorStore((s) => s.rangeMinHz);
   const rangeMaxHz = useEditorStore((s) => s.rangeMaxHz);
@@ -70,6 +71,7 @@ export function RemoteStorePanel() {
   const rangeMaxNote = useEditorStore((s) => s.rangeMaxNote);
   const mediaRangeResult = useEditorStore((s) => s.mediaRangeResult);
   const setMaster = useEditorStore((s) => s.setMaster);
+  const replaceObsInserts = useEditorStore((s) => s.replaceObsInserts);
   const setBpm = useEditorStore((s) => s.setBpm);
   const setStatusMessage = useEditorStore((s) => s.setStatusMessage);
 
@@ -126,6 +128,7 @@ export function RemoteStorePanel() {
       version: 1,
       savedAt: new Date().toISOString(),
       master: { ...master },
+      inserts: obsInserts.map((f) => ({ ...f })),
       range: {
         minHz: rangeMinHz,
         maxHz: rangeMaxHz,
@@ -147,6 +150,7 @@ export function RemoteStorePanel() {
     };
   }, [
     master,
+    obsInserts,
     bpm,
     rangeMinHz,
     rangeMaxHz,
@@ -159,6 +163,9 @@ export function RemoteStorePanel() {
     (data: FuwariRemoteSettings) => {
       if (data.master) {
         setMaster({ ...data.master });
+      }
+      if (data.inserts) {
+        replaceObsInserts(data.inserts);
       }
       if (typeof data.bpm === "number") setBpm(data.bpm);
       useEditorStore.setState({
@@ -183,7 +190,7 @@ export function RemoteStorePanel() {
           : null,
       });
     },
-    [setMaster, setBpm, master.preset],
+    [setMaster, replaceObsInserts, setBpm, master.preset],
   );
 
   const refreshSnaps = useCallback(async () => {

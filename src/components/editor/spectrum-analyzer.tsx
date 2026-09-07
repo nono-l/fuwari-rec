@@ -22,6 +22,12 @@ import {
   type SpectrumFilter,
   type SpectrumFilterKind,
 } from "@/lib/audio/spectrum-filters";
+import { assembleLiveFx } from "@/lib/audio/live-fx";
+import { catalogMeta } from "@/lib/audio/obs-filters";
+import {
+  InsertControl,
+  insertSummary,
+} from "@/components/editor/obs-filter-rack";
 import { useEditorStore } from "@/lib/store/editor-store";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -93,15 +99,22 @@ export function SpectrumAnalyzer({
   const wrapRef = useRef<HTMLDivElement>(null);
   const peakHzRef = useRef<HTMLSpanElement>(null);
   const filters = useEditorStore((s) => s.spectrumFilters);
+  const obsInserts = useEditorStore((s) => s.obsInserts);
+  const liveChain = useEditorStore((s) => s.liveChain);
+  const liveItems = assembleLiveFx(liveChain, filters, obsInserts);
   const addSpectrumFilter = useEditorStore((s) => s.addSpectrumFilter);
   const updateSpectrumFilter = useEditorStore((s) => s.updateSpectrumFilter);
   const removeSpectrumFilter = useEditorStore((s) => s.removeSpectrumFilter);
   const toggleSpectrumFilter = useEditorStore((s) => s.toggleSpectrumFilter);
-  const moveSpectrumFilter = useEditorStore((s) => s.moveSpectrumFilter);
+  const moveLiveSlot = useEditorStore((s) => s.moveLiveSlot);
+  const updateObsInsert = useEditorStore((s) => s.updateObsInsert);
+  const removeObsInsert = useEditorStore((s) => s.removeObsInsert);
+  const toggleObsInsert = useEditorStore((s) => s.toggleObsInsert);
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
 
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [obsEditId, setObsEditId] = useState<string | null>(null);
   const [hoverHz, setHoverHz] = useState<number | null>(null);
   const draftRef = useRef(draft);
   draftRef.current = draft;
@@ -637,8 +650,7 @@ export function SpectrumAnalyzer({
       </div>
       <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
         ローパス／ハイパス／ノッチ／バンドパスをかけた直後の音です。切れ方がバーと波形に出ます。
-        縦線をタップするとすぐフィルターがかかります。種類・周波数・幅は動かした瞬間に反映されます。
-        リストは上から下の順にかかります。↑↓で入れ替えできます。
+        縦線をタップすると帯域フィルターがかかります。下の種類表からゲインやコンプも、この同じリストに入ります。上が先。↑↓で入れ替えできます。
       </p>
 
       {draft && (
@@ -802,92 +814,186 @@ export function SpectrumAnalyzer({
         </div>
       )}
 
-      {filters.length > 0 && (
+      {liveItems.length > 0 && (
         <ul className="mt-3 space-y-1.5">
-          {filters.map((f, i) => (
-            <li
-              key={f.id}
-              className={cn(
-                "flex items-center gap-2 rounded-xl border border-border bg-card px-2.5 py-2",
-                !f.enabled && "opacity-55",
-              )}
-            >
-              <div className="flex shrink-0 flex-col">
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  disabled={i === 0}
-                  onClick={() => moveSpectrumFilter(f.id, -1)}
-                  aria-label="上へ（先にかける）"
+          {liveItems.map((item, i) => {
+            if (item.family === "spectrum") {
+              const f = item.filter;
+              return (
+                <li
+                  key={f.id}
+                  className={cn(
+                    "flex items-center gap-2 rounded-xl border border-border bg-card px-2.5 py-2",
+                    !f.enabled && "opacity-55",
+                  )}
                 >
-                  <ChevronUp className="size-3.5" />
-                </Button>
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  disabled={i === filters.length - 1}
-                  onClick={() => moveSpectrumFilter(f.id, 1)}
-                  aria-label="下へ（後にかける）"
-                >
-                  <ChevronDown className="size-3.5" />
-                </Button>
-              </div>
-              <span className="w-4 shrink-0 text-center text-[10px] tabular-nums text-muted-foreground">
-                {i + 1}
-              </span>
-              <button
-                type="button"
-                onClick={() => toggleSpectrumFilter(f.id)}
+                  <div className="flex shrink-0 flex-col">
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="ghost"
+                      disabled={i === 0}
+                      onClick={() => moveLiveSlot(f.id, -1)}
+                      aria-label="上へ（先にかける）"
+                    >
+                      <ChevronUp className="size-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="ghost"
+                      disabled={i === liveItems.length - 1}
+                      onClick={() => moveLiveSlot(f.id, 1)}
+                      aria-label="下へ（後にかける）"
+                    >
+                      <ChevronDown className="size-3.5" />
+                    </Button>
+                  </div>
+                  <span className="w-4 shrink-0 text-center text-[10px] tabular-nums text-muted-foreground">
+                    {i + 1}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => toggleSpectrumFilter(f.id)}
+                    className={cn(
+                      "size-2.5 shrink-0 rounded-full",
+                      f.enabled ? "bg-primary" : "bg-muted-foreground/40",
+                    )}
+                    aria-label={f.enabled ? "オフにする" : "オンにする"}
+                    style={f.enabled ? { backgroundColor: KIND_COLOR[f.kind] } : undefined}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-xs font-medium text-foreground">
+                      {f.name}
+                    </div>
+                    <div className="truncate text-[10px] text-muted-foreground">
+                      {filterKindLabel(f.kind)} · {formatHz(f.hz)}
+                      {usesBandWidth(f.kind)
+                        ? ` · 幅 ${formatHz(bandWidthHz(f.hz, f.q))}`
+                        : ""}
+                      {usesGain(f.kind) ? ` · ${formatGainDb(f.gain ?? 0)}` : ""}
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    onClick={() => openEdit(f)}
+                    aria-label="編集"
+                  >
+                    <Pencil className="size-3.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    onClick={() => {
+                      if (draft?.id === f.id) setDraft(null);
+                      removeSpectrumFilter(f.id);
+                    }}
+                    aria-label="削除"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </li>
+              );
+            }
+            const ins = item.insert;
+            const meta = catalogMeta(ins.kind);
+            const selected = obsEditId === ins.id;
+            return (
+              <li
+                key={ins.id}
                 className={cn(
-                  "size-2.5 shrink-0 rounded-full",
-                  f.enabled ? "bg-primary" : "bg-muted-foreground/40",
+                  "rounded-xl border border-border bg-card px-2.5 py-2",
+                  selected && "ring-1 ring-primary/40",
+                  !ins.enabled && "opacity-55",
                 )}
-                aria-label={f.enabled ? "オフにする" : "オンにする"}
-                style={f.enabled ? { backgroundColor: KIND_COLOR[f.kind] } : undefined}
-              />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-xs font-medium text-foreground">
-                  {f.name}
-                </div>
-                <div className="truncate text-[10px] text-muted-foreground">
-                  {filterKindLabel(f.kind)} · {formatHz(f.hz)}
-                  {usesBandWidth(f.kind)
-                    ? ` · 幅 ${formatHz(bandWidthHz(f.hz, f.q))}`
-                    : ""}
-                  {usesGain(f.kind) ? ` · ${formatGainDb(f.gain ?? 0)}` : ""}
-                </div>
-              </div>
-              <Button
-                type="button"
-                size="icon-sm"
-                variant="ghost"
-                onClick={() => openEdit(f)}
-                aria-label="編集"
               >
-                <Pencil className="size-3.5" />
-              </Button>
-              <Button
-                type="button"
-                size="icon-sm"
-                variant="ghost"
-                onClick={() => {
-                  if (draft?.id === f.id) setDraft(null);
-                  removeSpectrumFilter(f.id);
-                }}
-                aria-label="削除"
-              >
-                <Trash2 className="size-3.5" />
-              </Button>
-            </li>
-          ))}
+                <div className="flex items-center gap-2">
+                  <div className="flex shrink-0 flex-col">
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="ghost"
+                      disabled={i === 0}
+                      onClick={() => moveLiveSlot(ins.id, -1)}
+                      aria-label="上へ（先にかける）"
+                    >
+                      <ChevronUp className="size-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="ghost"
+                      disabled={i === liveItems.length - 1}
+                      onClick={() => moveLiveSlot(ins.id, 1)}
+                      aria-label="下へ（後にかける）"
+                    >
+                      <ChevronDown className="size-3.5" />
+                    </Button>
+                  </div>
+                  <span className="w-4 shrink-0 text-center text-[10px] tabular-nums text-muted-foreground">
+                    {i + 1}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => toggleObsInsert(ins.id)}
+                    className={cn(
+                      "size-2.5 shrink-0 rounded-full",
+                      ins.enabled ? "bg-primary" : "bg-muted-foreground/40",
+                    )}
+                    aria-label={ins.enabled ? "オフにする" : "オンにする"}
+                    style={
+                      ins.enabled && meta
+                        ? { backgroundColor: meta.bar }
+                        : undefined
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left"
+                    onClick={() =>
+                      setObsEditId((id) => (id === ins.id ? null : ins.id))
+                    }
+                  >
+                    <div className="truncate text-xs font-medium text-foreground">
+                      {ins.name}
+                    </div>
+                    <div className="truncate text-[10px] text-muted-foreground">
+                      {selected ? meta?.role : insertSummary(ins)}
+                    </div>
+                  </button>
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    onClick={() => {
+                      if (obsEditId === ins.id) setObsEditId(null);
+                      removeObsInsert(ins.id);
+                    }}
+                    aria-label="削除"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </div>
+                {selected && (
+                  <div className="mt-2 pl-11 pr-1">
+                    <InsertControl
+                      insert={ins}
+                      onPatch={(patch) => updateObsInsert(ins.id, patch)}
+                    />
+                  </div>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
 
       {filters.length >= MAX_SPECTRUM_FILTERS && (
         <p className="mt-2 text-[11px] text-muted-foreground">
-          上限の {MAX_SPECTRUM_FILTERS} 個です。不要なものを消してから追加してください。
+          帯域フィルターは {MAX_SPECTRUM_FILTERS} 個までです。不要なものを消してから追加してください。
         </p>
       )}
     </div>

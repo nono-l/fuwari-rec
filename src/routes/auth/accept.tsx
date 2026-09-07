@@ -5,6 +5,7 @@ import { z } from "zod";
 
 const searchSchema = z.object({
   token: z.string().optional(),
+  next: z.string().optional(),
 });
 
 /**
@@ -17,7 +18,7 @@ export const Route = createFileRoute("/auth/accept")({
 });
 
 function AuthAccept() {
-  const { token } = Route.useSearch();
+  const { token, next } = Route.useSearch();
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
 
@@ -41,7 +42,13 @@ function AuthAccept() {
         } catch {
           /* ignore */
         }
-        await navigate({ to: "/" });
+        const dest =
+          next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
+        if (dest === "/") {
+          await navigate({ to: "/" });
+        } else {
+          window.location.assign(dest);
+        }
       } catch (e) {
         if (!cancelled) {
           setError(
@@ -53,7 +60,7 @@ function AuthAccept() {
     return () => {
       cancelled = true;
     };
-  }, [token, navigate]);
+  }, [token, next, navigate]);
 
   return (
     <main className="grid min-h-dvh place-items-center bg-background px-4">

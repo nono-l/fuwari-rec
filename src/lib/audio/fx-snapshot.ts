@@ -1,7 +1,15 @@
 import type { MasterFx, MixPresetId } from "./types";
-import { normalizeMasterFx } from "./obs-filters";
+import {
+  insertsFromMaster,
+  labelObsInserts,
+  MAX_OBS_INSERTS,
+  normalizeMasterFx,
+  normalizeObsInsert,
+  type ObsInsert,
+} from "./obs-filters";
 import type { RoomProfile } from "./room-profile";
 import { ROOM_FFT } from "./room-profile";
+import { type LiveSlot, reconcileLiveChain } from "./live-fx";
 import {
   type SpectrumFilter,
   type SpectrumFilterKind,
@@ -17,6 +25,8 @@ export type FxSnapshot = {
   savedAt: string;
   master: MasterFx;
   filters: SpectrumFilter[];
+  inserts: ObsInsert[];
+  liveChain?: LiveSlot[];
   roomAmount: number;
   voiceAmount: number;
   roomProfile: RoomProfile | null;
@@ -134,15 +144,36 @@ function normalizeProfile(raw: unknown): RoomProfile | null {
 
 export function normalizeSnapshot(raw: Partial<FxSnapshot>): FxSnapshot {
   const masterRaw = (raw.master ?? {}) as Partial<MasterFx>;
+  const filters = (raw.filters ?? [])
+    .map((f) => normalizeFilter(f))
+    .filter((f): f is SpectrumFilter => !!f)
+    .slice(0, 8);
+  const inserts = labelObsInserts(
+    Array.isArray(raw.inserts)
+      ? (raw.inserts as Partial<ObsInsert>[])
+          .map((f) => normalizeObsInsert(f))
+          .filter((f): f is ObsInsert => !!f)
+          .slice(0, MAX_OBS_INSERTS)
+      : insertsFromMaster(normalizeMasterFx(masterRaw)),
+  );
+  const parsedChain = Array.isArray(raw.liveChain)
+    ? (raw.liveChain as LiveSlot[])
+        .filter(
+          (s) =>
+            s &&
+            (s.family === "spectrum" || s.family === "obs") &&
+            typeof s.id === "string",
+        )
+        .map((s) => ({ family: s.family, id: s.id }))
+    : [];
   return {
     id: str(raw.id, newFxId()),
     name: str(raw.name, "無名").trim() || "無名",
     savedAt: str(raw.savedAt, new Date().toISOString()),
     master: normalizeMasterFx(masterRaw),
-    filters: (raw.filters ?? [])
-      .map((f) => normalizeFilter(f))
-      .filter((f): f is SpectrumFilter => !!f)
-      .slice(0, 8),
+    filters,
+    inserts,
+    liveChain: reconcileLiveChain(parsedChain, filters, inserts),
     roomAmount: clamp01(num(raw.roomAmount, 0)),
     voiceAmount: clamp01(num(raw.voiceAmount, 0)),
     roomProfile: normalizeProfile(raw.roomProfile),
@@ -179,11 +210,26 @@ export function snapshotToXml(snap: FxSnapshot): string {
         `      <filter id="${esc(f.id)}" name="${esc(f.name)}" kind="${f.kind}" hz="${f.hz}" q="${f.q}" gain="${f.gain ?? 0}" enabled="${f.enabled ? "true" : "false"}"/>`,
     )
     .join("\n");
+  const inserts = (snap.inserts ?? [])
+    .map(
+      (f) =>
+        `      <insert id="${esc(f.id)}" kind="${f.kind}" name="${esc(f.name)}" enabled="${f.enabled ? "true" : "false"}" amount="${f.amount}" eqLow="${f.eqLow}" eqMid="${f.eqMid}" eqHigh="${f.eqHigh}" phase="${f.phaseInvert ? "true" : "false"}"/>`,
+    )
+    .join("\n");
+  const chain = (snap.liveChain ?? [])
+    .map((s) => `      <slot family="${s.family}" id="${esc(s.id)}"/>`)
+    .join("\n");
   return `  <preset id="${esc(snap.id)}" name="${esc(snap.name)}" savedAt="${esc(snap.savedAt)}">
     <master volume="${m.volume}" pitch="${m.pitchSemitones}" formant="${m.formantDb}" reverb="${m.reverbMix}" compressor="${m.compressor}" noise="${m.noise}" gate="${m.gate}" eqLow="${m.eqLow}" eqMid="${m.eqMid}" eqHigh="${m.eqHigh}" upward="${m.upward}" expander="${m.expander}" limiter="${m.limiter}" phase="${m.phaseInvert ? "true" : "false"}" mix="${m.preset}"/>
     <filters>
 ${filters || "      <!-- none -->"}
     </filters>
+    <inserts>
+${inserts || "      <!-- none -->"}
+    </inserts>
+    <chain>
+${chain || "      <!-- none -->"}
+    </chain>
 ${profileXml("room", snap.roomAmount, snap.roomProfile)}
 ${profileXml("voice", snap.voiceAmount, snap.voiceProfile)}
   </preset>`;
@@ -250,6 +296,34 @@ function parsePresetEl(el: Element): FxSnapshot {
       enabled: attr(f, "enabled", "true") !== "false",
     }),
   );
+  const insertParent = el.querySelector("inserts");
+  const inserts = insertParent
+    ? [...insertParent.querySelectorAll(":scope > insert")].map((f) =>
+        normalizeObsInsert({
+          id: attr(f, "id"),
+          kind: attr(f, "kind") as ObsInsert["kind"],
+          name: attr(f, "name"),
+          enabled: attr(f, "enabled", "true") !== "false",
+          amount: num(attr(f, "amount"), 0),
+          eqLow: num(attr(f, "eqLow"), 0),
+          eqMid: num(attr(f, "eqMid"), 0),
+          eqHigh: num(attr(f, "eqHigh"), 0),
+          phaseInvert: attr(f, "phase") === "true",
+        }),
+      )
+    : undefined;
+  const chainParent = el.querySelector("chain");
+  const liveChain = chainParent
+    ? [...chainParent.querySelectorAll(":scope > slot")]
+        .map((s) => ({
+          family: attr(s, "family"),
+          id: attr(s, "id"),
+        }))
+        .filter(
+          (s): s is LiveSlot =>
+            (s.family === "spectrum" || s.family === "obs") && !!s.id,
+        )
+    : undefined;
   return normalizeSnapshot({
     id: attr(el, "id") || newFxId(),
     name: attr(el, "name") || "無名",
@@ -272,6 +346,9 @@ function parsePresetEl(el: Element): FxSnapshot {
       preset: MIX_IDS.has(mixRaw) ? mixRaw : "original",
     },
     filters: filters.filter((f): f is SpectrumFilter => !!f),
+    inserts: inserts
+      ?.filter((f): f is ObsInsert => !!f),
+    liveChain,
     roomAmount: room.amount,
     voiceAmount: voice.amount,
     roomProfile: room.profile,

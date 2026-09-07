@@ -139,8 +139,10 @@ function collectExtraHosts(): string[] {
   push(env("VERCEL_URL"));
   push(env("VERCEL_BRANCH_URL"));
   push(env("VERCEL_PROJECT_PRODUCTION_URL"));
-  // Known custom domain for this app (also set via env when available).
+  // Known hosts for this app. The Grok broker registers redirect_uri against
+  // the *.grok.me host — custom domain is only for the session handoff after.
   push("fuwa.pachimanzi.uk");
+  push("fuwa-rec.grok.me");
   return [...hosts];
 }
 
@@ -148,9 +150,9 @@ const explicitHost = hostFromOrigin(explicitBaseURL);
 const extraHosts = collectExtraHosts();
 
 /**
- * Always use dynamic baseURL so the OAuth redirect_uri + Set-Cookie Host match
- * the browser's actual origin (custom domain OR *.grok.me). Falling back to a
- * fixed BETTER_AUTH_URL alone breaks custom-domain sign-in.
+ * Always use dynamic baseURL so Set-Cookie Host matches the browser origin.
+ * OAuth redirect_uri is pinned separately to the grok.me host the broker
+ * registered — dynamic origin here must NOT become the broker redirect_uri.
  */
 const baseURL = {
   allowedHosts: [
@@ -206,9 +208,36 @@ const trustedOrigins = async (
   return out;
 };
 
-/** Canonical origin for multi-domain handoff (client reads via public config). */
+const deployedAuth = Boolean(env("GROK_AUTH_CLIENT_ID") || explicitBaseURL);
+
+/**
+ * Origin the Grok auth broker has as this app's redirect_uri.
+ * Custom domains are NOT in that allowlist — OAuth must start here.
+ */
+export function getOAuthOrigin(): string {
+  const grokHost =
+    extraHosts.find((h) => h.endsWith(".grok.me") && !h.includes("*")) ||
+    (explicitHost?.endsWith(".grok.me") ? explicitHost : null) ||
+    "fuwa-rec.grok.me";
+  return `https://${grokHost}`;
+}
+
+/** Bounce target for custom-domain sign-in (same as the broker-registered host). */
 export function getCanonicalAuthOrigin(): string | null {
-  return explicitBaseURL ? explicitBaseURL.replace(/\/+$/, "") : null;
+  if (!deployedAuth) return null;
+  return getOAuthOrigin();
+}
+
+/** Origins allowed as OAuth returnTo (custom domain handoff). */
+export function getAuthHandoffOrigins(): string[] {
+  const out = new Set<string>();
+  out.add(getOAuthOrigin());
+  if (explicitBaseURL) out.add(explicitBaseURL.replace(/\/+$/, ""));
+  for (const h of extraHosts) {
+    if (!h || h.includes("*")) continue;
+    out.add(`https://${h}`);
+  }
+  return [...out];
 }
 
 const databaseUrl = env("DATABASE_URL");
@@ -235,24 +264,25 @@ export const SESSION_TOKEN_COOKIE = "__Host-grok-auth.session_token";
 
 // Built separately so the `betterAuth({...})` call stays easy to edit without
 // breaking brackets (models often trip on the conditional plugin spread).
+const oauthOrigin = getOAuthOrigin();
+
 const grokOAuthPlugin = authConfigured
   ? genericOAuth({
       config: GROK_PROVIDERS.map(({ providerId, idp }) => ({
         providerId,
         clientId: grokClientId as string,
         clientSecret: grokClientSecret as string,
-        // Prefer static endpoints over `discoveryUrl` so initiating (and
-        // completing) OAuth does not wait on a broker discovery fetch.
         authorizationUrl: grokAuthorizationUrl,
         tokenUrl: grokTokenUrl,
         userInfoUrl: grokUserInfoUrl,
         scopes: ["openid", "profile", "email"],
-        // `prompt: "login"` forces the broker to re-authenticate against the
-        // upstream on every sign-in instead of silently reusing an existing
-        // broker session. Combined with the broker sending Google
-        // `prompt=select_account`, the user always gets the account chooser
-        // and can pick (or switch) which account to sign in with.
         authorizationUrlParams: { idp, prompt: "login" },
+        // Broker allowlist is the grok.me callback, not the custom domain.
+        ...(deployedAuth
+          ? {
+              redirectURI: `${oauthOrigin}/api/auth/oauth2/callback/${providerId}`,
+            }
+          : {}),
       })),
     })
   : null;
@@ -328,7 +358,7 @@ export const auth = betterAuth({
 
     // Short-lived tokens to move a session across custom domain ↔ canonical
     // BETTER_AUTH_URL after OAuth completes on one host.
-    oneTimeToken({ expiresIn: 5 * 60 }),
+    oneTimeToken({ expiresIn: 5 }),
 
     // Bridges Better Auth's Set-Cookie into TanStack Start responses. MUST be
     // last so it runs after every other plugin's hooks.

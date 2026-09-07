@@ -4,6 +4,7 @@ import {
 } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import { GROK_PROVIDERS } from "./providers";
+import { fetchAuthPublicConfig, rememberReturnTo } from "./handoff";
 
 /**
  * Better Auth client for this React SPA (browser-side).
@@ -87,16 +88,8 @@ type PopupMessage = {
  * hand off sessions between a custom domain and the platform host.
  */
 export async function fetchCanonicalAuthOrigin(): Promise<string | null> {
-  try {
-    const res = await fetch("/api/auth-public-config", {
-      credentials: "same-origin",
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as { canonicalOrigin?: string | null };
-    return data.canonicalOrigin ?? null;
-  } catch {
-    return null;
-  }
+  const cfg = await fetchAuthPublicConfig();
+  return cfg.canonicalOrigin;
 }
 
 /**
@@ -128,11 +121,33 @@ export async function signIn(
   // browsers when the opener is a cross-origin live-preview iframe.
   const popup = inLivePreview() ? openSignInPopup(providerId) : null;
 
-  // Custom domain → canonical host handoff (deployed multi-domain).
+  // Custom domain → grok.me (broker-registered host). OAuth redirect_uri is
+  // pinned to that host; staying on the custom domain yields Invalid redirect URI.
   if (!inLivePreview() && typeof window !== "undefined") {
     const canonical = await fetchCanonicalAuthOrigin();
-    if (canonical && window.location.origin !== canonical) {
-      const returnTo = window.location.origin + "/";
+    const alreadyBounced = (() => {
+      try {
+        return window.sessionStorage.getItem("fuwari-auth-bounced") === canonical;
+      } catch {
+        return false;
+      }
+    })();
+    if (
+      canonical &&
+      window.location.origin !== canonical &&
+      !alreadyBounced
+    ) {
+      try {
+        window.sessionStorage.setItem("fuwari-auth-bounced", canonical);
+      } catch {
+        /* ignore */
+      }
+      const returnTo =
+        window.location.origin +
+        (window.location.pathname === "/login"
+          ? "/"
+          : window.location.pathname + window.location.search);
+      rememberReturnTo(returnTo);
       const dest = new URL("/login", canonical);
       dest.searchParams.set("returnTo", returnTo);
       dest.searchParams.set("provider", providerId);

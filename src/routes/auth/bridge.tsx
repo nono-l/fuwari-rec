@@ -1,6 +1,12 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { authClient } from "@/lib/auth/client";
+import {
+  clearReturnTo,
+  fetchAuthPublicConfig,
+  isAllowedReturnTo,
+  readReturnTo,
+} from "@/lib/auth/handoff";
 import { z } from "zod";
 
 const searchSchema = z.object({
@@ -18,7 +24,7 @@ export const Route = createFileRoute("/auth/bridge")({
 });
 
 function AuthBridge() {
-  const { returnTo } = Route.useSearch();
+  const { returnTo: returnToQuery } = Route.useSearch();
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
 
@@ -26,27 +32,27 @@ function AuthBridge() {
     let cancelled = false;
     (async () => {
       try {
-        if (!returnTo) {
+        const cfg = await fetchAuthPublicConfig();
+        const raw = returnToQuery || readReturnTo();
+        if (!raw) {
           await navigate({ to: "/" });
           return;
         }
-        let dest: URL;
-        try {
-          dest = new URL(returnTo);
-        } catch {
-          setError("returnTo が不正です");
+        const dest = isAllowedReturnTo(raw, cfg.handoffOrigins);
+        if (!dest) {
+          setError("戻り先のドメインが許可されていません");
           return;
         }
-        // Only hand off to https origins that look like our app domains
-        if (dest.protocol !== "https:" && dest.protocol !== "http:") {
-          setError("不正な戻り先です");
+
+        if (dest.origin === window.location.origin) {
+          clearReturnTo();
+          window.location.href = dest.pathname + dest.search || "/";
           return;
         }
 
         const session = await authClient.getSession();
         if (!session.data?.session) {
-          // Not signed in on this host — send to login again
-          window.location.href = `/login?returnTo=${encodeURIComponent(returnTo)}`;
+          window.location.href = `/login?returnTo=${encodeURIComponent(raw)}`;
           return;
         }
 
@@ -57,8 +63,15 @@ function AuthBridge() {
         }
         if (cancelled) return;
 
+        clearReturnTo();
         const accept = new URL("/auth/accept", dest.origin);
         accept.searchParams.set("token", data.token);
+        const nextPath = dest.pathname && dest.pathname !== "/auth/accept"
+          ? dest.pathname + dest.search
+          : "/";
+        if (nextPath !== "/") {
+          accept.searchParams.set("next", nextPath);
+        }
         window.location.href = accept.toString();
       } catch (e) {
         if (!cancelled) {
@@ -69,7 +82,7 @@ function AuthBridge() {
     return () => {
       cancelled = true;
     };
-  }, [returnTo, navigate]);
+  }, [returnToQuery, navigate]);
 
   return (
     <main className="grid min-h-dvh place-items-center bg-background px-4">

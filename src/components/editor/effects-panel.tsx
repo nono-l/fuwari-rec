@@ -6,7 +6,6 @@ import { useEditorStore } from "@/lib/store/editor-store";
 import { SpectrumAnalyzer } from "@/components/editor/spectrum-analyzer";
 import { FxLibraryPanel } from "@/components/editor/fx-library-panel";
 import { ObsFilterRack } from "@/components/editor/obs-filter-rack";
-import { DEFAULT_MASTER_FX } from "@/lib/audio/obs-filters";
 import {
   AudioLines,
   Power,
@@ -46,8 +45,14 @@ export function EffectsPanel({
   const clearVoiceProfile = useEditorStore((s) => s.clearVoiceProfile);
   const setVoiceAmount = useEditorStore((s) => s.setVoiceAmount);
 
-  const resetFx = () => {
-    setMaster({ ...DEFAULT_MASTER_FX });
+  const resetMixVoice = () => {
+    const original = MIX_PRESETS.find((p) => p.id === "original");
+    setMaster({
+      preset: "original",
+      pitchSemitones: original?.pitch ?? 0,
+      formantDb: original?.formant ?? 0,
+      reverbMix: original?.reverb ?? 0.05,
+    });
   };
 
   const isPage = layout === "page";
@@ -96,7 +101,7 @@ export function EffectsPanel({
               <span className="line-through decoration-muted-foreground/80">
                 スピーカーではなく、100円ショップのイヤホンでもいいので耳に届くもので聞いてください。
               </span>{" "}
-              スペクトラム解析とフィルターを追加しましたので、ハウリングも消せます。
+              スペクトラムをタップして切るか、ハウリングキャンセラーをリストに入れると自動で鳴きを止めます。
             </p>
           </div>
 
@@ -173,9 +178,9 @@ export function EffectsPanel({
               ライブ中でも即反映。声の雰囲気をワンタップで切り替え。
             </p>
           </div>
-          <Button type="button" size="sm" variant="secondary" onClick={resetFx}>
+          <Button type="button" size="sm" variant="secondary" onClick={resetMixVoice}>
             <RotateCcw className="size-3.5" />
-            リセット
+            MIX・声色をリセット
           </Button>
         </div>
         <div
@@ -366,14 +371,20 @@ export function EffectsPanel({
           isPage ? "p-4 sm:p-6" : "p-4",
         )}
       >
-        <div className="mb-4">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground sm:text-base">
-            <SlidersHorizontal className="size-4 text-primary" />
-            MIX・声色
-          </h2>
-          <p className="mt-1 text-[11px] text-muted-foreground sm:text-xs">
-            ピッチ・フォルマント・残響。音量とダイナミクスは上のフィルター表から。
-          </p>
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground sm:text-base">
+              <SlidersHorizontal className="size-4 text-primary" />
+              MIX・声色
+            </h2>
+            <p className="mt-1 text-[11px] text-muted-foreground sm:text-xs">
+              ピッチ・フォルマント・残響。音量とダイナミクスは上のフィルター表から。
+            </p>
+          </div>
+          <Button type="button" size="sm" variant="secondary" onClick={resetMixVoice}>
+            <RotateCcw className="size-3.5" />
+            この項目だけリセット
+          </Button>
         </div>
 
         <div

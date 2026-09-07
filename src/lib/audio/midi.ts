@@ -6,6 +6,7 @@
 import { startMidiVoice, type MidiInstrumentId } from "./midi-instruments";
 
 export interface MidiNote {
+  id?: string;
   midi: number;
   start: number;
   duration: number;

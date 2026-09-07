@@ -1,6 +1,7 @@
 import {
   Circle,
   FolderOpen,
+  Music2,
   Trash2,
   Volume2,
   VolumeX,
@@ -30,6 +31,8 @@ export function TrackRow({ track }: { track: Track }) {
   const isLoadingMedia = useEditorStore((s) => s.isLoadingMedia);
   const setTrackMidiInstrument = useEditorStore((s) => s.setTrackMidiInstrument);
   const isConvertingMidi = useEditorStore((s) => s.isConvertingMidi);
+  const openMidiEditor = useEditorStore((s) => s.openMidiEditor);
+  const midiEditTrackId = useEditorStore((s) => s.midiEditTrackId);
 
   const active = activeTrackId === track.id;
 
@@ -53,9 +56,23 @@ export function TrackRow({ track }: { track: Track }) {
           onClick={(e) => e.stopPropagation()}
         />
         {(track.kind === "midi" || (track.midiNotes?.length ?? 0) > 0) && (
-          <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-primary">
-            MIDI
-          </span>
+          <>
+            <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-primary">
+              MIDI
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant={midiEditTrackId === track.id ? "default" : "secondary"}
+              onClick={(e) => {
+                e.stopPropagation();
+                openMidiEditor(track.id);
+              }}
+            >
+              <Music2 className="size-3.5" />
+              編集
+            </Button>
+          </>
         )}
         <div className="flex items-center gap-1">
           <Button

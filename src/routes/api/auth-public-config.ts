@@ -1,5 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { getCanonicalAuthOrigin } from "@/lib/auth/server";
+import {
+  getAuthHandoffOrigins,
+  getCanonicalAuthOrigin,
+} from "@/lib/auth/server";
 
 /**
  * Public, non-secret auth config for the browser (custom-domain handoff).
@@ -11,6 +14,7 @@ export const Route = createFileRoute("/api/auth-public-config")({
       GET: () => {
         const body = JSON.stringify({
           canonicalOrigin: getCanonicalAuthOrigin(),
+          handoffOrigins: getAuthHandoffOrigins(),
         });
         return new Response(body, {
           status: 200,

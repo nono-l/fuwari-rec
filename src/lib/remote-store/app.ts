@@ -1,5 +1,6 @@
 /** Fuwari-specific profile. Core stays app-agnostic. */
 import type { MasterFx } from "@/lib/audio/types";
+import type { ObsInsert } from "@/lib/audio/obs-filters";
 
 export const FUWARI_APP = {
   id: "fuwari",
@@ -14,6 +15,7 @@ export type FuwariRemoteSettings = {
   version: 1;
   savedAt: string;
   master: MasterFx;
+  inserts?: ObsInsert[];
   range?: {
     minHz: number | null;
     maxHz: number | null;

@@ -5,6 +5,7 @@ import { TrackRow } from "@/components/editor/track-row";
 import { YoutubePanel } from "@/components/editor/youtube-panel";
 import { SeparationPanel } from "@/components/editor/separation-panel";
 import { MelodyMidiPanel } from "@/components/editor/melody-midi-panel";
+import { PianoRollPanel } from "@/components/editor/piano-roll-panel";
 import { TapRhythmPanel } from "@/components/editor/tap-rhythm-panel";
 import { RhythmPadPanel } from "@/components/editor/rhythm-pad-panel";
 import { DevicePanel } from "@/components/editor/device-panel";
@@ -57,6 +58,7 @@ export function Studio() {
             ) : (
               tracks.map((t) => <TrackRow key={t.id} track={t} />)
             )}
+            <PianoRollPanel />
           </section>
 
           <div className="flex flex-col gap-4">

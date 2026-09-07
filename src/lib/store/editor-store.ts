@@ -7,8 +7,22 @@ import {
   type Track,
   type TrackKind,
 } from "@/lib/audio/types";
-import { DEFAULT_MASTER_FX, normalizeMasterFx } from "@/lib/audio/obs-filters";
+import {
+  DEFAULT_MASTER_FX,
+  MAX_OBS_INSERTS,
+  labelObsInserts,
+  newObsInsert,
+  normalizeMasterFx,
+  type ObsFilterId,
+  type ObsInsert,
+} from "@/lib/audio/obs-filters";
 import { getAudioEngine, type EngineStatus } from "@/lib/audio/engine";
+import {
+  assembleLiveFx,
+  reconcileLiveChain,
+  shiftLiveSlot,
+  type LiveSlot,
+} from "@/lib/audio/live-fx";
 import {
   cloneAudioBuffer,
   processSeparation,
@@ -33,6 +47,16 @@ import {
   renderMidiToAudioBuffer,
   type MidiNote,
 } from "@/lib/audio/midi";
+import {
+  centerViewLow,
+  DRAW_LENGTHS,
+  MAX_MIDI_NOTES,
+  ensureNoteIds,
+  snapBeat,
+  snapWindowBeat,
+  toggleNoteAt,
+  beatToSec,
+} from "@/lib/audio/midi-edit";
 import { isVideoFile } from "@/lib/audio/media-decode";
 import {
   applyRhythmOnly,
@@ -49,7 +73,6 @@ import {
 import {
   MAX_SPECTRUM_FILTERS,
   newSpectrumFilter,
-  shiftSpectrumFilter,
   type SpectrumFilter,
   type SpectrumFilterKind,
 } from "@/lib/audio/spectrum-filters";
@@ -83,6 +106,26 @@ function uid() {
   return `t_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function pushLiveFx(s: {
+  liveChain: LiveSlot[];
+  spectrumFilters: SpectrumFilter[];
+  obsInserts: ObsInsert[];
+}) {
+  const liveChain = reconcileLiveChain(
+    s.liveChain,
+    s.spectrumFilters,
+    s.obsInserts,
+  );
+  try {
+    getAudioEngine().setLiveFx(
+      assembleLiveFx(liveChain, s.spectrumFilters, s.obsInserts),
+    );
+  } catch {
+    /* not ready */
+  }
+  return liveChain;
+}
+
 function makeTrack(partial?: Partial<Track>): Track {
   const id = partial?.id ?? uid();
   const index = Math.abs(
@@ -111,6 +154,47 @@ let ytKeepAt = 0;
 let liveMeterRaf = 0;
 let rangeRaf = 0;
 let deviceUnsub: (() => void) | null = null;
+let midiRenderTimer = 0;
+
+function scheduleMidiBuffer(
+  get: () => EditorState,
+  set: (p: Partial<EditorState>) => void,
+  trackId: string,
+) {
+  if (typeof window === "undefined") return;
+  window.clearTimeout(midiRenderTimer);
+  midiRenderTimer = window.setTimeout(() => {
+    const track = get().tracks.find((t) => t.id === trackId);
+    if (!track) return;
+    const notes = track.midiNotes ?? [];
+    const inst = track.midiInstrument ?? get().midiInstrument;
+    void (async () => {
+      try {
+        const parsed = notesToParsed(notes, track.name);
+        if (notes.length === 0) {
+          get().updateTrack(trackId, { buffer: null });
+          const engine = getAudioEngine();
+          engine.updateDuration(get().tracks);
+          set({ duration: engine.getDuration() });
+          return;
+        }
+        const engine = getAudioEngine();
+        const buffer = await renderMidiToAudioBuffer(
+          parsed,
+          engine.getSampleRate(),
+          inst,
+        );
+        const latest = get().tracks.find((t) => t.id === trackId);
+        if (!latest) return;
+        get().updateTrack(trackId, { buffer });
+        engine.updateDuration(get().tracks);
+        set({ duration: engine.getDuration() });
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+  }, 280);
+}
 
 let holdHz: number | null = null;
 let holdStartedAt = 0;
@@ -174,6 +258,13 @@ export interface EditorState {
   tapHeld: boolean;
   tapFreeOriginMs: number | null;
   midiInstrument: MidiInstrumentId;
+  midiEditTrackId: string | null;
+  midiWindowBeat: number;
+  midiDrawBeats: number;
+  midiViewLow: number;
+  midiCursorBeat: number;
+  midiCursorPitch: number;
+  midiUndo: { trackId: string; notes: MidiNote[] }[];
   loopEnabled: boolean;
   loopA: number | null;
   loopB: number | null;
@@ -215,6 +306,8 @@ export interface EditorState {
   voiceCaptureProgress: number;
 
   spectrumFilters: SpectrumFilter[];
+  obsInserts: ObsInsert[];
+  liveChain: LiveSlot[];
 
   rangeMeasuring: boolean;
   rangeBusy: boolean;
@@ -259,6 +352,15 @@ export interface EditorState {
   tapUp: () => void;
   setMidiInstrument: (id: MidiInstrumentId) => void;
   setTrackMidiInstrument: (trackId: string, id: MidiInstrumentId) => Promise<void>;
+  openMidiEditor: (trackId: string | null) => void;
+  createMidiTrack: () => string;
+  setMidiWindowBeat: (beat: number) => void;
+  setMidiDrawBeats: (beats: number) => void;
+  shiftMidiViewOctave: (delta: -1 | 1) => void;
+  setMidiCursor: (beat: number, pitch: number) => void;
+  toggleMidiCell: (trackId: string, beat: number, pitch: number) => void;
+  undoMidiEdit: () => void;
+  seekToBeat: (beat: number) => void;
   seek: (time: number) => void;
   play: () => void;
   pause: () => void;
@@ -313,6 +415,13 @@ export interface EditorState {
   toggleSpectrumFilter: (id: string) => void;
   moveSpectrumFilter: (id: string, delta: -1 | 1) => void;
   replaceSpectrumFilters: (filters: SpectrumFilter[]) => void;
+  addObsInsert: (kind: ObsFilterId) => string | null;
+  updateObsInsert: (id: string, patch: Partial<ObsInsert>) => void;
+  removeObsInsert: (id: string) => void;
+  toggleObsInsert: (id: string) => void;
+  moveObsInsert: (id: string, delta: -1 | 1) => void;
+  replaceObsInserts: (inserts: ObsInsert[]) => void;
+  moveLiveSlot: (id: string, delta: -1 | 1) => void;
   applyFxSnapshot: (snap: FxSnapshot) => void;
   captureFxSnapshot: (name: string) => FxSnapshot;
   startRangeTest: () => Promise<void>;
@@ -560,6 +669,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   tapHeld: false,
   tapFreeOriginMs: null,
   midiInstrument: DEFAULT_MIDI_INSTRUMENT,
+  midiEditTrackId: null,
+  midiWindowBeat: 0,
+  midiDrawBeats: 1,
+  midiViewLow: 48,
+  midiCursorBeat: 0,
+  midiCursorPitch: 60,
+  midiUndo: [],
   loopEnabled: false,
   loopA: null,
   loopB: null,
@@ -599,6 +715,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   voiceCaptureProgress: 0,
 
   spectrumFilters: [],
+  obsInserts: [],
+  liveChain: [],
 
   rangeMeasuring: false,
   rangeBusy: false,
@@ -645,7 +763,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       },
     });
     engine.applyMasterFx(get().master);
-    engine.setSpectrumFilters(get().spectrumFilters);
+    pushLiveFx(get());
     engine.setInputEnabled(get().inputEnabled);
     engine.setOutputEnabled(get().outputEnabled);
 
@@ -715,6 +833,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         activeTrackId,
         duration: engine.getDuration(),
         statusMessage: "トラックを削除",
+        midiEditTrackId: s.midiEditTrackId === id ? null : s.midiEditTrackId,
         mediaRangeTrackId:
           s.mediaRangeTrackId === id ? null : s.mediaRangeTrackId,
       };
@@ -861,7 +980,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         duration: engine.getDuration(),
         activeTrackId: trackId,
         mediaRangeTrackId: trackId,
-        statusMessage: `MIDI 読み込み完了: ${baseName}（${parsed.notes.length} ノート）— 再生できます`,
+        midiEditTrackId: trackId,
+        midiViewLow: centerViewLow(parsed.notes),
+        midiWindowBeat: 0,
+        statusMessage: `MIDI 読み込み完了: ${baseName}（${parsed.notes.length} ノート）— ピアノロールで編集できます`,
       });
     } catch (e) {
       console.error(e);
@@ -949,10 +1071,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       set({
         duration: engine.getDuration(),
         activeTrackId: midiId,
+        midiEditTrackId: midiId,
+        midiViewLow: centerViewLow(notes),
+        midiWindowBeat: 0,
         midiConvertProgress: 1,
         statusMessage: get().midiRhythmOnly
           ? `音程はそのまま、リズムを合わせました（${melodySummary(notes)}）`
-          : `MIDI 化しました（${melodySummary(notes)}）。.mid も保存しています`,
+          : `MIDI 化しました（${melodySummary(notes)}）。ピアノロールで直せます`,
       });
     } catch (e) {
       console.error(e);
@@ -1204,6 +1329,112 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     } finally {
       set({ isConvertingMidi: false });
     }
+  },
+
+  openMidiEditor: (trackId) => {
+    if (!trackId) {
+      set({ midiEditTrackId: null });
+      return;
+    }
+    const track = get().tracks.find((t) => t.id === trackId);
+    const notes = track?.midiNotes ?? [];
+    set({
+      midiEditTrackId: trackId,
+      activeTrackId: trackId,
+      midiViewLow: centerViewLow(notes),
+      midiWindowBeat: 0,
+      midiCursorBeat: 0,
+      midiCursorPitch: notes[0]?.midi ?? 60,
+      statusMessage: `${track?.name ?? "MIDI"} のピアノロール`,
+    });
+  },
+
+  createMidiTrack: () => {
+    const id = get().addTrack({ name: "MIDI", kind: "midi" });
+    get().updateTrack(id, {
+      midiNotes: [],
+      midiSourceNotes: [],
+      midiInstrument: get().midiInstrument,
+    });
+    get().openMidiEditor(id);
+    set({ statusMessage: "空の MIDI トラックを作りました。クリックで音符を置けます" });
+    return id;
+  },
+
+  setMidiWindowBeat: (beat) => {
+    set({ midiWindowBeat: snapWindowBeat(Math.max(0, beat)) });
+  },
+
+  setMidiDrawBeats: (beats) => {
+    const allowed = DRAW_LENGTHS.some((d) => d.beats === beats);
+    set({ midiDrawBeats: allowed ? beats : 1 });
+  },
+
+  shiftMidiViewOctave: (delta) => {
+    const next = get().midiViewLow + delta * 12;
+    set({ midiViewLow: Math.max(24, Math.min(96, next)) });
+  },
+
+  setMidiCursor: (beat, pitch) => {
+    set({
+      midiCursorBeat: snapBeat(Math.max(0, beat)),
+      midiCursorPitch: Math.max(24, Math.min(108, Math.round(pitch))),
+    });
+  },
+
+  toggleMidiCell: (trackId, beat, pitch) => {
+    const track = get().tracks.find((t) => t.id === trackId);
+    if (!track) return;
+    const prev = ensureNoteIds(track.midiNotes ?? []);
+    const result = toggleNoteAt({
+      notes: prev,
+      beat,
+      pitch,
+      bpm: get().bpm,
+      drawBeats: get().midiDrawBeats,
+    });
+    if (result.action === "full") {
+      set({
+        statusMessage: `このトラックにはこれ以上音符を追加できません（${MAX_MIDI_NOTES}）`,
+      });
+      return;
+    }
+    const undo = [
+      ...get().midiUndo,
+      { trackId, notes: prev },
+    ].slice(-30);
+    get().updateTrack(trackId, { midiNotes: result.notes });
+    set({
+      midiUndo: undo,
+      midiCursorBeat: snapBeat(beat),
+      midiCursorPitch: Math.round(pitch),
+      midiEditTrackId: trackId,
+      activeTrackId: trackId,
+      statusMessage:
+        result.action === "add" ? "音符を置きました" : "音符を消しました",
+    });
+    scheduleMidiBuffer(get, set, trackId);
+  },
+
+  undoMidiEdit: () => {
+    const stack = get().midiUndo;
+    const last = stack[stack.length - 1];
+    if (!last) {
+      set({ statusMessage: "戻す編集がありません" });
+      return;
+    }
+    get().updateTrack(last.trackId, { midiNotes: last.notes });
+    set({
+      midiUndo: stack.slice(0, -1),
+      midiEditTrackId: last.trackId,
+      statusMessage: "ひとつ前の編集に戻しました",
+    });
+    scheduleMidiBuffer(get, set, last.trackId);
+  },
+
+  seekToBeat: (beat) => {
+    get().seek(beatToSec(beat, get().bpm));
+    set({ midiWindowBeat: snapWindowBeat(beat) });
   },
 
   finishTapRhythm: async () => {
@@ -1524,7 +1755,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const blob = await getAudioEngine().exportMix(tracks, master, {
         profile: get().roomProfile,
         amount: get().roomAmount,
-      }, get().spectrumFilters);
+      }, assembleLiveFx(get().liveChain, get().spectrumFilters, get().obsInserts));
       downloadBlob(blob, `fuwari-rec-${Date.now()}.wav`);
       set({ statusMessage: "WAV 書き出し完了" });
     } catch (e) {
@@ -2103,15 +2334,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
     const filter = newSpectrumFilter(kind, hz);
     const spectrumFilters = [...get().spectrumFilters, filter];
+    const liveChain = [
+      ...reconcileLiveChain(
+        get().liveChain,
+        get().spectrumFilters,
+        get().obsInserts,
+      ),
+      { family: "spectrum" as const, id: filter.id },
+    ];
     set({
       spectrumFilters,
+      liveChain: pushLiveFx({ ...get(), spectrumFilters, liveChain }),
       statusMessage: `フィルター「${filter.name}」を追加`,
     });
-    try {
-      getAudioEngine().setSpectrumFilters(spectrumFilters);
-    } catch {
-      /* not ready */
-    }
     return filter.id;
   },
 
@@ -2119,68 +2354,127 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const spectrumFilters = get().spectrumFilters.map((f) =>
       f.id === id ? { ...f, ...patch, id: f.id } : f,
     );
-    set({ spectrumFilters });
-    try {
-      getAudioEngine().setSpectrumFilters(spectrumFilters);
-    } catch {
-      /* not ready */
-    }
+    const liveChain = pushLiveFx({ ...get(), spectrumFilters });
+    set({ spectrumFilters, liveChain });
   },
 
   removeSpectrumFilter: (id) => {
     const target = get().spectrumFilters.find((f) => f.id === id);
     const spectrumFilters = get().spectrumFilters.filter((f) => f.id !== id);
+    const liveChain = pushLiveFx({ ...get(), spectrumFilters });
     set({
       spectrumFilters,
+      liveChain,
       statusMessage: target
         ? `フィルター「${target.name}」を削除`
         : "フィルターを削除",
     });
-    try {
-      getAudioEngine().setSpectrumFilters(spectrumFilters);
-    } catch {
-      /* not ready */
-    }
   },
 
   toggleSpectrumFilter: (id) => {
     const spectrumFilters = get().spectrumFilters.map((f) =>
       f.id === id ? { ...f, enabled: !f.enabled } : f,
     );
-    set({ spectrumFilters });
-    try {
-      getAudioEngine().setSpectrumFilters(spectrumFilters);
-    } catch {
-      /* not ready */
-    }
+    const liveChain = pushLiveFx({ ...get(), spectrumFilters });
+    set({ spectrumFilters, liveChain });
   },
 
   moveSpectrumFilter: (id, delta) => {
-    const spectrumFilters = shiftSpectrumFilter(get().spectrumFilters, id, delta);
-    if (spectrumFilters === get().spectrumFilters) return;
-    const idx = spectrumFilters.findIndex((f) => f.id === id);
-    set({
-      spectrumFilters,
-      statusMessage:
-        idx >= 0
-          ? `フィルター順 ${idx + 1}/${spectrumFilters.length}（上が先）`
-          : "フィルター順を変更",
-    });
-    try {
-      getAudioEngine().setSpectrumFilters(spectrumFilters);
-    } catch {
-      /* not ready */
-    }
+    get().moveLiveSlot(id, delta);
   },
 
   replaceSpectrumFilters: (filters) => {
     const spectrumFilters = filters.slice(0, MAX_SPECTRUM_FILTERS);
-    set({ spectrumFilters });
-    try {
-      getAudioEngine().setSpectrumFilters(spectrumFilters);
-    } catch {
-      /* not ready */
+    const liveChain = pushLiveFx({ ...get(), spectrumFilters });
+    set({ spectrumFilters, liveChain });
+  },
+
+  addObsInsert: (kind) => {
+    if (get().obsInserts.length >= MAX_OBS_INSERTS) {
+      set({
+        statusMessage: `ライブフィルターは ${MAX_OBS_INSERTS} 段までです`,
+      });
+      return null;
     }
+    const created = newObsInsert(kind);
+    const obsInserts = labelObsInserts([...get().obsInserts, created]);
+    const named = obsInserts.find((f) => f.id === created.id);
+    const liveChain = [
+      ...reconcileLiveChain(
+        get().liveChain,
+        get().spectrumFilters,
+        get().obsInserts,
+      ),
+      { family: "obs" as const, id: created.id },
+    ];
+    set({
+      obsInserts,
+      liveChain: pushLiveFx({ ...get(), obsInserts, liveChain }),
+      statusMessage: named
+        ? `「${named.name}」をライブエフェクターに挿入`
+        : "フィルターを挿入",
+    });
+    return created.id;
+  },
+
+  updateObsInsert: (id, patch) => {
+    const obsInserts = labelObsInserts(
+      get().obsInserts.map((f) =>
+        f.id === id ? { ...f, ...patch, id: f.id, kind: f.kind } : f,
+      ),
+    );
+    const liveChain = pushLiveFx({ ...get(), obsInserts });
+    set({ obsInserts, liveChain });
+  },
+
+  removeObsInsert: (id) => {
+    const target = get().obsInserts.find((f) => f.id === id);
+    const obsInserts = labelObsInserts(get().obsInserts.filter((f) => f.id !== id));
+    const liveChain = pushLiveFx({ ...get(), obsInserts });
+    set({
+      obsInserts,
+      liveChain,
+      statusMessage: target
+        ? `「${target.name}」をライブから外しました`
+        : "フィルターを外しました",
+    });
+  },
+
+  toggleObsInsert: (id) => {
+    const obsInserts = get().obsInserts.map((f) =>
+      f.id === id ? { ...f, enabled: !f.enabled } : f,
+    );
+    const liveChain = pushLiveFx({ ...get(), obsInserts });
+    set({ obsInserts, liveChain });
+  },
+
+  moveObsInsert: (id, delta) => {
+    get().moveLiveSlot(id, delta);
+  },
+
+  replaceObsInserts: (inserts) => {
+    const obsInserts = labelObsInserts(inserts.slice(0, MAX_OBS_INSERTS));
+    const liveChain = pushLiveFx({ ...get(), obsInserts });
+    set({ obsInserts, liveChain });
+  },
+
+  moveLiveSlot: (id, delta) => {
+    const current = reconcileLiveChain(
+      get().liveChain,
+      get().spectrumFilters,
+      get().obsInserts,
+    );
+    const liveChain = shiftLiveSlot(current, id, delta);
+    if (liveChain === current) return;
+    const idx = liveChain.findIndex((s) => s.id === id);
+    pushLiveFx({ ...get(), liveChain });
+    set({
+      liveChain,
+      statusMessage:
+        idx >= 0
+          ? `適用順 ${idx + 1}/${liveChain.length}（上が先）`
+          : "適用順を変更",
+    });
   },
 
   captureFxSnapshot: (name) => {
@@ -2194,6 +2488,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       savedAt: new Date().toISOString(),
       master: { ...s.master },
       filters: s.spectrumFilters.map((f) => ({ ...f })),
+      inserts: s.obsInserts.map((f) => ({ ...f })),
+      liveChain: s.liveChain.map((slot) => ({ ...slot })),
       roomAmount: s.roomAmount,
       voiceAmount: s.voiceAmount,
       roomProfile: s.roomProfile
@@ -2208,9 +2504,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   applyFxSnapshot: (snap) => {
     const master = normalizeMasterFx(snap.master);
     const spectrumFilters = snap.filters.map((f) => ({ ...f }));
+    const obsInserts = labelObsInserts(
+      (snap.inserts ?? []).map((f) => ({ ...f })),
+    );
+    const liveChain = reconcileLiveChain(
+      snap.liveChain ?? [],
+      spectrumFilters,
+      obsInserts,
+    );
     set({
       master,
       spectrumFilters,
+      obsInserts,
+      liveChain,
       roomAmount: snap.roomAmount,
       voiceAmount: snap.voiceAmount,
       roomProfile: snap.roomProfile
@@ -2224,7 +2530,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     try {
       const engine = getAudioEngine();
       engine.applyMasterFx(master);
-      engine.setSpectrumFilters(spectrumFilters);
+      engine.setLiveFx(assembleLiveFx(liveChain, spectrumFilters, obsInserts));
       engine.setRoomProfile(snap.roomProfile);
       engine.setRoomAmount(snap.roomAmount);
       engine.setVoiceProfile(snap.voiceProfile);
