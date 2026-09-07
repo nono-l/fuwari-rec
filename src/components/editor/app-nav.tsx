@@ -5,6 +5,7 @@ import {
   ScanSearch,
   Shield,
   SlidersHorizontal,
+  UserRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEditorStore } from "@/lib/store/editor-store";
@@ -15,6 +16,7 @@ const NAV = [
   { to: "/effector", label: "エフェクター", icon: SlidersHorizontal },
   { to: "/range", label: "声域測定", icon: Music2 },
   { to: "/analyze", label: "音源解析", icon: ScanSearch },
+  { to: "/profile", label: "プロフィール", icon: UserRound },
   { to: "/cloud", label: "リモート管理", icon: Shield },
 ] as const;
 

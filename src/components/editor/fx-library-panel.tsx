@@ -1,5 +1,6 @@
+import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { BookmarkPlus, FileCode2, FolderOpen, Save, Trash2 } from "lucide-react";
+import { BookmarkPlus, FileCode2, FolderOpen, Save, Share2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEditorStore } from "@/lib/store/editor-store";
 import {
@@ -131,6 +132,11 @@ export function FxLibraryPanel() {
               >
                 <FolderOpen className="size-3.5" />
                 読み出す
+              </Button>
+              <Button asChild size="icon-sm" variant="ghost">
+                <Link to="/profile" aria-label="プロフィールで公開">
+                  <Share2 className="size-3.5" />
+                </Link>
               </Button>
               <Button
                 type="button"

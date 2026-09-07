@@ -148,6 +148,16 @@ export function RangePanel() {
           />
         </div>
 
+        {minNote && maxNote && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            この結果を公開するには{" "}
+            <Link to="/profile" className="font-medium text-primary hover:underline">
+              プロフィール
+            </Link>
+            の「声域を公開」
+          </p>
+        )}
+
         <div className="mt-4">
           <div className="mb-1 flex justify-between text-[11px] text-muted-foreground">
             <span className="inline-flex items-center gap-1">

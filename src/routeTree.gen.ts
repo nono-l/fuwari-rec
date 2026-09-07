@@ -14,10 +14,12 @@ import { Route as AnalyzeRouteImport } from './routes/analyze'
 import { Route as CloudRouteImport } from './routes/cloud'
 import { Route as EffectorRouteImport } from './routes/effector'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as RangeRouteImport } from './routes/range'
 import { Route as ApiAuthPublicConfigRouteImport } from './routes/api/auth-public-config'
 import { Route as AuthAcceptRouteImport } from './routes/auth/accept'
 import { Route as AuthBridgeRouteImport } from './routes/auth/bridge'
+import { Route as USlugRouteImport } from './routes/u.$slug'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const IndexRoute = IndexRouteImport.update({
@@ -45,6 +47,11 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ProfileRoute = ProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RangeRoute = RangeRouteImport.update({
   id: '/range',
   path: '/range',
@@ -65,6 +72,11 @@ const AuthBridgeRoute = AuthBridgeRouteImport.update({
   path: '/auth/bridge',
   getParentRoute: () => rootRouteImport,
 } as any)
+const USlugRoute = USlugRouteImport.update({
+  id: '/u/$slug',
+  path: '/u/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -77,10 +89,12 @@ export interface FileRoutesByFullPath {
   '/cloud': typeof CloudRoute
   '/effector': typeof EffectorRoute
   '/login': typeof LoginRoute
+  '/profile': typeof ProfileRoute
   '/range': typeof RangeRoute
   '/api/auth-public-config': typeof ApiAuthPublicConfigRoute
   '/auth/accept': typeof AuthAcceptRoute
   '/auth/bridge': typeof AuthBridgeRoute
+  '/u/$slug': typeof USlugRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesByTo {
@@ -89,10 +103,12 @@ export interface FileRoutesByTo {
   '/cloud': typeof CloudRoute
   '/effector': typeof EffectorRoute
   '/login': typeof LoginRoute
+  '/profile': typeof ProfileRoute
   '/range': typeof RangeRoute
   '/api/auth-public-config': typeof ApiAuthPublicConfigRoute
   '/auth/accept': typeof AuthAcceptRoute
   '/auth/bridge': typeof AuthBridgeRoute
+  '/u/$slug': typeof USlugRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesById {
@@ -102,10 +118,12 @@ export interface FileRoutesById {
   '/cloud': typeof CloudRoute
   '/effector': typeof EffectorRoute
   '/login': typeof LoginRoute
+  '/profile': typeof ProfileRoute
   '/range': typeof RangeRoute
   '/api/auth-public-config': typeof ApiAuthPublicConfigRoute
   '/auth/accept': typeof AuthAcceptRoute
   '/auth/bridge': typeof AuthBridgeRoute
+  '/u/$slug': typeof USlugRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRouteTypes {
@@ -116,10 +134,12 @@ export interface FileRouteTypes {
     | '/cloud'
     | '/effector'
     | '/login'
+    | '/profile'
     | '/range'
     | '/api/auth-public-config'
     | '/auth/accept'
     | '/auth/bridge'
+    | '/u/$slug'
     | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -128,10 +148,12 @@ export interface FileRouteTypes {
     | '/cloud'
     | '/effector'
     | '/login'
+    | '/profile'
     | '/range'
     | '/api/auth-public-config'
     | '/auth/accept'
     | '/auth/bridge'
+    | '/u/$slug'
     | '/api/auth/$'
   id:
     | '__root__'
@@ -140,10 +162,12 @@ export interface FileRouteTypes {
     | '/cloud'
     | '/effector'
     | '/login'
+    | '/profile'
     | '/range'
     | '/api/auth-public-config'
     | '/auth/accept'
     | '/auth/bridge'
+    | '/u/$slug'
     | '/api/auth/$'
   fileRoutesById: FileRoutesById
 }
@@ -153,10 +177,12 @@ export interface RootRouteChildren {
   CloudRoute: typeof CloudRoute
   EffectorRoute: typeof EffectorRoute
   LoginRoute: typeof LoginRoute
+  ProfileRoute: typeof ProfileRoute
   RangeRoute: typeof RangeRoute
   ApiAuthPublicConfigRoute: typeof ApiAuthPublicConfigRoute
   AuthAcceptRoute: typeof AuthAcceptRoute
   AuthBridgeRoute: typeof AuthBridgeRoute
+  USlugRoute: typeof USlugRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -197,6 +223,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/profile': {
+      id: '/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof ProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/range': {
       id: '/range'
       path: '/range'
@@ -225,6 +258,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthBridgeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/u/$slug': {
+      id: '/u/$slug'
+      path: '/u/$slug'
+      fullPath: '/u/$slug'
+      preLoaderRoute: typeof USlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -241,10 +281,12 @@ const rootRouteChildren: RootRouteChildren = {
   CloudRoute: CloudRoute,
   EffectorRoute: EffectorRoute,
   LoginRoute: LoginRoute,
+  ProfileRoute: ProfileRoute,
   RangeRoute: RangeRoute,
   ApiAuthPublicConfigRoute: ApiAuthPublicConfigRoute,
   AuthAcceptRoute: AuthAcceptRoute,
   AuthBridgeRoute: AuthBridgeRoute,
+  USlugRoute: USlugRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport

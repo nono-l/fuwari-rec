@@ -37,6 +37,9 @@ export function AppHeader() {
             <div className="h-8 w-8 animate-pulse rounded-full bg-muted" />
           ) : user ? (
             <SignedIn>
+              <Button asChild size="sm" variant="ghost">
+                <Link to="/profile">プロフィール</Link>
+              </Button>
               <UserButton />
             </SignedIn>
           ) : (
