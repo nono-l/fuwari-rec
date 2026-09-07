@@ -19,6 +19,7 @@ import { Route as RangeRouteImport } from './routes/range'
 import { Route as ApiAuthPublicConfigRouteImport } from './routes/api/auth-public-config'
 import { Route as AuthAcceptRouteImport } from './routes/auth/accept'
 import { Route as AuthBridgeRouteImport } from './routes/auth/bridge'
+import { Route as CSoulIdRouteImport } from './routes/c.$soulId'
 import { Route as USlugRouteImport } from './routes/u.$slug'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
@@ -72,6 +73,11 @@ const AuthBridgeRoute = AuthBridgeRouteImport.update({
   path: '/auth/bridge',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CSoulIdRoute = CSoulIdRouteImport.update({
+  id: '/c/$soulId',
+  path: '/c/$soulId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const USlugRoute = USlugRouteImport.update({
   id: '/u/$slug',
   path: '/u/$slug',
@@ -94,6 +100,7 @@ export interface FileRoutesByFullPath {
   '/api/auth-public-config': typeof ApiAuthPublicConfigRoute
   '/auth/accept': typeof AuthAcceptRoute
   '/auth/bridge': typeof AuthBridgeRoute
+  '/c/$soulId': typeof CSoulIdRoute
   '/u/$slug': typeof USlugRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -108,6 +115,7 @@ export interface FileRoutesByTo {
   '/api/auth-public-config': typeof ApiAuthPublicConfigRoute
   '/auth/accept': typeof AuthAcceptRoute
   '/auth/bridge': typeof AuthBridgeRoute
+  '/c/$soulId': typeof CSoulIdRoute
   '/u/$slug': typeof USlugRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -123,6 +131,7 @@ export interface FileRoutesById {
   '/api/auth-public-config': typeof ApiAuthPublicConfigRoute
   '/auth/accept': typeof AuthAcceptRoute
   '/auth/bridge': typeof AuthBridgeRoute
+  '/c/$soulId': typeof CSoulIdRoute
   '/u/$slug': typeof USlugRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -139,6 +148,7 @@ export interface FileRouteTypes {
     | '/api/auth-public-config'
     | '/auth/accept'
     | '/auth/bridge'
+    | '/c/$soulId'
     | '/u/$slug'
     | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
@@ -153,6 +163,7 @@ export interface FileRouteTypes {
     | '/api/auth-public-config'
     | '/auth/accept'
     | '/auth/bridge'
+    | '/c/$soulId'
     | '/u/$slug'
     | '/api/auth/$'
   id:
@@ -167,6 +178,7 @@ export interface FileRouteTypes {
     | '/api/auth-public-config'
     | '/auth/accept'
     | '/auth/bridge'
+    | '/c/$soulId'
     | '/u/$slug'
     | '/api/auth/$'
   fileRoutesById: FileRoutesById
@@ -182,6 +194,7 @@ export interface RootRouteChildren {
   ApiAuthPublicConfigRoute: typeof ApiAuthPublicConfigRoute
   AuthAcceptRoute: typeof AuthAcceptRoute
   AuthBridgeRoute: typeof AuthBridgeRoute
+  CSoulIdRoute: typeof CSoulIdRoute
   USlugRoute: typeof USlugRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
@@ -258,6 +271,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthBridgeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/c/$soulId': {
+      id: '/c/$soulId'
+      path: '/c/$soulId'
+      fullPath: '/c/$soulId'
+      preLoaderRoute: typeof CSoulIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/u/$slug': {
       id: '/u/$slug'
       path: '/u/$slug'
@@ -286,6 +306,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthPublicConfigRoute: ApiAuthPublicConfigRoute,
   AuthAcceptRoute: AuthAcceptRoute,
   AuthBridgeRoute: AuthBridgeRoute,
+  CSoulIdRoute: CSoulIdRoute,
   USlugRoute: USlugRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }

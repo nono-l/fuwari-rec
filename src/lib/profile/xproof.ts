@@ -87,6 +87,27 @@ export function mergeIdentities(
   return out;
 }
 
+export function publicCardPath(soulId: string) {
+  return `/c/${encodeURIComponent(soulId)}`;
+}
+
+export function publicCardUrl(soulId: string, origin?: string) {
+  const path = publicCardPath(soulId);
+  if (origin) return `${origin}${path}`;
+  return `https://fuwa.pachimanzi.uk${path}`;
+}
+
+export function sanitizeSoulId(raw: string) {
+  try {
+    raw = decodeURIComponent(raw);
+  } catch {
+    /* keep */
+  }
+  const s = raw.trim();
+  if (!/^[A-Za-z0-9_\-=/?#]{3,64}$/.test(s)) return "";
+  return s;
+}
+
 export function identitiesToFields(ids: XproofIdentity[]) {
   const x = ids.find((i) => i.platform === "x")?.username ?? "";
   const youtube = ids
@@ -103,6 +124,7 @@ export type XproofGrantMessage = {
   client?: string;
   token: string;
   state?: string;
+  soulId?: string;
   identities?: XproofIdentity[];
 };
 
@@ -138,6 +160,7 @@ export function parseXproofGrant(
     client: typeof rec.client === "string" ? rec.client : undefined,
     token: rec.token.trim(),
     state: typeof rec.state === "string" ? rec.state : undefined,
+    soulId: typeof rec.soulId === "string" ? rec.soulId : undefined,
     identities,
   };
 }

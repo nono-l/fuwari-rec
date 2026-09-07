@@ -32,9 +32,8 @@ import {
   clearXproofState,
   newXproofState,
   parseXproofGrant,
-  parseYoutubeHandle,
+  publicCardUrl,
   readXproofState,
-  slugifyHandle,
   xproofConnectUrl,
 } from "@/lib/profile/xproof";
 import { loadFxLibrary } from "@/lib/audio/fx-snapshot";
@@ -91,11 +90,8 @@ function ProfileEditor() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(search.error ?? null);
   const [token, setToken] = useState(search.token ?? "");
-  const [xInput, setXInput] = useState("");
-  const [ytInput, setYtInput] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
-  const [slug, setSlug] = useState("");
   const [library, setLibrary] = useState<ReturnType<typeof loadFxLibrary>>(
     [],
   );
@@ -114,9 +110,6 @@ function ProfileEditor() {
         setProfile(p);
         setDisplayName(p.displayName || user?.displayName || "");
         setBio(p.bio);
-        setSlug(p.slug);
-        setXInput(p.xHandle);
-        setYtInput(p.youtube.join(", "));
       })
       .catch((e) =>
         setMessage(e instanceof Error ? e.message : "読み込みに失敗しました"),
@@ -129,8 +122,6 @@ function ProfileEditor() {
       const result = await linkXproof({ data: { token: grantToken } });
       clearXproofState();
       setProfile(result.profile);
-      setXInput(result.profile.xHandle);
-      setYtInput(result.profile.youtube.join(", "));
       setMessage(
         result.profile.xproofLinked
           ? "XProof とつなぎました"
@@ -181,17 +172,10 @@ function ProfileEditor() {
         data: {
           displayName,
           bio,
-          slug,
           avatarUrl: user?.profileImageUrl ?? "",
-          xHandle: xInput,
-          youtube: ytInput
-            .split(/[,\s]+/)
-            .map((s) => parseYoutubeHandle(s))
-            .filter((s): s is string => Boolean(s)),
         },
       });
       setProfile(next);
-      setSlug(next.slug);
       setMessage("保存しました");
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "保存に失敗しました");
@@ -204,25 +188,15 @@ function ProfileEditor() {
     setBusy(true);
     setMessage(null);
     try {
-      const youtube = ytInput
-        .split(/[,\s]+/)
-        .map((s) => parseYoutubeHandle(s))
-        .filter((s): s is string => Boolean(s));
       const result = await linkXproof({
-        data: {
-          token: token.trim() || undefined,
-          xHandle: xInput,
-          youtube,
-        },
+        data: { token: token.trim() },
       });
       setProfile(result.profile);
-      setXInput(result.profile.xHandle);
-      setYtInput(result.profile.youtube.join(", "));
       setToken("");
       setMessage(
         result.profile.xproofLinked
           ? "XProof の証明をプロフィールに載せました"
-          : result.consumeError || "ハンドルを保存しました",
+          : result.consumeError || "許可情報を受け取れませんでした",
       );
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "連携に失敗しました");
@@ -276,7 +250,9 @@ function ProfileEditor() {
     }
   };
 
-  const publicUrl = profile ? `/u/${profile.slug}` : "";
+  const publicUrl = profile?.soulId
+    ? publicCardUrl(profile.soulId)
+    : "";
 
   return (
     <div className="flex flex-col gap-4">
@@ -294,8 +270,7 @@ function ProfileEditor() {
               XProof と連携
             </h2>
             <p className="mt-1 max-w-xl text-[11px] leading-relaxed text-muted-foreground sm:text-xs">
-              XProof で渡してよい X / YouTube を選ぶと、JSON で戻ります。
-              URL にハンドルは出ません。
+              X / YouTube の所有は XProof の証明だけです。公開ページは魂のIDのアドレスになります。
             </p>
           </div>
           <a
@@ -361,47 +336,30 @@ function ProfileEditor() {
         </div>
 
         <ol className="mt-4 list-decimal space-y-1 pl-5 text-[11px] text-muted-foreground sm:text-xs">
-          <li>「XProof でつなぐ」で証明アプリを開く</li>
-          <li>渡してよいアカウントにチェックして許可する</li>
-          <li>この画面に JSON で戻る。戻らないときは下にトークンを貼る</li>
+          <li>XProof で魂のIDを決め、X / YouTube を証明する</li>
+          <li>渡してよいアカウントを許可する</li>
+          <li>公開ページは /c/魂のID になる</li>
         </ol>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <Field label="Tauth トークン">
+        <details className="mt-4 text-[11px] text-muted-foreground">
+          <summary className="cursor-pointer">ポップアップが戻らないとき</summary>
+          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
             <input
               value={token}
               onChange={(e) => setToken(e.target.value)}
-              placeholder="XProof で発行したトークン"
+              placeholder="XProof のトークン"
               className={inputClass}
             />
-          </Field>
-          <Field label="X ハンドル">
-            <input
-              value={xInput}
-              onChange={(e) => setXInput(slugifyHandle(e.target.value))}
-              placeholder="mss_0337_2024"
-              className={inputClass}
-            />
-          </Field>
-          <Field label="YouTube チャンネル" className="sm:col-span-2">
-            <input
-              value={ytInput}
-              onChange={(e) => setYtInput(e.target.value)}
-              placeholder="@channel をカンマ区切り"
-              className={inputClass}
-            />
-          </Field>
-        </div>
-        <div className="mt-3">
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={busy}
-            onClick={() => void submitToken()}
-          >
-            トークン / ハンドルを保存
-          </Button>
-        </div>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={busy || !token.trim()}
+              onClick={() => void submitToken()}
+            >
+              トークンでつなぐ
+            </Button>
+          </div>
+        </details>
       </section>
 
       <section className="rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-6">
@@ -418,14 +376,11 @@ function ProfileEditor() {
             />
           </Field>
           <Field label="公開URL">
-            <div className="flex items-center gap-1">
-              <span className="text-xs text-muted-foreground">/u/</span>
-              <input
-                value={slug}
-                onChange={(e) => setSlug(e.target.value)}
-                className={inputClass}
-              />
-            </div>
+            <p className="flex h-10 items-center truncate rounded-full border border-border bg-muted/40 px-4 font-mono text-xs">
+              {profile?.soulId
+                ? publicCardUrl(profile.soulId)
+                : "XProof 連携後に /c/魂のID が付きます"}
+            </p>
           </Field>
           <Field label="ひとこと" className="sm:col-span-2">
             <textarea
@@ -441,9 +396,9 @@ function ProfileEditor() {
             <Save className="size-4" />
             プロフィールを保存
           </Button>
-          {profile && (
+          {profile?.soulId && (
             <Button asChild variant="secondary">
-              <Link to="/u/$slug" params={{ slug: profile.slug }}>
+              <Link to="/c/$soulId" params={{ soulId: profile.soulId }}>
                 公開ページを見る
               </Link>
             </Button>

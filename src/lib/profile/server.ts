@@ -8,11 +8,12 @@ import {
   type SingerProfile,
   type XproofIdentity,
 } from "./types";
-import { identitiesToFields, mergeIdentities, slugifyHandle } from "./xproof";
+import { identitiesToFields, mergeIdentities, sanitizeSoulId, slugifyHandle } from "./xproof";
 
 type ProfileRow = {
   user_id: string;
   slug: string;
+  soul_id: string;
   display_name: string;
   bio: string;
   avatar_url: string;
@@ -50,6 +51,7 @@ function rowToProfile(row: ProfileRow): SingerProfile {
   const fromIds = identitiesToFields(identities);
   return {
     slug: row.slug,
+    soulId: row.soul_id || "",
     displayName: row.display_name,
     bio: row.bio,
     avatarUrl: row.avatar_url,
@@ -86,6 +88,7 @@ function fallbackSlug(seed: string) {
 
 async function consumeXproofToken(token: string): Promise<{
   identities: XproofIdentity[];
+  soulId?: string;
   error?: string;
 }> {
   const body = JSON.stringify({
@@ -110,7 +113,8 @@ async function consumeXproofToken(token: string): Promise<{
       if (!res.ok) continue;
       const data = (await res.json()) as Record<string, unknown>;
       const ids = identitiesFromUnknown(data);
-      if (ids.length) return { identities: ids };
+      const soulId = sanitizeSoulId(String(data.soulId ?? data.soul_id ?? ""));
+      if (ids.length || soulId) return { identities: ids, soulId: soulId || undefined };
     } catch {
       /* try next */
     }
@@ -152,7 +156,7 @@ async function consumeXproofToken(token: string): Promise<{
               }),
             }).catch(() => null);
           }
-          if (ids.length) return { identities: ids };
+          if (ids.length) return { identities: ids, soulId: sanitizeSoulId(String(data.soulId ?? "")) || undefined };
           if (typeof data.username === "string") {
             return {
               identities: [
@@ -227,14 +231,14 @@ export const getMyProfile = createServerFn({ method: "GET" })
   .handler(async ({ context }) => loadOrCreate(context.userId));
 
 export const getPublicProfile = createServerFn({ method: "GET" })
-  .validator((slug: string) => sanitizeSlug(String(slug || "")))
-  .handler(async ({ data: slug }) => {
-    if (!slug) return null;
+  .validator((soulId: string) => sanitizeSoulId(String(soulId || "")))
+  .handler(async ({ data: soulId }) => {
+    if (!soulId) return null;
     const { getSql } = await import("@/lib/db");
     const sql = await getSql();
     const rows = await sql<ProfileRow>`
       select * from fuwari_profiles
-      where lower(slug) = ${slug} and is_public = true
+      where soul_id = ${soulId} and is_public = true and xproof_linked = true
       limit 1
     `;
     return rows[0] ? rowToProfile(rows[0]) : null;
@@ -295,11 +299,8 @@ export const saveMyProfile = createServerFn({ method: "POST" })
           ? String(patch.avatarUrl).slice(0, 500)
           : current.avatarUrl,
       isPublic: patch.isPublic ?? current.isPublic,
-      xHandle:
-        patch.xHandle != null ? slugifyHandle(patch.xHandle) : current.xHandle,
-      youtube: patch.youtube
-        ? patch.youtube.map(slugifyHandle).filter(Boolean).slice(0, 8)
-        : current.youtube,
+      xHandle: current.xHandle,
+      youtube: current.youtube,
       rangeMinNote: rangeCleared
         ? ""
         : patch.rangeMinNote != null
@@ -326,12 +327,12 @@ export const saveMyProfile = createServerFn({ method: "POST" })
     const sql = await getSql();
     await sql`
       insert into fuwari_profiles (
-        user_id, slug, display_name, bio, avatar_url, is_public,
+        user_id, slug, soul_id, display_name, bio, avatar_url, is_public,
         x_handle, youtube_json, identities_json, xproof_linked, xproof_linked_at,
         range_min_note, range_max_note, range_span, range_published_at,
         fx_json, updated_at
       ) values (
-        ${context.userId}, ${next.slug}, ${next.displayName}, ${next.bio},
+        ${context.userId}, ${next.slug}, ${current.soulId}, ${next.displayName}, ${next.bio},
         ${next.avatarUrl}, ${next.isPublic}, ${next.xHandle},
         ${JSON.stringify(next.youtube)}, ${JSON.stringify(next.identities)},
         ${next.xproofLinked}, ${next.xproofLinkedAt},
@@ -359,64 +360,54 @@ export const saveMyProfile = createServerFn({ method: "POST" })
 
 export const linkXproof = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(
-    (input: {
-      token?: string;
-      identities?: XproofIdentity[];
-      xHandle?: string;
-      youtube?: string[];
-    }) => input,
-  )
+  .validator((input: { token: string }) => ({
+    token: String(input.token || "").trim(),
+  }))
   .handler(async ({ context, data }) => {
+    if (!data.token) {
+      return {
+        profile: await loadOrCreate(context.userId),
+        consumeError: "連携トークンがありません",
+      };
+    }
     const current = await loadOrCreate(context.userId);
-    let identities = current.identities;
-    let consumeError: string | undefined;
-    if (data.token?.trim()) {
-      const result = await consumeXproofToken(data.token.trim());
-      identities = mergeIdentities(identities, result.identities);
-      consumeError = result.error;
+    const result = await consumeXproofToken(data.token);
+    const soulId = sanitizeSoulId(result.soulId || "");
+    if (!soulId) {
+      return {
+        profile: current,
+        consumeError:
+          result.error ||
+          "XProof で魂のIDを設定してから、もう一度連携してください",
+      };
     }
-    if (data.identities?.length) {
-      identities = mergeIdentities(identities, data.identities);
-    }
+    const identities = result.identities;
     const fields = identitiesToFields(identities);
-    const xHandle = slugifyHandle(
-      data.xHandle || fields.xHandle || current.xHandle,
-    );
-    const youtube = (
-      data.youtube?.length
-        ? data.youtube
-        : fields.youtube.length
-          ? fields.youtube
-          : current.youtube
-    )
-      .map(slugifyHandle)
-      .filter(Boolean)
-      .slice(0, 8);
-    if (xHandle && !identities.some((i) => i.platform === "x")) {
-      identities = mergeIdentities(identities, [
-        { platform: "x", username: xHandle },
-      ]);
-    }
-    for (const ch of youtube) {
-      identities = mergeIdentities(identities, [
-        { platform: "youtube", username: ch },
-      ]);
-    }
-    const linked = identities.length > 0;
     const { getSql } = await import("@/lib/db");
     const sql = await getSql();
+    const taken = await sql<{ n: number }>`
+      select count(*)::int as n from fuwari_profiles
+      where soul_id = ${soulId} and user_id <> ${context.userId}
+    `;
+    if ((taken[0]?.n ?? 0) > 0) {
+      return {
+        profile: current,
+        consumeError: "この魂のIDは別のアカウントで公開されています",
+      };
+    }
     await sql`
       update fuwari_profiles set
+        soul_id = ${soulId},
+        slug = ${soulId.slice(0, 32)},
         identities_json = ${JSON.stringify(identities)},
-        x_handle = ${xHandle},
-        youtube_json = ${JSON.stringify(youtube)},
-        xproof_linked = ${linked},
-        xproof_linked_at = ${linked ? new Date().toISOString() : current.xproofLinkedAt},
+        x_handle = ${fields.xHandle},
+        youtube_json = ${JSON.stringify(fields.youtube)},
+        xproof_linked = true,
+        xproof_linked_at = ${new Date().toISOString()},
         updated_at = now()
       where user_id = ${context.userId}
     `;
-    return { profile: await loadOrCreate(context.userId), consumeError };
+    return { profile: await loadOrCreate(context.userId), consumeError: undefined };
   });
 
 export const unlinkXproof = createServerFn({ method: "POST" })
@@ -426,7 +417,10 @@ export const unlinkXproof = createServerFn({ method: "POST" })
     const sql = await getSql();
     await sql`
       update fuwari_profiles set
+        soul_id = '',
         identities_json = '[]',
+        x_handle = '',
+        youtube_json = '[]',
         xproof_linked = false,
         xproof_linked_at = null,
         updated_at = now()

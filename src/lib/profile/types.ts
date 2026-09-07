@@ -12,6 +12,7 @@ export type PublicFxCard = {
 
 export type SingerProfile = {
   slug: string;
+  soulId: string;
   displayName: string;
   bio: string;
   avatarUrl: string;
@@ -31,6 +32,7 @@ export type SingerProfile = {
 
 export const emptyProfile = (slug = ""): SingerProfile => ({
   slug,
+  soulId: "",
   displayName: "",
   bio: "",
   avatarUrl: "",
