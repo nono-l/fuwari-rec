@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from "react";
+import { Link } from "@tanstack/react-router";
 import { AppHeader } from "@/components/editor/app-header";
 import { AppNav } from "@/components/editor/app-nav";
 import { TransportBar } from "@/components/editor/transport-bar";
@@ -72,6 +73,13 @@ export function AppShell({
 
         <footer className="mt-8 border-t border-border pt-4 text-center text-[11px] text-muted-foreground">
           Fuwari REC — 処理は端末内で完結。YouTubeは公式埋め込みのストリーミングのみ。
+          {" · "}
+          <Link
+            to="/terms"
+            className="underline decoration-border underline-offset-2 hover:text-foreground"
+          >
+            配信規約 / ビデオポリシー
+          </Link>
         </footer>
       </main>
     </div>

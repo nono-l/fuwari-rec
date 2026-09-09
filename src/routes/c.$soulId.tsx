@@ -177,6 +177,14 @@ function PublicCardPage() {
             </Link>
           </Button>
         </div>
+        <p className="mt-8 text-center text-[11px] text-muted-foreground">
+          <Link
+            to="/terms"
+            className="underline decoration-border underline-offset-2 hover:text-foreground"
+          >
+            配信規約 / ビデオポリシー
+          </Link>
+        </p>
       </div>
     </main>
   );

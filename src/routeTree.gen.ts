@@ -16,6 +16,7 @@ import { Route as EffectorRouteImport } from './routes/effector'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as RangeRouteImport } from './routes/range'
+import { Route as TermsRouteImport } from './routes/terms'
 import { Route as ApiAuthPublicConfigRouteImport } from './routes/api/auth-public-config'
 import { Route as AuthAcceptRouteImport } from './routes/auth/accept'
 import { Route as AuthBridgeRouteImport } from './routes/auth/bridge'
@@ -58,6 +59,11 @@ const RangeRoute = RangeRouteImport.update({
   path: '/range',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TermsRoute = TermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthPublicConfigRoute = ApiAuthPublicConfigRouteImport.update({
   id: '/api/auth-public-config',
   path: '/api/auth-public-config',
@@ -97,6 +103,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/profile': typeof ProfileRoute
   '/range': typeof RangeRoute
+  '/terms': typeof TermsRoute
   '/api/auth-public-config': typeof ApiAuthPublicConfigRoute
   '/auth/accept': typeof AuthAcceptRoute
   '/auth/bridge': typeof AuthBridgeRoute
@@ -112,6 +119,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/profile': typeof ProfileRoute
   '/range': typeof RangeRoute
+  '/terms': typeof TermsRoute
   '/api/auth-public-config': typeof ApiAuthPublicConfigRoute
   '/auth/accept': typeof AuthAcceptRoute
   '/auth/bridge': typeof AuthBridgeRoute
@@ -128,6 +136,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/profile': typeof ProfileRoute
   '/range': typeof RangeRoute
+  '/terms': typeof TermsRoute
   '/api/auth-public-config': typeof ApiAuthPublicConfigRoute
   '/auth/accept': typeof AuthAcceptRoute
   '/auth/bridge': typeof AuthBridgeRoute
@@ -145,6 +154,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/profile'
     | '/range'
+    | '/terms'
     | '/api/auth-public-config'
     | '/auth/accept'
     | '/auth/bridge'
@@ -160,6 +170,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/profile'
     | '/range'
+    | '/terms'
     | '/api/auth-public-config'
     | '/auth/accept'
     | '/auth/bridge'
@@ -175,6 +186,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/profile'
     | '/range'
+    | '/terms'
     | '/api/auth-public-config'
     | '/auth/accept'
     | '/auth/bridge'
@@ -191,6 +203,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   ProfileRoute: typeof ProfileRoute
   RangeRoute: typeof RangeRoute
+  TermsRoute: typeof TermsRoute
   ApiAuthPublicConfigRoute: typeof ApiAuthPublicConfigRoute
   AuthAcceptRoute: typeof AuthAcceptRoute
   AuthBridgeRoute: typeof AuthBridgeRoute
@@ -250,6 +263,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RangeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth-public-config': {
       id: '/api/auth-public-config'
       path: '/api/auth-public-config'
@@ -303,6 +323,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   ProfileRoute: ProfileRoute,
   RangeRoute: RangeRoute,
+  TermsRoute: TermsRoute,
   ApiAuthPublicConfigRoute: ApiAuthPublicConfigRoute,
   AuthAcceptRoute: AuthAcceptRoute,
   AuthBridgeRoute: AuthBridgeRoute,
