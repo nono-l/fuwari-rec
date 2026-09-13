@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Music2, ScanSearch, SlidersHorizontal } from "lucide-react";
+import { ListMusic, Mic2, Music2, ScanSearch, SlidersHorizontal } from "lucide-react";
 import { AppShell } from "@/components/editor/app-shell";
 import { TrackRow } from "@/components/editor/track-row";
 import { YoutubePanel } from "@/components/editor/youtube-panel";
@@ -9,6 +9,9 @@ import { PianoRollPanel } from "@/components/editor/piano-roll-panel";
 import { TapRhythmPanel } from "@/components/editor/tap-rhythm-panel";
 import { RhythmPadPanel } from "@/components/editor/rhythm-pad-panel";
 import { DevicePanel } from "@/components/editor/device-panel";
+import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useEditorStore } from "@/lib/store/editor-store";
 import { MIX_PRESETS } from "@/lib/audio/types";
 
@@ -20,6 +23,7 @@ export function Studio() {
   const rangeMinNote = useEditorStore((s) => s.rangeMinNote);
   const rangeMaxNote = useEditorStore((s) => s.rangeMaxNote);
   const mediaRangeResult = useEditorStore((s) => s.mediaRangeResult);
+  const toggleRecord = useEditorStore((s) => s.toggleRecord);
 
   const presetLabel =
     MIX_PRESETS.find((p) => p.id === master.preset)?.label ?? "カスタム";
@@ -42,18 +46,30 @@ export function Studio() {
               </span>
             </div>
             {!ready ? (
-              <div className="rounded-2xl border border-border bg-card p-10 text-center text-sm text-muted-foreground">
-                エンジンを初期化中…
+              <div className="space-y-3" aria-busy="true" aria-label="エンジン準備中">
+                <Skeleton className="h-24 rounded-2xl" />
+                <Skeleton className="h-24 rounded-2xl" />
+                <p className="text-center text-xs text-muted-foreground">
+                  エンジンを準備しています…
+                </p>
               </div>
             ) : tracks.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center">
-                <p className="text-sm font-medium text-foreground">
-                  赤い「録音」を押すと、その場から録れます
-                </p>
-                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                  押すと時計が進みます。もう一度押すと停止して、トラックに入ります。
-                  伴奏や YouTube を先に読み込んでおくと、合わせながら歌えます。
-                </p>
+              <div className="rounded-2xl border border-dashed border-border bg-card">
+                <EmptyState
+                  icon={Mic2}
+                  title="まだトラックがありません"
+                  description="赤い「録音」を押すとその場から録れます。伴奏や YouTube を先に読み込むと、合わせながら歌えます。"
+                  action={
+                    <Button
+                      type="button"
+                      variant="record"
+                      onClick={() => void toggleRecord()}
+                    >
+                      録音を始める
+                    </Button>
+                  }
+                  className="py-8"
+                />
               </div>
             ) : (
               tracks.map((t) => <TrackRow key={t.id} track={t} />)
@@ -100,21 +116,28 @@ export function Studio() {
               <div className="mt-4 grid gap-2">
                 <Link
                   to="/analyze"
-                  className="inline-flex w-full items-center justify-center gap-1.5 rounded-full bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90"
+                  className="inline-flex w-full items-center justify-center gap-1.5 rounded-full bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground shadow-sm transition-opacity duration-200 hover:opacity-90"
                 >
                   <ScanSearch className="size-3.5" />
                   音源解析タブへ
                 </Link>
                 <Link
+                  to="/songdb"
+                  className="inline-flex w-full items-center justify-center gap-1.5 rounded-full border border-border bg-card px-3 py-2.5 text-sm font-medium text-foreground transition-colors duration-200 hover:bg-muted"
+                >
+                  <ListMusic className="size-3.5" />
+                  楽曲リストへ
+                </Link>
+                <Link
                   to="/range"
-                  className="inline-flex w-full items-center justify-center gap-1.5 rounded-full border border-border bg-card px-3 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                  className="inline-flex w-full items-center justify-center gap-1.5 rounded-full border border-border bg-card px-3 py-2.5 text-sm font-medium text-foreground transition-colors duration-200 hover:bg-muted"
                 >
                   <Music2 className="size-3.5" />
                   声域測定タブへ
                 </Link>
                 <Link
                   to="/effector"
-                  className="inline-flex w-full items-center justify-center gap-1.5 rounded-full border border-border bg-card px-3 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                  className="inline-flex w-full items-center justify-center gap-1.5 rounded-full border border-border bg-card px-3 py-2.5 text-sm font-medium text-foreground transition-colors duration-200 hover:bg-muted"
                 >
                   <SlidersHorizontal className="size-3.5" />
                   エフェクタータブへ
@@ -140,9 +163,9 @@ export function Studio() {
                 </li>
                 <li>
                   <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">
-                    S
+                    Ctrl+Z
                   </kbd>{" "}
-                  停止
+                  音符・音階バーをひとつ戻す
                 </li>
               </ul>
             </section>

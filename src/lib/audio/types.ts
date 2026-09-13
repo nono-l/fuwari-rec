@@ -31,6 +31,12 @@ export interface Track {
   /** Original timings before rhythm snap (pitches identical). */
   midiSourceNotes?: MidiNote[];
   midiInstrument?: MidiInstrumentId;
+  /**
+   * Vocal pitch bars: midiNotes map onto this frozen recording.
+   * Edits retune/stretch slices instead of replacing the voice with a synth.
+   */
+  pitchEdit?: boolean;
+  pitchSourceBuffer?: AudioBuffer | null;
 }
 
 export interface MasterFx {

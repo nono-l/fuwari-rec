@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { authMiddleware } from "@/lib/auth/middleware";
+import { authMiddleware, optionalAuthMiddleware } from "@/lib/auth/middleware";
 import {
   emptyProfile,
   XPROOF_CLIENT,
@@ -28,6 +28,7 @@ type ProfileRow = {
   range_span: number;
   range_published_at: string | Date | null;
   fx_json: string;
+  ops_public?: string;
   updated_at: string | Date | null;
 };
 
@@ -66,8 +67,16 @@ function rowToProfile(row: ProfileRow): SingerProfile {
     rangeSpan: Number(row.range_span) || 0,
     rangePublishedAt: asIso(row.range_published_at),
     fx: parseJson<PublicFxCard[]>(row.fx_json, []),
+    singable: [],
+    opsPublic: parseOpsPublic(row.ops_public),
+    opsCount: 0,
     updatedAt: asIso(row.updated_at),
   };
+}
+
+function parseOpsPublic(raw: string | undefined): import("./types").OpsPublic {
+  if (raw === "presence" || raw === "count" || raw === "hide") return raw;
+  return "hide";
 }
 
 function sanitizeSlug(raw: string) {
@@ -231,17 +240,45 @@ export const getMyProfile = createServerFn({ method: "GET" })
   .handler(async ({ context }) => loadOrCreate(context.userId));
 
 export const getPublicProfile = createServerFn({ method: "GET" })
+  .middleware([optionalAuthMiddleware])
   .validator((soulId: string) => sanitizeSoulId(String(soulId || "")))
-  .handler(async ({ data: soulId }) => {
+  .handler(async ({ context, data: soulId }) => {
     if (!soulId) return null;
     const { getSql } = await import("@/lib/db");
     const sql = await getSql();
     const rows = await sql<ProfileRow>`
       select * from fuwari_profiles
-      where soul_id = ${soulId} and is_public = true and xproof_linked = true
+      where soul_id = ${soulId} and xproof_linked = true
       limit 1
     `;
-    return rows[0] ? rowToProfile(rows[0]) : null;
+    const row = rows[0];
+    if (!row) return null;
+    let viewAs: "public" | "owner" | "ops" = "public";
+    if (!row.is_public) {
+      const uid = context.userId;
+      if (uid && uid === row.user_id) {
+        viewAs = "owner";
+      } else if (uid) {
+        const { isAdminUser } = await import("@/lib/admin/server");
+        if (await isAdminUser(uid)) viewAs = "ops";
+        else return null;
+      } else {
+        return null;
+      }
+    }
+    const profile = rowToProfile(row);
+    if (profile.opsPublic !== "hide") {
+      try {
+        const n = await sql<{ n: number }>`
+          select count(*)::int as n from fuwari_list_ops
+          where owner_id = ${row.user_id} and status = 'active'
+        `;
+        profile.opsCount = Number(n[0]?.n) || 0;
+      } catch {
+        profile.opsCount = 0;
+      }
+    }
+    return { ...profile, viewAs };
   });
 
 export type ProfilePatch = {
@@ -257,6 +294,7 @@ export type ProfilePatch = {
   rangeSpan?: number;
   clearRange?: boolean;
   fx?: PublicFxCard[];
+  opsPublic?: import("./types").OpsPublic;
 };
 
 export const saveMyProfile = createServerFn({ method: "POST" })
@@ -322,6 +360,7 @@ export const saveMyProfile = createServerFn({ method: "POST" })
           ? new Date().toISOString()
           : current.rangePublishedAt,
       fx: patch.fx ? patch.fx.slice(0, 12) : current.fx,
+      opsPublic: patch.opsPublic ?? current.opsPublic,
     };
     const { getSql } = await import("@/lib/db");
     const sql = await getSql();
@@ -330,7 +369,7 @@ export const saveMyProfile = createServerFn({ method: "POST" })
         user_id, slug, soul_id, display_name, bio, avatar_url, is_public,
         x_handle, youtube_json, identities_json, xproof_linked, xproof_linked_at,
         range_min_note, range_max_note, range_span, range_published_at,
-        fx_json, updated_at
+        fx_json, ops_public, updated_at
       ) values (
         ${context.userId}, ${next.slug}, ${current.soulId}, ${next.displayName}, ${next.bio},
         ${next.avatarUrl}, ${next.isPublic}, ${next.xHandle},
@@ -338,7 +377,7 @@ export const saveMyProfile = createServerFn({ method: "POST" })
         ${next.xproofLinked}, ${next.xproofLinkedAt},
         ${next.rangeMinNote}, ${next.rangeMaxNote}, ${next.rangeSpan},
         ${next.rangePublishedAt},
-        ${JSON.stringify(next.fx)}, now()
+        ${JSON.stringify(next.fx)}, ${next.opsPublic}, now()
       )
       on conflict (user_id) do update set
         slug = excluded.slug,
@@ -353,6 +392,7 @@ export const saveMyProfile = createServerFn({ method: "POST" })
         range_span = excluded.range_span,
         range_published_at = excluded.range_published_at,
         fx_json = excluded.fx_json,
+        ops_public = excluded.ops_public,
         updated_at = now()
     `;
     return loadOrCreate(context.userId);

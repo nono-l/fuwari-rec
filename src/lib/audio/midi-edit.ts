@@ -107,6 +107,25 @@ export function snapWindowBeat(beat: number) {
   return Math.max(0, max);
 }
 
+export function patchNoteById(
+  notes: MidiNote[],
+  id: string,
+  patch: Partial<MidiNote>,
+): MidiNote[] {
+  return ensureNoteIds(notes).map((n) =>
+    n.id === id
+      ? {
+          ...n,
+          ...patch,
+          id: n.id,
+          sourceStart: n.sourceStart,
+          sourceDuration: n.sourceDuration,
+          sourceMidi: n.sourceMidi,
+        }
+      : n,
+  );
+}
+
 export function centerViewLow(notes: MidiNote[]) {
   if (!notes.length) return 48;
   const pitches = notes.map((n) => n.midi).sort((a, b) => a - b);

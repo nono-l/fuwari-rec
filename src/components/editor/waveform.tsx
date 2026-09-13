@@ -110,8 +110,8 @@ export function Waveform({
     >
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
       {!buffer && (
-        <div className="absolute inset-0 grid place-items-center text-xs text-muted-foreground">
-          音源なし — 録音または読み込み
+        <div className="absolute inset-0 grid place-items-center text-[11px] text-muted-foreground">
+          まだ音がありません · 録音するか読み込んでください
         </div>
       )}
       <div

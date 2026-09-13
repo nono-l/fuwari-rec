@@ -92,7 +92,7 @@ export function TransportBar() {
     <div
       id="transport-bar"
       className={cn(
-        "sticky top-[calc(var(--grok-banner-h,0px)+3.5rem)] z-30 -mx-4 mb-3 border-y border-border bg-background/92 px-4 shadow-sm backdrop-blur-md sm:-mx-6 sm:px-6",
+        "sticky top-[calc(var(--grok-banner-h,0px)+3.5rem)] z-30 -mx-4 mb-3 border-y border-border bg-background/92 px-4 shadow-sm backdrop-blur-md transition-[padding] duration-200 ease-out sm:-mx-6 sm:px-6",
         showTools ? "py-2.5" : "py-1.5 sm:py-2.5",
       )}
     >
@@ -130,7 +130,7 @@ export function TransportBar() {
           aria-label={recording ? "録音停止" : "録音開始"}
           aria-pressed={recording}
           className={
-            recording ? "animate-pulse min-w-[5.5rem]" : "min-w-[5.5rem]"
+            recording ? "animate-rec min-w-[5.5rem]" : "min-w-[5.5rem]"
           }
         >
           <Circle className="size-3.5 fill-current" />
@@ -183,7 +183,7 @@ export function TransportBar() {
       <div
         id="transport-tools"
         className={cn(
-          "grid transition-[grid-template-rows,opacity] duration-200 ease-out sm:grid-rows-[1fr] sm:opacity-100",
+          "grid transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] sm:grid-rows-[1fr] sm:opacity-100",
           showTools
             ? "grid-rows-[1fr] opacity-100"
             : "grid-rows-[0fr] opacity-0",

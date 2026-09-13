@@ -1,14 +1,16 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  Eraser,
   Music2,
   Plus,
   Undo2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { useEditorStore } from "@/lib/store/editor-store";
 import { midiToNoteName } from "@/lib/audio/pitch";
@@ -23,6 +25,7 @@ import {
   secToBeat,
   snapBeat,
   totalBeats,
+  beatToSec,
 } from "@/lib/audio/midi-edit";
 import type { MidiNote } from "@/lib/audio/midi";
 import type { Track } from "@/lib/audio/types";
@@ -57,8 +60,20 @@ export function PianoRollPanel() {
   const setMidiCursor = useEditorStore((s) => s.setMidiCursor);
   const toggleMidiCell = useEditorStore((s) => s.toggleMidiCell);
   const undoMidiEdit = useEditorStore((s) => s.undoMidiEdit);
+  const patchMidiNote = useEditorStore((s) => s.patchMidiNote);
+  const captureMidiUndo = useEditorStore((s) => s.captureMidiUndo);
   const seekToBeat = useEditorStore((s) => s.seekToBeat);
   const togglePlay = useEditorStore((s) => s.togglePlay);
+  const [deleteMode, setDeleteMode] = useState(false);
+
+  useEffect(() => {
+    if (!deleteMode) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDeleteMode(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [deleteMode]);
 
   const selected =
     midiTracks.find((t) => t.id === editId) ??
@@ -81,8 +96,7 @@ export function PianoRollPanel() {
           MIDI 編集
         </h2>
         <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-          アレンジメントとピアノロールで音符を置きます。歌の MIDI
-          化、ファイル読み込み、または空のトラックから書けます。
+          アレンジメントとピアノロールで音符を置きます。歌は「音階をバーに切り出す」と、声のまま上下と長さを直せます。
         </p>
         <Button
           type="button"
@@ -106,7 +120,8 @@ export function PianoRollPanel() {
             アレンジメント
           </h2>
           <p className="mt-0.5 text-[11px] text-muted-foreground">
-            {Math.ceil(maxBeat / BEATS_SAFE)} 小節 · {midiTracks.length} MIDI トラック · グリッド 1/16
+            {Math.ceil(maxBeat / BEATS_SAFE)} 小節 · {midiTracks.length} トラック · グリッド 1/16
+            {selected?.pitchEdit ? " · 歌声バー" : ""}
           </p>
         </div>
         <Button type="button" size="sm" variant="secondary" onClick={() => createMidiTrack()}>
@@ -139,7 +154,9 @@ export function PianoRollPanel() {
                 </span>
               </h3>
               <p className="text-[10px] text-muted-foreground">
-                クリックで追加・削除 · 矢印で移動 · Enter で置く · Space で再生
+                {deleteMode
+                  ? "削除モード · バーをクリックして消す · Esc で解除"
+                  : "ドラッグで音程と長さ · 空きをクリックして追加 · 消すときは削除モード"}
               </p>
             </div>
             <div className="flex items-center gap-1">
@@ -186,12 +203,29 @@ export function PianoRollPanel() {
                 </Button>
               ))}
             </div>
+            <label className="ml-auto flex cursor-pointer items-center gap-2 text-xs text-foreground">
+              <Eraser className="size-3.5 text-muted-foreground" />
+              削除
+              <Switch
+                checked={deleteMode}
+                onCheckedChange={setDeleteMode}
+                aria-label="削除スイッチ"
+              />
+              <span
+                className={cn(
+                  "min-w-[2rem] text-[10px] font-medium tabular-nums",
+                  deleteMode ? "text-primary" : "text-muted-foreground",
+                )}
+              >
+                {deleteMode ? "オン" : "オフ"}
+              </span>
+            </label>
             <Button
               type="button"
               size="sm"
               variant="ghost"
-              className="ml-auto"
               disabled={undoLen === 0}
+              title="Ctrl+Z"
               onClick={() => undoMidiEdit()}
             >
               <Undo2 className="size-3.5" />
@@ -210,10 +244,19 @@ export function PianoRollPanel() {
             playBeat={inWindow ? playBeat : null}
             playing={status === "playing" || status === "recording"}
             onCursor={setMidiCursor}
-            onToggle={(beat, pitch) => toggleMidiCell(selected.id, beat, pitch)}
+            onToggle={(beat, pitch, mode) =>
+              toggleMidiCell(selected.id, beat, pitch, mode)
+            }
+            onPatch={(id, patch, bake) =>
+              patchMidiNote(selected.id, id, patch, bake)
+            }
+            onCaptureUndo={() => captureMidiUndo(selected.id)}
+            pitchEdit={Boolean(selected.pitchEdit)}
+            deleteMode={deleteMode}
             onPlayToggle={togglePlay}
             onOctave={shiftMidiViewOctave}
             onSeekBeat={(beat) => seekToBeat(beat)}
+            onExitDelete={() => setDeleteMode(false)}
           />
         </div>
       )}
@@ -360,9 +403,14 @@ function PianoGrid({
   playing,
   onCursor,
   onToggle,
+  onPatch,
+  onCaptureUndo,
+  pitchEdit,
+  deleteMode,
   onPlayToggle,
   onOctave,
   onSeekBeat,
+  onExitDelete,
 }: {
   track: Track;
   notes: MidiNote[];
@@ -374,12 +422,32 @@ function PianoGrid({
   playBeat: number | null;
   playing: boolean;
   onCursor: (beat: number, pitch: number) => void;
-  onToggle: (beat: number, pitch: number) => void;
+  onToggle: (beat: number, pitch: number, mode?: "add" | "delete") => void;
+  onPatch: (
+    id: string,
+    patch: Partial<MidiNote>,
+    bake?: boolean,
+  ) => void;
+  onCaptureUndo: () => void;
+  pitchEdit: boolean;
+  deleteMode: boolean;
   onPlayToggle: () => void;
   onOctave: (d: -1 | 1) => void;
   onSeekBeat: (beat: number) => void;
+  onExitDelete: () => void;
 }) {
   const gridRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{
+    id: string;
+    mode: "move" | "resize";
+    startX: number;
+    startY: number;
+    origBeat: number;
+    origMidi: number;
+    origDur: number;
+    dirty: boolean;
+  } | null>(null);
+  const skipClick = useRef(false);
   const pitches = useMemo(
     () => Array.from({ length: VIEW_ROWS }, (_, i) => viewLow + VIEW_ROWS - 1 - i),
     [viewLow],
@@ -460,8 +528,11 @@ function PianoGrid({
             ref={gridRef}
             role="grid"
             tabIndex={0}
-            aria-label={`${track.name}の音符編集。矢印キーで移動、Enterで追加・削除、Spaceで再生。`}
-            className="relative h-[432px] min-w-0 flex-1 cursor-crosshair outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={`${track.name}の音符編集。矢印キーで移動、Enterで追加、削除モードで消す、Spaceで再生。`}
+            className={cn(
+              "relative h-[432px] min-w-0 flex-1 outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              deleteMode ? "cursor-pointer" : "cursor-crosshair",
+            )}
             style={{
               backgroundImage: [
                 "linear-gradient(to right, color-mix(in oklab, var(--color-border) 80%, transparent) 1px, transparent 1px)",
@@ -471,12 +542,26 @@ function PianoGrid({
               backgroundSize: `${100 / COLS}%, ${100 / 16}%, 100% ${100 / VIEW_ROWS}%`,
             }}
             onClick={(e) => {
+              if (skipClick.current) {
+                skipClick.current = false;
+                return;
+              }
               const cell = cellFromPoint(e.clientX, e.clientY);
               if (!cell) return;
               onCursor(cell.beat, cell.pitch);
-              onToggle(cell.beat, cell.pitch);
+              if (deleteMode) return;
+              onToggle(cell.beat, cell.pitch, "add");
             }}
             onKeyDown={(e) => {
+              if (e.key === "Escape" && deleteMode) {
+                e.preventDefault();
+                onExitDelete();
+                return;
+              }
+              if ((e.ctrlKey || e.metaKey) && e.code === "KeyZ" && !e.shiftKey) {
+                e.preventDefault();
+                return;
+              }
               if (e.key === " " || e.code === "Space") {
                 e.preventDefault();
                 onPlayToggle();
@@ -484,7 +569,11 @@ function PianoGrid({
               }
               if (e.key === "Enter") {
                 e.preventDefault();
-                onToggle(cursorBeat, cursorPitch);
+                onToggle(
+                  cursorBeat,
+                  cursorPitch,
+                  deleteMode ? "delete" : "add",
+                );
                 return;
               }
               if (e.key === "ArrowLeft") {
@@ -527,13 +616,22 @@ function PianoGrid({
               const left = ((start - windowBeat) / WINDOW_BEATS) * 100;
               const width = (dur / WINDOW_BEATS) * 100;
               const row = viewLow + VIEW_ROWS - 1 - n.midi;
-              if (row < 0 || row >= VIEW_ROWS) return null;
+              if (row < 0 || row >= VIEW_ROWS || !n.id) return null;
               return (
                 <button
-                  key={n.id ?? `${n.start}-${n.midi}`}
+                  key={n.id}
                   type="button"
-                  title={`${midiToNoteName(n.midi)} · クリックで削除`}
-                  className="absolute z-[1] rounded-[3px] border border-white/30 shadow-sm"
+                  title={
+                    deleteMode
+                      ? `${midiToNoteName(n.midi)} · クリックで削除`
+                      : `${midiToNoteName(n.midi)} · ドラッグで音程と長さ`
+                  }
+                  className={cn(
+                    "absolute z-[1] touch-none rounded-[3px] border shadow-sm",
+                    deleteMode
+                      ? "border-destructive/70 cursor-pointer"
+                      : "border-white/30",
+                  )}
                   style={{
                     left: `${left}%`,
                     width: `${Math.max(1.2, width)}%`,
@@ -541,11 +639,87 @@ function PianoGrid({
                     height: `${100 / VIEW_ROWS}%`,
                     background: track.color,
                   }}
-                  onClick={(e) => {
+                  onPointerDown={(e) => {
+                    e.preventDefault();
                     e.stopPropagation();
-                    onToggle(start, n.midi);
+                    const el = e.currentTarget;
+                    const r = el.getBoundingClientRect();
+                    const edge = e.clientX > r.right - 10;
+                    dragRef.current = {
+                      id: n.id!,
+                      mode: edge ? "resize" : "move",
+                      startX: e.clientX,
+                      startY: e.clientY,
+                      origBeat: start,
+                      origMidi: n.midi,
+                      origDur: dur,
+                      dirty: false,
+                    };
+                    el.setPointerCapture(e.pointerId);
+                    onCursor(start, n.midi);
                   }}
-                />
+                  onPointerMove={(e) => {
+                    if (deleteMode) return;
+                    const drag = dragRef.current;
+                    if (!drag || drag.id !== n.id) return;
+                    const grid = gridRef.current;
+                    if (!grid) return;
+                    const r = grid.getBoundingClientRect();
+                    const dx = e.clientX - drag.startX;
+                    const dy = e.clientY - drag.startY;
+                    if (!drag.dirty && Math.hypot(dx, dy) < 4) return;
+                    if (!drag.dirty) onCaptureUndo();
+                    drag.dirty = true;
+                    skipClick.current = true;
+                    if (drag.mode === "resize") {
+                      const dBeats = (dx / r.width) * WINDOW_BEATS;
+                      const nextDur = Math.max(
+                        GRID_BEAT,
+                        snapBeat(drag.origDur + dBeats),
+                      );
+                      onPatch(
+                        drag.id,
+                        { duration: beatToSec(nextDur, bpm) },
+                        false,
+                      );
+                    } else {
+                      const dBeats = (dx / r.width) * WINDOW_BEATS;
+                      const dRows = Math.round((dy / r.height) * VIEW_ROWS);
+                      const nextBeat = snapBeat(
+                        Math.max(0, drag.origBeat + dBeats),
+                      );
+                      const nextMidi = Math.max(
+                        24,
+                        Math.min(108, drag.origMidi - dRows),
+                      );
+                      onPatch(
+                        drag.id,
+                        {
+                          start: beatToSec(nextBeat, bpm),
+                          midi: nextMidi,
+                        },
+                        false,
+                      );
+                      onCursor(nextBeat, nextMidi);
+                    }
+                  }}
+                  onPointerUp={(e) => {
+                    const drag = dragRef.current;
+                    dragRef.current = null;
+                    if (!drag || drag.id !== n.id) return;
+                    e.stopPropagation();
+                    if (deleteMode) {
+                      if (drag.id === n.id) onToggle(start, n.midi, "delete");
+                      return;
+                    }
+                    if (!drag.dirty) {
+                      return;
+                    }
+                    onPatch(drag.id, {}, true);
+                  }}
+                >
+                  <span className="absolute inset-y-0 right-0 w-2 cursor-ew-resize rounded-r-[3px] bg-white/25" />
+                </button>
               );
             })}
 
@@ -573,6 +747,13 @@ function PianoGrid({
       <p className="mt-2 text-[10px] text-muted-foreground">
         {playing ? "再生中" : "READY"} · {midiToNoteName(cursorPitch)} · 拍{" "}
         {(cursorBeat + 1).toFixed(2)}
+        {pitchEdit
+          ? deleteMode
+            ? " · 削除モード · バーをクリックして消す · Esc で解除"
+            : " · バーを上下＝音程、右端＝長さ。消すときは削除モード"
+          : deleteMode
+            ? " · 削除モード · バーをクリックして消す · Esc で解除"
+            : " · 空きクリックで追加、ドラッグで音程と長さ。消すときは削除モード"}
       </p>
     </div>
   );

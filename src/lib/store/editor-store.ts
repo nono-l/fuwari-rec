@@ -28,6 +28,7 @@ import {
   processSeparation,
   type SeparationMode,
 } from "@/lib/audio/separation";
+import { renderPitchBars, renderOnePitchBar, stampPitchSources } from "@/lib/audio/pitch-bars";
 import {
   ensureMicPermission,
   listAudioDevices,
@@ -56,6 +57,8 @@ import {
   snapWindowBeat,
   toggleNoteAt,
   beatToSec,
+  secToBeat,
+  patchNoteById,
 } from "@/lib/audio/midi-edit";
 import { isVideoFile } from "@/lib/audio/media-decode";
 import {
@@ -146,6 +149,8 @@ function makeTrack(partial?: Partial<Track>): Track {
     midiNotes: partial?.midiNotes,
     midiSourceNotes: partial?.midiSourceNotes,
     midiInstrument: partial?.midiInstrument ?? "piano",
+    pitchEdit: partial?.pitchEdit,
+    pitchSourceBuffer: partial?.pitchSourceBuffer,
   };
 }
 
@@ -155,6 +160,52 @@ let liveMeterRaf = 0;
 let rangeRaf = 0;
 let deviceUnsub: (() => void) | null = null;
 let midiRenderTimer = 0;
+let notePreviewTimer = 0;
+
+function scheduleNotePreview(
+  get: () => EditorState,
+  trackId: string,
+  noteId: string,
+) {
+  if (typeof window === "undefined") return;
+  window.clearTimeout(notePreviewTimer);
+  try {
+    getAudioEngine().stopPreview();
+  } catch {
+    /* not ready */
+  }
+  notePreviewTimer = window.setTimeout(() => {
+    const state = get();
+    if (state.status === "playing" || state.status === "recording") return;
+    const track = state.tracks.find((t) => t.id === trackId);
+    const note = (track?.midiNotes ?? []).find((n) => n.id === noteId);
+    if (!track || !note) return;
+    try {
+      const engine = getAudioEngine();
+      if (track.pitchEdit && track.pitchSourceBuffer) {
+        const dur = Math.max(0.04, note.duration);
+        const cap = Math.min(2, dur);
+        const srcDur = Math.max(0.03, note.sourceDuration ?? dur);
+        const sliced = {
+          ...note,
+          duration: cap,
+          sourceDuration: srcDur * (cap / dur),
+        };
+        const buf = renderOnePitchBar(track.pitchSourceBuffer, sliced);
+        engine.previewAudioBuffer(buf, cap);
+      } else {
+        engine.previewSynthNote({
+          midi: note.midi,
+          duration: note.duration,
+          velocity: note.velocity,
+          instrument: track.midiInstrument ?? state.midiInstrument,
+        });
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, 200);
+}
 
 function scheduleMidiBuffer(
   get: () => EditorState,
@@ -167,25 +218,38 @@ function scheduleMidiBuffer(
     const track = get().tracks.find((t) => t.id === trackId);
     if (!track) return;
     const notes = track.midiNotes ?? [];
-    const inst = track.midiInstrument ?? get().midiInstrument;
     void (async () => {
       try {
-        const parsed = notesToParsed(notes, track.name);
+        const engine = getAudioEngine();
+        if (track.pitchEdit) {
+          const source = track.pitchSourceBuffer;
+          if (!source) return;
+          const buffer =
+            notes.length === 0
+              ? source
+              : await renderPitchBars(source, notes, (p) =>
+                  set({ midiConvertProgress: p }),
+                );
+          if (!get().tracks.find((t) => t.id === trackId)) return;
+          get().updateTrack(trackId, { buffer });
+          engine.updateDuration(get().tracks);
+          set({ duration: engine.getDuration(), midiConvertProgress: 1 });
+          return;
+        }
+        const inst = track.midiInstrument ?? get().midiInstrument;
         if (notes.length === 0) {
           get().updateTrack(trackId, { buffer: null });
-          const engine = getAudioEngine();
           engine.updateDuration(get().tracks);
           set({ duration: engine.getDuration() });
           return;
         }
-        const engine = getAudioEngine();
+        const parsed = notesToParsed(notes, track.name);
         const buffer = await renderMidiToAudioBuffer(
           parsed,
           engine.getSampleRate(),
           inst,
         );
-        const latest = get().tracks.find((t) => t.id === trackId);
-        if (!latest) return;
+        if (!get().tracks.find((t) => t.id === trackId)) return;
         get().updateTrack(trackId, { buffer });
         engine.updateDuration(get().tracks);
         set({ duration: engine.getDuration() });
@@ -340,6 +404,7 @@ export interface EditorState {
   loadFileToTrack: (id: string | null, file: File) => Promise<void>;
   loadMidiToTrack: (id: string | null, file: File) => Promise<void>;
   convertTrackToMidi: (id?: string) => Promise<void>;
+  extractPitchBars: (id?: string) => Promise<void>;
   applyRhythmToMidiTrack: (id?: string) => Promise<void>;
   setMidiRhythmOnly: (on: boolean) => void;
   setMidiGrid: (g: RhythmGrid) => void;
@@ -352,13 +417,26 @@ export interface EditorState {
   tapUp: () => void;
   setMidiInstrument: (id: MidiInstrumentId) => void;
   setTrackMidiInstrument: (trackId: string, id: MidiInstrumentId) => Promise<void>;
+  rebakeMidiTracks: () => Promise<void>;
   openMidiEditor: (trackId: string | null) => void;
   createMidiTrack: () => string;
   setMidiWindowBeat: (beat: number) => void;
   setMidiDrawBeats: (beats: number) => void;
   shiftMidiViewOctave: (delta: -1 | 1) => void;
   setMidiCursor: (beat: number, pitch: number) => void;
-  toggleMidiCell: (trackId: string, beat: number, pitch: number) => void;
+  toggleMidiCell: (
+    trackId: string,
+    beat: number,
+    pitch: number,
+    mode?: "add" | "delete",
+  ) => void;
+  patchMidiNote: (
+    trackId: string,
+    noteId: string,
+    patch: Partial<MidiNote>,
+    bake?: boolean,
+  ) => void;
+  captureMidiUndo: (trackId: string) => void;
   undoMidiEdit: () => void;
   seekToBeat: (beat: number) => void;
   seek: (time: number) => void;
@@ -1090,6 +1168,73 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
   },
 
+  extractPitchBars: async (id) => {
+    if (get().isConvertingMidi) return;
+    const tracks = get().tracks;
+    const track =
+      tracks.find((t) => t.id === (id ?? get().activeTrackId)) ??
+      tracks.find((t) => t.buffer && t.kind !== "midi") ??
+      null;
+    if (!track?.buffer) {
+      set({
+        statusMessage:
+          "切り出す音源がありません。先に録音するか読み込んでください",
+      });
+      return;
+    }
+    if (get().status === "playing") get().pause();
+    set({
+      isConvertingMidi: true,
+      midiConvertProgress: 0,
+      statusMessage: `音階をバーに切り出し中… ${track.name}`,
+    });
+    try {
+      const result = await melodyFromBuffer(track.buffer, {
+        bpm: get().bpm,
+        name: track.name,
+        minHz: get().rangeMinHz ?? 70,
+        maxHz: get().rangeMaxHz ?? 1000,
+        onProgress: (p) => set({ midiConvertProgress: p }),
+      });
+      if (result.notes.length === 0) {
+        set({
+          statusMessage:
+            "安定した音程が取れませんでした。もう少しはっきり歌うか、ボーカルだけにしてから試してください",
+        });
+        return;
+      }
+      const notes = stampPitchSources(result.notes);
+      const engine = getAudioEngine();
+      const source = cloneAudioBuffer(track.buffer, engine.getContext());
+      get().updateTrack(track.id, {
+        midiNotes: notes,
+        midiSourceNotes: notes,
+        pitchEdit: true,
+        pitchSourceBuffer: source,
+        undoBuffer: track.undoBuffer ?? source,
+      });
+      engine.updateDuration(get().tracks);
+      set({
+        duration: engine.getDuration(),
+        activeTrackId: track.id,
+        midiEditTrackId: track.id,
+        midiViewLow: centerViewLow(notes),
+        midiWindowBeat: 0,
+        midiConvertProgress: 1,
+        midiUndo: [],
+        statusMessage: `${melodySummary(notes)} をバーにしました。上下で音程、右端で長さを直せます`,
+      });
+    } catch (e) {
+      console.error(e);
+      set({
+        statusMessage:
+          e instanceof Error ? e.message : "音階の切り出しに失敗しました",
+      });
+    } finally {
+      set({ isConvertingMidi: false });
+    }
+  },
+
   setMidiRhythmOnly: (on) => set({ midiRhythmOnly: on }),
   setMidiGrid: (g) => set({ midiGrid: g }),
   setMidiSnap: (n) => set({ midiSnap: Math.max(0, Math.min(1, n)) }),
@@ -1117,6 +1262,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         strength: get().midiSnap,
         swing: get().midiSwing,
       });
+      if (track.pitchEdit) {
+        get().updateTrack(track.id, { midiNotes: stampPitchSources(notes) });
+        set({
+          statusMessage: `リズムを寄せました（声のまま）${melodySummary(notes)}`,
+        });
+        scheduleMidiBuffer(get, set, track.id);
+        return;
+      }
       const name = track.name.replace(/（リズム）$/, "") + "（リズム）";
       const parsed = notesToParsed(notes, name);
       const engine = getAudioEngine();
@@ -1298,6 +1451,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setTrackMidiInstrument: async (trackId, id) => {
     const track = get().tracks.find((t) => t.id === trackId);
+    if (track?.pitchEdit) {
+      set({
+        statusMessage:
+          "このバーは歌声です。音色の差し替えではなく、上下ドラッグで音程を変えます",
+      });
+      return;
+    }
     if (!track?.midiNotes?.length) {
       get().updateTrack(trackId, { midiInstrument: id });
       get().setMidiInstrument(id);
@@ -1331,13 +1491,37 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
   },
 
+  rebakeMidiTracks: async () => {
+    const midiTracks = get().tracks.filter(
+      (t) => t.kind === "midi" && (t.midiNotes?.length ?? 0) > 0 && !t.pitchEdit,
+    );
+    if (!midiTracks.length) return;
+    if (get().status === "playing") get().pause();
+    set({ isConvertingMidi: true, statusMessage: "MIDI を焼き直しています…" });
+    try {
+      for (const t of midiTracks) {
+        scheduleMidiBuffer(get, set, t.id);
+      }
+      set({ statusMessage: "MIDI の音色を更新しました" });
+    } catch (e) {
+      set({
+        statusMessage: e instanceof Error ? e.message : "焼き直しに失敗しました",
+      });
+    } finally {
+      set({ isConvertingMidi: false });
+    }
+  },
+
   openMidiEditor: (trackId) => {
     if (!trackId) {
       set({ midiEditTrackId: null });
       return;
     }
     const track = get().tracks.find((t) => t.id === trackId);
-    const notes = track?.midiNotes ?? [];
+    const notes = ensureNoteIds(track?.midiNotes ?? []);
+    if (track && notes.some((n, i) => n.id !== track.midiNotes?.[i]?.id)) {
+      get().updateTrack(trackId, { midiNotes: notes });
+    }
     set({
       midiEditTrackId: trackId,
       activeTrackId: trackId,
@@ -1345,7 +1529,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       midiWindowBeat: 0,
       midiCursorBeat: 0,
       midiCursorPitch: notes[0]?.midi ?? 60,
-      statusMessage: `${track?.name ?? "MIDI"} のピアノロール`,
+      statusMessage: track?.pitchEdit
+        ? `${track.name} の音階バー`
+        : `${track?.name ?? "MIDI"} のピアノロール`,
     });
   },
 
@@ -1382,7 +1568,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     });
   },
 
-  toggleMidiCell: (trackId, beat, pitch) => {
+  toggleMidiCell: (trackId, beat, pitch, mode) => {
     const track = get().tracks.find((t) => t.id === trackId);
     if (!track) return;
     const prev = ensureNoteIds(track.midiNotes ?? []);
@@ -1393,6 +1579,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       bpm: get().bpm,
       drawBeats: get().midiDrawBeats,
     });
+    if (mode === "delete" && result.action !== "delete") return;
+    if (mode === "add" && result.action !== "add") return;
+    if (track.pitchEdit && result.action === "add") {
+      set({
+        statusMessage:
+          "歌声のバーは空クリックでは増えません。切り出した音をドラッグして直してください",
+      });
+      return;
+    }
     if (result.action === "full") {
       set({
         statusMessage: `このトラックにはこれ以上音符を追加できません（${MAX_MIDI_NOTES}）`,
@@ -1416,12 +1611,57 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     scheduleMidiBuffer(get, set, trackId);
   },
 
+  patchMidiNote: (trackId, noteId, patch, bake = true) => {
+    const track = get().tracks.find((t) => t.id === trackId);
+    if (!track) return;
+    const prev = ensureNoteIds(track.midiNotes ?? []);
+    const hit = prev.find((n) => n.id === noteId);
+    if (!hit) return;
+    const midi = patch.midi != null
+      ? Math.max(24, Math.min(108, Math.round(patch.midi)))
+      : hit.midi;
+    const start = patch.start != null ? Math.max(0, patch.start) : hit.start;
+    const duration =
+      patch.duration != null
+        ? Math.max(0.04, patch.duration)
+        : hit.duration;
+    const notes = patchNoteById(prev, noteId, { midi, start, duration });
+    get().updateTrack(trackId, { midiNotes: notes });
+    set({
+      midiEditTrackId: trackId,
+      activeTrackId: trackId,
+      midiCursorPitch: midi,
+      midiCursorBeat: snapBeat(secToBeat(start, get().bpm)),
+    });
+    const pitchChanged = midi !== hit.midi;
+    const lenChanged = Math.abs(duration - hit.duration) > 0.001;
+    if (pitchChanged || lenChanged) {
+      scheduleNotePreview(get, trackId, noteId);
+    }
+    if (bake) scheduleMidiBuffer(get, set, trackId);
+  },
+
+  captureMidiUndo: (trackId) => {
+    const track = get().tracks.find((t) => t.id === trackId);
+    if (!track) return;
+    const prev = ensureNoteIds(track.midiNotes ?? []);
+    set({
+      midiUndo: [...get().midiUndo, { trackId, notes: prev }].slice(-30),
+    });
+  },
+
   undoMidiEdit: () => {
     const stack = get().midiUndo;
     const last = stack[stack.length - 1];
     if (!last) {
       set({ statusMessage: "戻す編集がありません" });
       return;
+    }
+    if (typeof window !== "undefined") window.clearTimeout(notePreviewTimer);
+    try {
+      getAudioEngine().stopPreview();
+    } catch {
+      /* noop */
     }
     get().updateTrack(last.trackId, { midiNotes: last.notes });
     set({

@@ -10,23 +10,33 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AnalyzeRouteImport } from './routes/analyze'
 import { Route as CloudRouteImport } from './routes/cloud'
 import { Route as EffectorRouteImport } from './routes/effector'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as RangeRouteImport } from './routes/range'
+import { Route as SongdbRouteImport } from './routes/songdb'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as ApiAuthPublicConfigRouteImport } from './routes/api/auth-public-config'
 import { Route as AuthAcceptRouteImport } from './routes/auth/accept'
 import { Route as AuthBridgeRouteImport } from './routes/auth/bridge'
 import { Route as CSoulIdRouteImport } from './routes/c.$soulId'
+import { Route as SongdbIndexRouteImport } from './routes/songdb.index'
+import { Route as SongdbCodeRouteImport } from './routes/songdb.$code'
 import { Route as USlugRouteImport } from './routes/u.$slug'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiSoundfontIdRouteImport } from './routes/api/soundfont.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AnalyzeRoute = AnalyzeRouteImport.update({
@@ -59,6 +69,11 @@ const RangeRoute = RangeRouteImport.update({
   path: '/range',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SongdbRoute = SongdbRouteImport.update({
+  id: '/songdb',
+  path: '/songdb',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
@@ -84,6 +99,16 @@ const CSoulIdRoute = CSoulIdRouteImport.update({
   path: '/c/$soulId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SongdbIndexRoute = SongdbIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => SongdbRoute,
+} as any)
+const SongdbCodeRoute = SongdbCodeRouteImport.update({
+  id: '/$code',
+  path: '/$code',
+  getParentRoute: () => SongdbRoute,
+} as any)
 const USlugRoute = USlugRouteImport.update({
   id: '/u/$slug',
   path: '/u/$slug',
@@ -94,25 +119,36 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiSoundfontIdRoute = ApiSoundfontIdRouteImport.update({
+  id: '/api/soundfont/$id',
+  path: '/api/soundfont/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/analyze': typeof AnalyzeRoute
   '/cloud': typeof CloudRoute
   '/effector': typeof EffectorRoute
   '/login': typeof LoginRoute
   '/profile': typeof ProfileRoute
   '/range': typeof RangeRoute
+  '/songdb': typeof SongdbRouteWithChildren
   '/terms': typeof TermsRoute
   '/api/auth-public-config': typeof ApiAuthPublicConfigRoute
   '/auth/accept': typeof AuthAcceptRoute
   '/auth/bridge': typeof AuthBridgeRoute
   '/c/$soulId': typeof CSoulIdRoute
+  '/songdb/$code': typeof SongdbCodeRoute
   '/u/$slug': typeof USlugRoute
+  '/songdb/': typeof SongdbIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/soundfont/$id': typeof ApiSoundfontIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/analyze': typeof AnalyzeRoute
   '/cloud': typeof CloudRoute
   '/effector': typeof EffectorRoute
@@ -124,46 +160,60 @@ export interface FileRoutesByTo {
   '/auth/accept': typeof AuthAcceptRoute
   '/auth/bridge': typeof AuthBridgeRoute
   '/c/$soulId': typeof CSoulIdRoute
+  '/songdb/$code': typeof SongdbCodeRoute
   '/u/$slug': typeof USlugRoute
+  '/songdb': typeof SongdbIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/soundfont/$id': typeof ApiSoundfontIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/analyze': typeof AnalyzeRoute
   '/cloud': typeof CloudRoute
   '/effector': typeof EffectorRoute
   '/login': typeof LoginRoute
   '/profile': typeof ProfileRoute
   '/range': typeof RangeRoute
+  '/songdb': typeof SongdbRouteWithChildren
   '/terms': typeof TermsRoute
   '/api/auth-public-config': typeof ApiAuthPublicConfigRoute
   '/auth/accept': typeof AuthAcceptRoute
   '/auth/bridge': typeof AuthBridgeRoute
   '/c/$soulId': typeof CSoulIdRoute
+  '/songdb/$code': typeof SongdbCodeRoute
   '/u/$slug': typeof USlugRoute
+  '/songdb/': typeof SongdbIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/soundfont/$id': typeof ApiSoundfontIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/admin'
     | '/analyze'
     | '/cloud'
     | '/effector'
     | '/login'
     | '/profile'
     | '/range'
+    | '/songdb'
     | '/terms'
     | '/api/auth-public-config'
     | '/auth/accept'
     | '/auth/bridge'
     | '/c/$soulId'
+    | '/songdb/$code'
     | '/u/$slug'
+    | '/songdb/'
     | '/api/auth/$'
+    | '/api/soundfont/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/admin'
     | '/analyze'
     | '/cloud'
     | '/effector'
@@ -175,34 +225,44 @@ export interface FileRouteTypes {
     | '/auth/accept'
     | '/auth/bridge'
     | '/c/$soulId'
+    | '/songdb/$code'
     | '/u/$slug'
+    | '/songdb'
     | '/api/auth/$'
+    | '/api/soundfont/$id'
   id:
     | '__root__'
     | '/'
+    | '/admin'
     | '/analyze'
     | '/cloud'
     | '/effector'
     | '/login'
     | '/profile'
     | '/range'
+    | '/songdb'
     | '/terms'
     | '/api/auth-public-config'
     | '/auth/accept'
     | '/auth/bridge'
     | '/c/$soulId'
+    | '/songdb/$code'
     | '/u/$slug'
+    | '/songdb/'
     | '/api/auth/$'
+    | '/api/soundfont/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRoute: typeof AdminRoute
   AnalyzeRoute: typeof AnalyzeRoute
   CloudRoute: typeof CloudRoute
   EffectorRoute: typeof EffectorRoute
   LoginRoute: typeof LoginRoute
   ProfileRoute: typeof ProfileRoute
   RangeRoute: typeof RangeRoute
+  SongdbRoute: typeof SongdbRouteWithChildren
   TermsRoute: typeof TermsRoute
   ApiAuthPublicConfigRoute: typeof ApiAuthPublicConfigRoute
   AuthAcceptRoute: typeof AuthAcceptRoute
@@ -210,6 +270,7 @@ export interface RootRouteChildren {
   CSoulIdRoute: typeof CSoulIdRoute
   USlugRoute: typeof USlugRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiSoundfontIdRoute: typeof ApiSoundfontIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -219,6 +280,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/analyze': {
@@ -263,6 +331,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RangeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/songdb': {
+      id: '/songdb'
+      path: '/songdb'
+      fullPath: '/songdb'
+      preLoaderRoute: typeof SongdbRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/terms': {
       id: '/terms'
       path: '/terms'
@@ -298,6 +373,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CSoulIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/songdb/': {
+      id: '/songdb/'
+      path: '/'
+      fullPath: '/songdb/'
+      preLoaderRoute: typeof SongdbIndexRouteImport
+      parentRoute: typeof SongdbRoute
+    }
+    '/songdb/$code': {
+      id: '/songdb/$code'
+      path: '/$code'
+      fullPath: '/songdb/$code'
+      preLoaderRoute: typeof SongdbCodeRouteImport
+      parentRoute: typeof SongdbRoute
+    }
     '/u/$slug': {
       id: '/u/$slug'
       path: '/u/$slug'
@@ -312,17 +401,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/soundfont/$id': {
+      id: '/api/soundfont/$id'
+      path: '/api/soundfont/$id'
+      fullPath: '/api/soundfont/$id'
+      preLoaderRoute: typeof ApiSoundfontIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
+interface SongdbRouteChildren {
+  SongdbCodeRoute: typeof SongdbCodeRoute
+  SongdbIndexRoute: typeof SongdbIndexRoute
+}
+
+const SongdbRouteChildren: SongdbRouteChildren = {
+  SongdbCodeRoute: SongdbCodeRoute,
+  SongdbIndexRoute: SongdbIndexRoute,
+}
+
+const SongdbRouteWithChildren =
+  SongdbRoute._addFileChildren(SongdbRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRoute: AdminRoute,
   AnalyzeRoute: AnalyzeRoute,
   CloudRoute: CloudRoute,
   EffectorRoute: EffectorRoute,
   LoginRoute: LoginRoute,
   ProfileRoute: ProfileRoute,
   RangeRoute: RangeRoute,
+  SongdbRoute: SongdbRouteWithChildren,
   TermsRoute: TermsRoute,
   ApiAuthPublicConfigRoute: ApiAuthPublicConfigRoute,
   AuthAcceptRoute: AuthAcceptRoute,
@@ -330,6 +441,7 @@ const rootRouteChildren: RootRouteChildren = {
   CSoulIdRoute: CSoulIdRoute,
   USlugRoute: USlugRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiSoundfontIdRoute: ApiSoundfontIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

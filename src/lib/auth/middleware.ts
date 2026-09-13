@@ -44,3 +44,26 @@ export const authMiddleware = createMiddleware({ type: "function" })
     const userId = await requireUserId(context.bearerToken);
     return next({ context: { userId } });
   });
+
+/**
+ * Session if present, otherwise `userId: null`. Does not throw when signed out.
+ * Use for public reads that behave differently for the owner / 運営.
+ */
+export const optionalAuthMiddleware = createMiddleware({ type: "function" })
+  .client(async ({ next }) => {
+    const { getBearerToken } = await import("./client");
+    return next({ sendContext: { bearerToken: getBearerToken() ?? undefined } });
+  })
+  .server(async ({ next, context }) => {
+    const { getSessionUser, authConfigured, DEV_USER_ID } = await import(
+      "./verify.server"
+    );
+    if (!authConfigured) {
+      const databaseConfigured = Boolean(process.env.DATABASE_URL?.trim());
+      return next({
+        context: { userId: databaseConfigured ? null : DEV_USER_ID },
+      });
+    }
+    const user = await getSessionUser(context.bearerToken);
+    return next({ context: { userId: user?.id ?? null } });
+  });

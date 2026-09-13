@@ -2,9 +2,11 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   BadgeCheck,
+  Copy,
   ExternalLink,
   Globe,
   Link2,
+  ListMusic,
   Music2,
   Save,
   SlidersHorizontal,
@@ -37,7 +39,10 @@ import {
   xproofConnectUrl,
 } from "@/lib/profile/xproof";
 import { loadFxLibrary } from "@/lib/audio/fx-snapshot";
+import { SingableSongList } from "@/components/editor/singable-song-list";
+import { ListOpsPanel } from "@/components/editor/list-ops-panel";
 import { insertSummary } from "@/components/editor/obs-filter-rack";
+import { PageSkeleton } from "@/components/ui/skeleton";
 import { useEditorStore } from "@/lib/store/editor-store";
 import { semitoneSpan, hzToMidi } from "@/lib/audio/pitch";
 
@@ -58,7 +63,7 @@ function ProfilePage() {
   if (isPending) {
     return (
       <AppShell title="プロフィール">
-        <div className="h-40 animate-pulse rounded-2xl bg-muted" />
+        <PageSkeleton cards={3} />
       </AppShell>
     );
   }
@@ -92,6 +97,7 @@ function ProfileEditor() {
   const [token, setToken] = useState(search.token ?? "");
   const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
+  const [isPublic, setIsPublic] = useState(true);
   const [library, setLibrary] = useState<ReturnType<typeof loadFxLibrary>>(
     [],
   );
@@ -110,6 +116,7 @@ function ProfileEditor() {
         setProfile(p);
         setDisplayName(p.displayName || user?.displayName || "");
         setBio(p.bio);
+        setIsPublic(p.isPublic);
       })
       .catch((e) =>
         setMessage(e instanceof Error ? e.message : "読み込みに失敗しました"),
@@ -173,9 +180,11 @@ function ProfileEditor() {
           displayName,
           bio,
           avatarUrl: user?.profileImageUrl ?? "",
+          isPublic,
         },
       });
       setProfile(next);
+      setIsPublic(next.isPublic);
       setMessage("保存しました");
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "保存に失敗しました");
@@ -254,10 +263,22 @@ function ProfileEditor() {
     ? publicCardUrl(profile.soulId)
     : "";
 
+  if (!profile) {
+    return (
+      <div className="space-y-4">
+        {message && (
+          <p className="rounded-xl border border-border bg-muted/50 px-4 py-2 text-sm text-foreground">
+            {message}
+          </p>
+        )}
+        <PageSkeleton cards={3} />
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-4">
       {message && (
-        <p className="rounded-xl border border-border bg-muted/50 px-4 py-2 text-sm text-foreground">
+        <p className="animate-fade-in rounded-xl border border-border bg-muted/50 px-4 py-2 text-sm text-foreground">
           {message}
         </p>
       )}
@@ -367,13 +388,61 @@ function ProfileEditor() {
           <Globe className="size-4 text-primary" />
           公開ページ
         </h2>
+        <p className="mt-1 text-[11px] text-muted-foreground sm:text-xs">
+          内部IDは管理者の任命に使います。メールを知らせる必要はありません。公開ページには出ません。
+        </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <Field label="表示名">
-            <input
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              className={inputClass}
-            />
+          <Field label="公開設定" className="sm:col-span-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {(
+                [
+                  [true, "公開"],
+                  [false, "非公開"],
+                ] as const
+              ).map(([on, label]) => (
+                <button
+                  key={label}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    if (on === isPublic) return;
+                    setBusy(true);
+                    setMessage(null);
+                    void saveMyProfile({ data: { isPublic: on } })
+                      .then((next) => {
+                        setProfile(next);
+                        setIsPublic(next.isPublic);
+                        setMessage(
+                          next.isPublic
+                            ? "公開ページを公開しました"
+                            : "公開ページを非公開にしました",
+                        );
+                      })
+                      .catch((e) =>
+                        setMessage(
+                          e instanceof Error ? e.message : "保存に失敗しました",
+                        ),
+                      )
+                      .finally(() => setBusy(false));
+                  }}
+                  className={
+                    isPublic === on
+                      ? "rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
+                      : "rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+              <span className="text-[11px] text-muted-foreground">
+                {isPublic
+                  ? "誰でも魂のIDのページを見られます"
+                  : "公開ページは自分と運営以外には見えません"}
+              </span>
+            </div>
+          </Field>
+          <Field label="内部ID">
+            <InternalId value={user?.id ?? ""} />
           </Field>
           <Field label="公開URL">
             <p className="flex h-10 items-center truncate rounded-full border border-border bg-muted/40 px-4 font-mono text-xs">
@@ -381,6 +450,13 @@ function ProfileEditor() {
                 ? publicCardUrl(profile.soulId)
                 : "XProof 連携後に /c/魂のID が付きます"}
             </p>
+          </Field>
+          <Field label="表示名">
+            <input
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              className={inputClass}
+            />
           </Field>
           <Field label="ひとこと" className="sm:col-span-2">
             <textarea
@@ -491,12 +567,58 @@ function ProfileEditor() {
           </ul>
         )}
       </section>
+
+      <section className="rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-6">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground sm:text-base">
+          <ListMusic className="size-4 text-primary" />
+          歌える曲
+        </h2>
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          楽曲リストで「これ歌える」を押すと、公開ページに載ります。
+        </p>
+        <SingableSongList mode="mine" canUnmark />
+      </section>
+
+      {profile && <ListOpsPanel profile={profile} onProfile={setProfile} />}
     </div>
   );
 }
 
 const inputClass =
   "h-10 w-full rounded-full border border-border bg-background px-4 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+function InternalId({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  if (!value) {
+    return (
+      <p className="flex h-10 items-center rounded-full border border-border bg-muted/40 px-4 text-xs text-muted-foreground">
+        サインイン後に付きます
+      </p>
+    );
+  }
+  return (
+    <div className="flex h-10 items-center gap-1 rounded-full border border-border bg-muted/40 pl-4 pr-1">
+      <code className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">
+        {value}
+      </code>
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        className="shrink-0"
+        onClick={() => {
+          void navigator.clipboard.writeText(value).then(() => {
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1500);
+          });
+        }}
+      >
+        <Copy className="size-3.5" />
+        {copied ? "コピー済" : "コピー"}
+      </Button>
+    </div>
+  );
+}
 
 function Field({
   label,

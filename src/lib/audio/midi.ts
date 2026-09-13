@@ -12,6 +12,10 @@ export interface MidiNote {
   duration: number;
   velocity: number; // 0–1
   channel: number;
+  /** Original audio slice when this note is a vocal pitch bar. */
+  sourceStart?: number;
+  sourceDuration?: number;
+  sourceMidi?: number;
 }
 
 export interface ParsedMidi {
@@ -250,6 +254,16 @@ export async function renderMidiToAudioBuffer(
   sampleRate = 44100,
   instrument: MidiInstrumentId = "piano",
 ): Promise<AudioBuffer> {
+  try {
+    const { isSoundfontReady, renderMidiWithSoundfont, hydrateSoundfont } =
+      await import("@/lib/audio/soundfont/engine");
+    await hydrateSoundfont();
+    if (isSoundfontReady()) {
+      return await renderMidiWithSoundfont(parsed, sampleRate, instrument);
+    }
+  } catch (e) {
+    console.warn("[soundfont] fallback to built-in synth", e);
+  }
   const length = Math.max(
     1,
     Math.ceil(Math.min(parsed.duration, 600) * sampleRate),

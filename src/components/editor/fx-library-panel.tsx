@@ -102,15 +102,15 @@ export function FxLibraryPanel() {
       </div>
 
       {library.length === 0 ? (
-        <p className="mt-3 text-[11px] text-muted-foreground">
-          まだありません。今の設定に名前をつけて保存するか、XML から読み込んでください。
+        <p className="mt-3 rounded-xl border border-dashed border-border bg-muted/20 px-3 py-4 text-center text-[11px] leading-relaxed text-muted-foreground">
+          まだプリセットがありません。今の設定に名前をつけて保存するか、XML から読み込んでください。
         </p>
       ) : (
         <ul className="mt-3 space-y-1.5">
           {library.map((p) => (
             <li
               key={p.id}
-              className="flex items-center gap-2 rounded-xl border border-border bg-muted/30 px-2.5 py-2"
+              className="flex items-center gap-2 rounded-xl border border-border bg-muted/30 px-2.5 py-2 transition-colors duration-150 hover:bg-muted/50"
             >
               <div className="min-w-0 flex-1">
                 <div className="truncate text-xs font-medium text-foreground">

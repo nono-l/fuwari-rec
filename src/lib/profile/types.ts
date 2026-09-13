@@ -10,6 +10,32 @@ export type PublicFxCard = {
   savedAt: string;
 };
 
+export type SingableSong = {
+  id: string;
+  title: string;
+  artist: string;
+  mgmtNo: string;
+  genre: string;
+  keyNote: string;
+  vocalMinNote?: string;
+  vocalMaxNote?: string;
+  bpm?: number;
+  markedAt: string | null;
+  source?: "self" | "proxy";
+  addedByName?: string;
+};
+
+export type OpsPublic = "hide" | "presence" | "count";
+
+export type SingableSinger = {
+  soulId: string;
+  displayName: string;
+  avatarUrl: string;
+  rangeMinNote: string;
+  rangeMaxNote: string;
+  markedAt: string | null;
+};
+
 export type SingerProfile = {
   slug: string;
   soulId: string;
@@ -27,7 +53,12 @@ export type SingerProfile = {
   rangeSpan: number;
   rangePublishedAt: string | null;
   fx: PublicFxCard[];
+  singable: SingableSong[];
+  opsPublic: OpsPublic;
+  opsCount: number;
   updatedAt: string | null;
+  /** Set only when fetching a card: public, or private preview for owner / 運営. */
+  viewAs?: "public" | "owner" | "ops";
 };
 
 export const emptyProfile = (slug = ""): SingerProfile => ({
@@ -47,6 +78,9 @@ export const emptyProfile = (slug = ""): SingerProfile => ({
   rangeSpan: 0,
   rangePublishedAt: null,
   fx: [],
+  singable: [],
+  opsPublic: "hide",
+  opsCount: 0,
   updatedAt: null,
 });
 

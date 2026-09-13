@@ -39,7 +39,7 @@ export function TrackRow({ track }: { track: Track }) {
   return (
     <div
       className={cn(
-        "rounded-2xl border bg-card p-3 shadow-sm transition-colors sm:p-4",
+        "rounded-2xl border bg-card p-3 shadow-sm transition-[border-color,box-shadow] duration-200 sm:p-4",
         active ? "border-primary ring-1 ring-primary/20" : "border-border",
       )}
       onClick={() => setActiveTrack(track.id)}
@@ -58,7 +58,7 @@ export function TrackRow({ track }: { track: Track }) {
         {(track.kind === "midi" || (track.midiNotes?.length ?? 0) > 0) && (
           <>
             <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-primary">
-              MIDI
+              {track.pitchEdit ? "音階" : "MIDI"}
             </span>
             <Button
               type="button"
@@ -160,7 +160,7 @@ export function TrackRow({ track }: { track: Track }) {
         onSeek={seek}
       />
 
-      {track.midiNotes && track.midiNotes.length > 0 && (
+      {track.midiNotes && track.midiNotes.length > 0 && !track.pitchEdit && (
         <label className="mt-3 block text-[10px] font-medium text-muted-foreground">
           楽器
           <select

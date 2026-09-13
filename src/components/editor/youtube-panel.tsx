@@ -120,7 +120,7 @@ function YoutubeLoadSheet({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-end justify-center bg-foreground/45 sm:items-center"
+      className="animate-fade-in fixed inset-0 z-[60] flex items-end justify-center bg-foreground/45 sm:items-center"
       style={{ paddingBottom: keyboardInset }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
@@ -132,7 +132,7 @@ function YoutubeLoadSheet({
         role="dialog"
         aria-modal="true"
         aria-labelledby="yt-load-title"
-        className="w-full max-w-lg rounded-t-3xl border border-border bg-card p-4 shadow-lg sm:rounded-2xl sm:p-5"
+        className="animate-sheet-up w-full max-w-lg rounded-t-3xl border border-border bg-card p-4 shadow-lg sm:rounded-2xl sm:p-5"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-start justify-between gap-2">

@@ -47,6 +47,11 @@
     text-rendering: optimizeLegibility;
   }
 
+  ::selection {
+    background: color-mix(in oklab, var(--color-primary) 28%, transparent);
+    color: var(--color-foreground);
+  }
+
   button:not(:disabled),
   [role="button"]:not(:disabled) {
     cursor: pointer;
@@ -67,6 +72,91 @@
 
   kbd {
     font-family: var(--font-mono);
+  }
+}
+
+@layer utilities {
+  .animate-page-enter {
+    animation: fuwari-page-enter 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .animate-fade-in {
+    animation: fuwari-fade-in 0.2s ease-out both;
+  }
+
+  .animate-sheet-up {
+    animation: fuwari-sheet-up 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .animate-rec {
+    animation: fuwari-rec 1.5s ease-in-out infinite;
+  }
+
+  .skeleton {
+    position: relative;
+    overflow: hidden;
+    background: var(--color-muted);
+  }
+
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in oklab, white 62%, transparent),
+      transparent
+    );
+    animation: fuwari-shimmer 1.35s ease-in-out infinite;
+  }
+}
+
+@keyframes fuwari-page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fuwari-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fuwari-sheet-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fuwari-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes fuwari-rec {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-danger) 42%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 8px color-mix(in oklab, var(--color-danger) 0%, transparent);
   }
 }
 

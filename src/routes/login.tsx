@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { Mic2 } from "lucide-react";
+import { Loader2, Mic2 } from "lucide-react";
 import {
   GROK_PROVIDERS,
   authClient,
@@ -96,7 +96,7 @@ function Login() {
 
   return (
     <main className="grid min-h-dvh place-items-center bg-background px-4 pt-[var(--grok-banner-h,0px)]">
-      <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-sm">
+      <div className="animate-page-enter w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-sm">
         <div className="mb-6 flex items-center gap-3">
           <div className="grid size-10 place-items-center rounded-full bg-primary text-primary-foreground">
             <Mic2 className="size-5" />
@@ -126,6 +126,12 @@ function Login() {
         )}
 
         {authEnabled ? (
+          canonical === undefined ? (
+            <div className="space-y-2" aria-busy="true" aria-label="読み込み中">
+              <div className="skeleton h-10 rounded-full" />
+              <div className="skeleton h-10 rounded-full" />
+            </div>
+          ) : (
           <div className="space-y-2">
             {GROK_PROVIDERS.map((p) => (
               <Button
@@ -136,12 +142,18 @@ function Login() {
                 disabled={busy !== null}
                 onClick={() => void handleSignIn(p.providerId)}
               >
-                {busy === p.providerId
-                  ? "リダイレクト中…"
-                  : `${p.label} で続ける`}
+                {busy === p.providerId ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" />
+                    リダイレクト中…
+                  </>
+                ) : (
+                  `${p.label} で続ける`
+                )}
               </Button>
             ))}
           </div>
+          )
         ) : (
           <p className="text-sm text-muted-foreground">
             サインインは現在無効です。

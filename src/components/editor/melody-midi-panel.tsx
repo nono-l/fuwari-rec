@@ -1,9 +1,10 @@
-import { Music2, Timer } from "lucide-react";
+import { Music2, Timer, AudioLines } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { useEditorStore } from "@/lib/store/editor-store";
 import type { RhythmGrid } from "@/lib/audio/pitch-to-midi";
 import { MidiInstrumentSelect } from "@/components/editor/midi-instrument-select";
+import { SoundfontPanel } from "@/components/editor/soundfont-panel";
 import { cn } from "@/lib/utils";
 
 const GRIDS: { id: RhythmGrid; label: string }[] = [
@@ -18,6 +19,7 @@ export function MelodyMidiPanel() {
   const activeTrackId = useEditorStore((s) => s.activeTrackId);
   const setActiveTrack = useEditorStore((s) => s.setActiveTrack);
   const convertTrackToMidi = useEditorStore((s) => s.convertTrackToMidi);
+  const extractPitchBars = useEditorStore((s) => s.extractPitchBars);
   const applyRhythmToMidiTrack = useEditorStore((s) => s.applyRhythmToMidiTrack);
   const busy = useEditorStore((s) => s.isConvertingMidi);
   const progress = useEditorStore((s) => s.midiConvertProgress);
@@ -40,9 +42,9 @@ export function MelodyMidiPanel() {
 
   return (
     <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-      <h2 className="mb-1 text-sm font-semibold text-foreground">歌を MIDI に</h2>
+      <h2 className="mb-1 text-sm font-semibold text-foreground">歌を MIDI に / 音階バー</h2>
       <p className="mb-3 text-[11px] leading-relaxed text-muted-foreground">
-        音程を拾ってメロディにします。リズムだけ整えると、高さはそのまま拍に寄せます（BPM {bpm}）。
+        音程を拾ってメロディにします。音階バーは声のまま上下と長さを編集できます（BPM {bpm}）。
       </p>
 
       <label className="mb-3 block text-xs font-medium text-muted-foreground">
@@ -65,17 +67,23 @@ export function MelodyMidiPanel() {
         </select>
       </label>
 
-      <MidiInstrumentSelect
-        className="mb-3"
-        value={active?.midiInstrument ?? midiInstrument}
-        disabled={busy}
-        onChange={(id) => {
-          setMidiInstrument(id);
-          if (active?.midiNotes?.length) {
-            void setTrackMidiInstrument(active.id, id);
-          }
-        }}
-      />
+      {!active?.pitchEdit && (
+        <MidiInstrumentSelect
+          className="mb-3"
+          value={active?.midiInstrument ?? midiInstrument}
+          disabled={busy}
+          onChange={(id) => {
+            setMidiInstrument(id);
+            if (active?.midiNotes?.length) {
+              void setTrackMidiInstrument(active.id, id);
+            }
+          }}
+        />
+      )}
+
+      <div className="mb-3">
+        <SoundfontPanel />
+      </div>
 
       <div className="mb-3 grid grid-cols-2 gap-2">
         <button
@@ -165,6 +173,28 @@ export function MelodyMidiPanel() {
       <div className="grid gap-2">
         <Button
           type="button"
+          className="h-auto w-full justify-start gap-3 rounded-xl px-3 py-3 text-left"
+          disabled={!canRun}
+          onClick={() => void extractPitchBars(active?.id)}
+        >
+          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
+            <AudioLines className="size-4" />
+          </span>
+          <span>
+            <span className="block text-sm font-medium">
+              {busy
+                ? `切り出し中 ${Math.round(progress * 100)}%`
+                : "音階をバーに切り出す"}
+            </span>
+            <span className="block text-[11px] font-normal opacity-80">
+              声のまま、ピアノロールで音程と長さを直す
+            </span>
+          </span>
+        </Button>
+
+        <Button
+          type="button"
+          variant="secondary"
           className="h-auto w-full justify-start gap-3 rounded-xl px-3 py-3 text-left"
           disabled={!canRun}
           onClick={() => void convertTrackToMidi(active?.id)}

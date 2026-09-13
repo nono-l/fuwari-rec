@@ -69,6 +69,8 @@ export class AudioEngine {
   private liveChainWired = false;
   private tapVoice: LiveVoice | null = null;
   private tapInstrument: MidiInstrumentId = "piano";
+  private previewVoice: LiveVoice | null = null;
+  private previewSource: AudioBufferSourceNode | null = null;
   private reverb: ConvolverNode | null = null;
   private dryGain: GainNode | null = null;
   private wetGain: GainNode | null = null;
@@ -706,6 +708,63 @@ export class AudioEngine {
     }
   }
 
+  stopPreview() {
+    if (this.previewVoice) {
+      this.previewVoice.stop();
+      this.previewVoice = null;
+    }
+    if (this.previewSource) {
+      try {
+        this.previewSource.stop();
+      } catch {
+        /* already stopped */
+      }
+      try {
+        this.previewSource.disconnect();
+      } catch {
+        /* noop */
+      }
+      this.previewSource = null;
+    }
+  }
+
+  previewSynthNote(opts: {
+    midi: number;
+    duration: number;
+    velocity?: number;
+    instrument?: MidiInstrumentId;
+  }) {
+    this.stopPreview();
+    const ctx = this.getContext();
+    if (!this.bus) return;
+    const dur = Math.max(0.12, Math.min(2, opts.duration));
+    this.previewVoice = startMidiVoice(ctx, this.bus, {
+      midi: opts.midi,
+      velocity: opts.velocity ?? 0.82,
+      t0: ctx.currentTime,
+      duration: dur,
+      instrument: opts.instrument ?? this.tapInstrument,
+    });
+  }
+
+  previewAudioBuffer(buffer: AudioBuffer, maxSec = 2) {
+    this.stopPreview();
+    const ctx = this.getContext();
+    if (!this.bus) return;
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const gain = ctx.createGain();
+    gain.gain.value = 1;
+    src.connect(gain);
+    gain.connect(this.bus);
+    const dur = Math.min(maxSec, buffer.duration);
+    src.start(ctx.currentTime, 0, dur);
+    src.onended = () => {
+      if (this.previewSource === src) this.previewSource = null;
+    };
+    this.previewSource = src;
+  }
+
   getDuration() {
     return this.duration;
   }
@@ -752,6 +811,7 @@ export class AudioEngine {
   private beginTransport(tracks: Track[], status: EngineStatus) {
     const ctx = this.getContext();
     this.stopSources();
+    this.stopPreview();
     this.updateDuration(tracks);
 
     this.playStartOffset = this.currentTime;

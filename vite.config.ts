@@ -148,6 +148,10 @@ export default defineConfig(({ command }) => ({
     strictPort: true,
   },
   resolve: { tsconfigPaths: true },
+  optimizeDeps: {
+    exclude: ["js-synthesizer"],
+  },
+  assetsInclude: ["**/libfluidsynth-*.js"],
   define: {
     // Frozen at config load (dev restart / production build). Shown in header.
     __APP_BUILD_AT__: JSON.stringify(formatBuildAtJst()),

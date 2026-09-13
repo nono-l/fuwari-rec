@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import {
   BadgeCheck,
   Globe,
+  ListMusic,
   Mic2,
   Music2,
   SlidersHorizontal,
@@ -12,6 +13,9 @@ import { getPublicProfile } from "@/lib/profile/server";
 import type { SingerProfile } from "@/lib/profile/types";
 import { publicCardPath } from "@/lib/profile/xproof";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
+import { SingableSongList } from "@/components/editor/singable-song-list";
 
 export const Route = createFileRoute("/c/$soulId")({
   component: PublicCardPage,
@@ -32,8 +36,12 @@ function PublicCardPage() {
 
   if (profile === undefined) {
     return (
-      <main className="grid min-h-dvh place-items-center bg-background pt-[var(--grok-banner-h,0px)]">
-        <div className="h-32 w-80 animate-pulse rounded-2xl bg-muted" />
+      <main className="grid min-h-dvh place-items-center bg-background px-4 pt-[var(--grok-banner-h,0px)]">
+        <div className="w-full max-w-lg space-y-4" aria-busy="true" aria-label="読み込み中">
+          <Skeleton className="h-8 w-28 rounded-full" />
+          <Skeleton className="h-52 rounded-2xl" />
+          <Skeleton className="h-40 rounded-2xl" />
+        </div>
       </main>
     );
   }
@@ -41,14 +49,16 @@ function PublicCardPage() {
   if (!profile) {
     return (
       <main className="grid min-h-dvh place-items-center bg-background px-4 pt-[var(--grok-banner-h,0px)]">
-        <div className="max-w-sm text-center">
-          <p className="text-sm text-muted-foreground">
-            この魂のIDの公開ページはありません
-          </p>
-          <Button asChild className="mt-4">
-            <Link to="/">スタジオへ</Link>
-          </Button>
-        </div>
+        <EmptyState
+          icon={Mic2}
+          title="公開ページがありません"
+          description="この魂のIDのカードは公開されていないか、存在しません。"
+          action={
+            <Button asChild>
+              <Link to="/">スタジオへ</Link>
+            </Button>
+          }
+        />
       </main>
     );
   }
@@ -57,11 +67,18 @@ function PublicCardPage() {
 
   return (
     <main className="min-h-dvh bg-background px-4 py-8 pt-[calc(var(--grok-banner-h,0px)+2rem)] text-foreground">
-      <div className="mx-auto max-w-lg">
+      <div className="animate-page-enter mx-auto max-w-lg">
         <div className="mb-6 flex items-center gap-2 text-xs text-muted-foreground">
           <Mic2 className="size-3.5 text-primary" />
           Fuwari REC
         </div>
+        {profile.viewAs && profile.viewAs !== "public" && (
+          <p className="mb-4 rounded-xl border border-border bg-muted/50 px-4 py-2 text-[12px] text-foreground">
+            {profile.viewAs === "owner"
+              ? "このページは非公開です。自分だけ見えています。"
+              : "このページは非公開です。運営として見えています。"}
+          </p>
+        )}
         <section className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
           <div className="flex items-start gap-3">
             {profile.avatarUrl ? (
@@ -162,6 +179,27 @@ function PublicCardPage() {
                   </li>
                 ))}
               </ul>
+            </div>
+          )}
+
+          {profile.soulId && (
+            <div className="mt-5">
+              <p className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                <ListMusic className="size-3.5 text-primary" />
+                歌える曲
+              </p>
+              {profile.opsPublic === "presence" && profile.opsCount > 0 && (
+                <p className="mt-1 text-[11px] text-muted-foreground">リスト運営あり</p>
+              )}
+              {profile.opsPublic === "count" && profile.opsCount > 0 && (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  リスト運営 {profile.opsCount} 人
+                </p>
+              )}
+              {profile.opsPublic === "count" && profile.opsCount === 0 && (
+                <p className="mt-1 text-[11px] text-muted-foreground">リスト運営 0 人</p>
+              )}
+              <SingableSongList mode="public" soulId={profile.soulId} />
             </div>
           )}
         </section>
