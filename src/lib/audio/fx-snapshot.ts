@@ -21,6 +21,21 @@ import {
   MAX_SPECTRUM_FILTERS,
   normalizeReverbTune,
 } from "./spectrum-filters";
+import {
+  MAX_CABLE_INSERTS,
+  asCableIndex,
+  newCableInsert,
+  type CableInsert,
+} from "./cables";
+import {
+  MAX_DEVICE_IO,
+  newDeviceIoInsert,
+  type DeviceIoInsert,
+} from "./device-io";
+import {
+  MAX_PIPELINES,
+  type ExtraPipeline,
+} from "./fx-pipeline";
 
 export type FxSnapshot = {
   id: string;
@@ -31,6 +46,9 @@ export type FxSnapshot = {
   inserts: ObsInsert[];
   aiVoice?: AiVoiceInsert | null;
   liveChain?: LiveSlot[];
+  cableInserts?: CableInsert[];
+  deviceInserts?: DeviceIoInsert[];
+  extraPipelines?: ExtraPipeline[];
   roomAmount: number;
   voiceAmount: number;
   roomProfile: RoomProfile | null;
@@ -151,37 +169,114 @@ function normalizeProfile(raw: unknown): RoomProfile | null {
   };
 }
 
-export function normalizeSnapshot(raw: Partial<FxSnapshot>): FxSnapshot {
-  const masterRaw = (raw.master ?? {}) as Partial<MasterFx>;
-  const filters = (raw.filters ?? [])
+function normalizeFilterList(raw: unknown): SpectrumFilter[] {
+  if (!Array.isArray(raw)) return [];
+  return (raw as Partial<SpectrumFilter>[])
     .map((f) => normalizeFilter(f))
     .filter((f): f is SpectrumFilter => !!f)
     .slice(0, MAX_SPECTRUM_FILTERS);
-  const inserts = labelObsInserts(
-    Array.isArray(raw.inserts)
-      ? (raw.inserts as Partial<ObsInsert>[])
-          .map((f) => normalizeObsInsert(f))
-          .filter((f): f is ObsInsert => !!f)
-          .slice(0, MAX_OBS_INSERTS)
-      : insertsFromMaster(normalizeMasterFx(masterRaw)),
+}
+
+function normalizeInsertList(raw: unknown, masterRaw?: Partial<MasterFx>): ObsInsert[] {
+  if (Array.isArray(raw)) {
+    return labelObsInserts(
+      (raw as Partial<ObsInsert>[])
+        .map((f) => normalizeObsInsert(f))
+        .filter((f): f is ObsInsert => !!f)
+        .slice(0, MAX_OBS_INSERTS),
+    );
+  }
+  if (masterRaw) return labelObsInserts(insertsFromMaster(normalizeMasterFx(masterRaw)));
+  return [];
+}
+
+function normalizeCableList(raw: unknown): CableInsert[] {
+  if (!Array.isArray(raw)) return [];
+  return (raw as Partial<CableInsert>[])
+    .filter((c) => c && (c.kind === "out" || c.kind === "in"))
+    .map((c) => newCableInsert(c.kind as CableInsert["kind"], c))
+    .slice(0, MAX_CABLE_INSERTS);
+}
+
+function normalizeDeviceList(raw: unknown): DeviceIoInsert[] {
+  if (!Array.isArray(raw)) return [];
+  return (raw as Partial<DeviceIoInsert>[])
+    .filter((d) => d && (d.kind === "mic-in" || d.kind === "speaker-out"))
+    .map((d) => newDeviceIoInsert(d.kind as DeviceIoInsert["kind"], d))
+    .slice(0, MAX_DEVICE_IO);
+}
+
+function normalizeSlots(raw: unknown): LiveSlot[] {
+  if (!Array.isArray(raw)) return [];
+  return (raw as LiveSlot[])
+    .filter(
+      (s) =>
+        s &&
+        (s.family === "spectrum" ||
+          s.family === "obs" ||
+          s.family === "ai" ||
+          s.family === "cable" ||
+          s.family === "device") &&
+        typeof s.id === "string",
+    )
+    .map((s) => ({ family: s.family, id: s.id }));
+}
+
+function normalizeExtraPipeline(
+  raw: Partial<ExtraPipeline>,
+  fallbackNumber: number,
+): ExtraPipeline | null {
+  const number = Math.max(
+    2,
+    Math.min(MAX_PIPELINES, Math.round(num(raw.number, fallbackNumber))),
   );
-  const parsedChain = Array.isArray(raw.liveChain)
-    ? (raw.liveChain as LiveSlot[])
-        .filter(
-          (s) =>
-            s &&
-            (s.family === "spectrum" ||
-              s.family === "obs" ||
-              s.family === "ai" ||
-              s.family === "cable" ||
-              s.family === "device") &&
-            typeof s.id === "string",
-        )
-        .map((s) => ({ family: s.family, id: s.id }))
-    : [];
+  const filters = normalizeFilterList(raw.spectrumFilters);
+  const inserts = normalizeInsertList(raw.obsInserts);
+  const cables = normalizeCableList(raw.cableInserts);
+  const devices = normalizeDeviceList(raw.deviceInserts);
   const aiVoice = raw.aiVoice
     ? newAiVoiceInsert(raw.aiVoice as Partial<AiVoiceInsert>)
     : null;
+  const liveChain = reconcileLiveChain(
+    normalizeSlots(raw.liveChain),
+    filters,
+    inserts,
+    aiVoice,
+    cables,
+    devices,
+  );
+  return {
+    id: str(raw.id, newFxId()),
+    name: str(raw.name, `パイプライン${number}`).trim() || `パイプライン${number}`,
+    enabled: raw.enabled !== false,
+    number,
+    inputCable: asCableIndex(raw.inputCable),
+    outputCable: asCableIndex(raw.outputCable ?? raw.inputCable),
+    spectrumFilters: filters,
+    obsInserts: inserts,
+    cableInserts: cables,
+    deviceInserts: devices,
+    aiVoice,
+    liveChain,
+  };
+}
+
+export function normalizeSnapshot(raw: Partial<FxSnapshot>): FxSnapshot {
+  const masterRaw = (raw.master ?? {}) as Partial<MasterFx>;
+  const filters = normalizeFilterList(raw.filters);
+  const inserts = normalizeInsertList(raw.inserts, masterRaw);
+  const cableInserts = normalizeCableList(raw.cableInserts);
+  const deviceInserts = normalizeDeviceList(raw.deviceInserts);
+  const parsedChain = normalizeSlots(raw.liveChain);
+  const aiVoice = raw.aiVoice
+    ? newAiVoiceInsert(raw.aiVoice as Partial<AiVoiceInsert>)
+    : null;
+  const extraPipelines = Array.isArray(raw.extraPipelines)
+    ? raw.extraPipelines
+        .map((p, i) => normalizeExtraPipeline(p ?? {}, i + 2))
+        .filter((p): p is ExtraPipeline => !!p)
+        .slice(0, MAX_PIPELINES - 1)
+    : [];
   return {
     id: str(raw.id, newFxId()),
     name: str(raw.name, "無名").trim() || "無名",
@@ -190,7 +285,17 @@ export function normalizeSnapshot(raw: Partial<FxSnapshot>): FxSnapshot {
     filters,
     inserts,
     aiVoice,
-    liveChain: reconcileLiveChain(parsedChain, filters, inserts, aiVoice),
+    liveChain: reconcileLiveChain(
+      parsedChain,
+      filters,
+      inserts,
+      aiVoice,
+      cableInserts,
+      deviceInserts,
+    ),
+    cableInserts,
+    deviceInserts,
+    extraPipelines,
     roomAmount: clamp01(num(raw.roomAmount, 0)),
     voiceAmount: clamp01(num(raw.voiceAmount, 0)),
     roomProfile: normalizeProfile(raw.roomProfile),
@@ -219,23 +324,67 @@ function profileXml(tag: string, amount: number, profile: RoomProfile | null) {
     </${tag}>`;
 }
 
-export function snapshotToXml(snap: FxSnapshot): string {
-  const m = snap.master;
-  const filters = snap.filters
-    .map((f) => {
-      const rv = normalizeReverbTune(f.reverb);
-      return `      <filter id="${esc(f.id)}" name="${esc(f.name)}" kind="${f.kind}" hz="${f.hz}" q="${f.q}" gain="${f.gain ?? 0}" enabled="${f.enabled ? "true" : "false"}" fullBand="${f.fullBand ? "true" : "false"}" reverbDecay="${rv.decay}" reverbPredelay="${rv.predelayMs}" reverbBright="${rv.brightness}" reverbSize="${rv.size}" reverbLowCut="${rv.lowCutHz}"/>`;
-    })
-    .join("\n");
-  const inserts = (snap.inserts ?? [])
-    .map(
-      (f) =>
-        `      <insert id="${esc(f.id)}" kind="${f.kind}" name="${esc(f.name)}" enabled="${f.enabled ? "true" : "false"}" amount="${f.amount}" eqLow="${f.eqLow}" eqMid="${f.eqMid}" eqHigh="${f.eqHigh}" phase="${f.phaseInvert ? "true" : "false"}" fullBand="${f.fullBand !== false ? "true" : "false"}" hz="${f.hz ?? 1000}" q="${f.q ?? 1.4}"/>`,
-    )
-    .join("\n");
-  const chain = (snap.liveChain ?? [])
+function filterXml(f: SpectrumFilter) {
+  const rv = normalizeReverbTune(f.reverb);
+  return `      <filter id="${esc(f.id)}" name="${esc(f.name)}" kind="${f.kind}" hz="${f.hz}" q="${f.q}" gain="${f.gain ?? 0}" enabled="${f.enabled ? "true" : "false"}" fullBand="${f.fullBand ? "true" : "false"}" reverbDecay="${rv.decay}" reverbPredelay="${rv.predelayMs}" reverbBright="${rv.brightness}" reverbSize="${rv.size}" reverbLowCut="${rv.lowCutHz}"/>`;
+}
+
+function insertXml(f: ObsInsert) {
+  return `      <insert id="${esc(f.id)}" kind="${f.kind}" name="${esc(f.name)}" enabled="${f.enabled ? "true" : "false"}" amount="${f.amount}" eqLow="${f.eqLow}" eqMid="${f.eqMid}" eqHigh="${f.eqHigh}" phase="${f.phaseInvert ? "true" : "false"}" fullBand="${f.fullBand !== false ? "true" : "false"}" hz="${f.hz ?? 1000}" q="${f.q ?? 1.4}"/>`;
+}
+
+function cableXml(c: CableInsert) {
+  return `      <cable id="${esc(c.id)}" name="${esc(c.name)}" enabled="${c.enabled ? "true" : "false"}" kind="${c.kind}" cable="${c.cable}" mode="${c.mode}" mix="${c.mix}"/>`;
+}
+
+function deviceXml(d: DeviceIoInsert) {
+  return `      <device id="${esc(d.id)}" name="${esc(d.name)}" enabled="${d.enabled ? "true" : "false"}" kind="${d.kind}" deviceId="${esc(d.deviceId)}" deviceLabel="${esc(d.deviceLabel)}" mix="${d.mix}" mode="${d.mode}"/>`;
+}
+
+function chainXml(slots: LiveSlot[] | undefined) {
+  const chain = (slots ?? [])
     .map((s) => `      <slot family="${s.family}" id="${esc(s.id)}"/>`)
     .join("\n");
+  return chain || "      <!-- none -->";
+}
+
+function aiXml(v: AiVoiceInsert | null | undefined) {
+  if (!v) return `    <ai/>`;
+  return `    <ai id="${esc(v.id)}" name="${esc(v.name)}" enabled="${v.enabled ? "true" : "false"}" pitch="${v.pitch}" mix="${v.mix}" model="${esc(v.modelName)}" bytes="${v.modelBytes}"/>`;
+}
+
+function pipelineXml(p: ExtraPipeline) {
+  const filters = p.spectrumFilters.map(filterXml).join("\n") || "      <!-- none -->";
+  const inserts = p.obsInserts.map(insertXml).join("\n") || "      <!-- none -->";
+  const cables = p.cableInserts.map(cableXml).join("\n") || "      <!-- none -->";
+  const devices = p.deviceInserts.map(deviceXml).join("\n") || "      <!-- none -->";
+  return `    <pipeline id="${esc(p.id)}" name="${esc(p.name)}" enabled="${p.enabled ? "true" : "false"}" number="${p.number}" inputCable="${p.inputCable}" outputCable="${p.outputCable}">
+    <filters>
+${filters}
+    </filters>
+    <inserts>
+${inserts}
+    </inserts>
+    <cables>
+${cables}
+    </cables>
+    <devices>
+${devices}
+    </devices>
+${aiXml(p.aiVoice)}
+    <chain>
+${chainXml(p.liveChain)}
+    </chain>
+    </pipeline>`;
+}
+
+export function snapshotToXml(snap: FxSnapshot): string {
+  const m = snap.master;
+  const filters = snap.filters.map(filterXml).join("\n");
+  const inserts = (snap.inserts ?? []).map(insertXml).join("\n");
+  const cables = (snap.cableInserts ?? []).map(cableXml).join("\n");
+  const devices = (snap.deviceInserts ?? []).map(deviceXml).join("\n");
+  const pipelines = (snap.extraPipelines ?? []).map(pipelineXml).join("\n");
   return `  <preset id="${esc(snap.id)}" name="${esc(snap.name)}" savedAt="${esc(snap.savedAt)}">
     <master volume="${m.volume}" pitch="${m.pitchSemitones}" formant="${m.formantDb}" reverb="${m.reverbMix}" compressor="${m.compressor}" noise="${m.noise}" gate="${m.gate}" eqLow="${m.eqLow}" eqMid="${m.eqMid}" eqHigh="${m.eqHigh}" upward="${m.upward}" expander="${m.expander}" limiter="${m.limiter}" phase="${m.phaseInvert ? "true" : "false"}" mix="${m.preset}"/>
     <filters>
@@ -244,14 +393,19 @@ ${filters || "      <!-- none -->"}
     <inserts>
 ${inserts || "      <!-- none -->"}
     </inserts>
-    ${
-      snap.aiVoice
-        ? `<ai id="${esc(snap.aiVoice.id)}" name="${esc(snap.aiVoice.name)}" enabled="${snap.aiVoice.enabled ? "true" : "false"}" pitch="${snap.aiVoice.pitch}" mix="${snap.aiVoice.mix}" model="${esc(snap.aiVoice.modelName)}" bytes="${snap.aiVoice.modelBytes}"/>`
-        : `<ai/>`
-    }
+    <cables>
+${cables || "      <!-- none -->"}
+    </cables>
+    <devices>
+${devices || "      <!-- none -->"}
+    </devices>
+${aiXml(snap.aiVoice)}
     <chain>
-${chain || "      <!-- none -->"}
+${chainXml(snap.liveChain)}
     </chain>
+    <pipelines>
+${pipelines || "      <!-- none -->"}
+    </pipelines>
 ${profileXml("room", snap.roomAmount, snap.roomProfile)}
 ${profileXml("voice", snap.voiceAmount, snap.voiceProfile)}
   </preset>`;
@@ -302,66 +456,135 @@ function parseProfileEl(el: Element | null): {
   };
 }
 
-function parsePresetEl(el: Element): FxSnapshot {
-  const masterEl = el.querySelector("master");
-  const mixRaw = (masterEl ? attr(masterEl, "mix") : "original") as MixPresetId;
-  const room = parseProfileEl(el.querySelector("room"));
-  const voice = parseProfileEl(el.querySelector("voice"));
-  const filters = [...el.querySelectorAll("filters > filter")].map((f) =>
-    normalizeFilter({
-      id: attr(f, "id"),
-      name: attr(f, "name"),
-      kind: attr(f, "kind") as SpectrumFilterKind,
-      hz: num(attr(f, "hz"), 1000),
-      q: num(attr(f, "q"), 0.7),
-      gain: num(attr(f, "gain"), 0),
-      enabled: attr(f, "enabled", "true") !== "false",
-      fullBand: attr(f, "fullBand", "false") === "true",
-      reverb: normalizeReverbTune({
-        decay: num(attr(f, "reverbDecay"), 1.2),
-        predelayMs: num(attr(f, "reverbPredelay"), 18),
-        brightness: num(attr(f, "reverbBright"), 0.62),
-        size: num(attr(f, "reverbSize"), 0.4),
-        lowCutHz: num(attr(f, "reverbLowCut"), 120),
-      }),
+function parseFilterEl(f: Element): SpectrumFilter | null {
+  return normalizeFilter({
+    id: attr(f, "id"),
+    name: attr(f, "name"),
+    kind: attr(f, "kind") as SpectrumFilterKind,
+    hz: num(attr(f, "hz"), 1000),
+    q: num(attr(f, "q"), 0.7),
+    gain: num(attr(f, "gain"), 0),
+    enabled: attr(f, "enabled", "true") !== "false",
+    fullBand: attr(f, "fullBand", "false") === "true",
+    reverb: normalizeReverbTune({
+      decay: num(attr(f, "reverbDecay"), 1.2),
+      predelayMs: num(attr(f, "reverbPredelay"), 18),
+      brightness: num(attr(f, "reverbBright"), 0.62),
+      size: num(attr(f, "reverbSize"), 0.4),
+      lowCutHz: num(attr(f, "reverbLowCut"), 120),
     }),
+  });
+}
+
+function parseInsertEl(f: Element): ObsInsert | null {
+  return normalizeObsInsert({
+    id: attr(f, "id"),
+    kind: attr(f, "kind") as ObsInsert["kind"],
+    name: attr(f, "name"),
+    enabled: attr(f, "enabled", "true") !== "false",
+    amount: num(attr(f, "amount"), 0),
+    eqLow: num(attr(f, "eqLow"), 0),
+    eqMid: num(attr(f, "eqMid"), 0),
+    eqHigh: num(attr(f, "eqHigh"), 0),
+    phaseInvert: attr(f, "phase") === "true",
+    fullBand: attr(f, "fullBand", "true") !== "false",
+    hz: num(attr(f, "hz"), 1000),
+    q: num(attr(f, "q"), 1.4),
+  });
+}
+
+function parseCableEl(f: Element): CableInsert | null {
+  const kind = attr(f, "kind");
+  if (kind !== "out" && kind !== "in") return null;
+  return newCableInsert(kind, {
+    id: attr(f, "id"),
+    name: attr(f, "name"),
+    enabled: attr(f, "enabled", "true") !== "false",
+    cable: asCableIndex(num(attr(f, "cable"), 1)),
+    mode: attr(f, "mode") === "send" ? "send" : "split",
+    mix: num(attr(f, "mix"), 1),
+  });
+}
+
+function parseDeviceEl(f: Element): DeviceIoInsert | null {
+  const kind = attr(f, "kind");
+  if (kind !== "mic-in" && kind !== "speaker-out") return null;
+  return newDeviceIoInsert(kind, {
+    id: attr(f, "id"),
+    name: attr(f, "name"),
+    enabled: attr(f, "enabled", "true") !== "false",
+    deviceId: attr(f, "deviceId"),
+    deviceLabel: attr(f, "deviceLabel"),
+    mix: num(attr(f, "mix"), 1),
+    mode: attr(f, "mode") === "send" ? "send" : "split",
+  });
+}
+
+function parseChainEl(el: Element | null): LiveSlot[] {
+  if (!el) return [];
+  return [...el.querySelectorAll(":scope > slot")]
+    .map((s) => ({
+      family: attr(s, "family"),
+      id: attr(s, "id"),
+    }))
+    .filter(
+      (s): s is LiveSlot =>
+        (s.family === "spectrum" ||
+          s.family === "obs" ||
+          s.family === "ai" ||
+          s.family === "cable" ||
+          s.family === "device") &&
+        !!s.id,
+    );
+}
+
+function parseAiEl(el: Element | null): AiVoiceInsert | null {
+  if (!el) return null;
+  const id = attr(el, "id");
+  if (!id) return null;
+  return newAiVoiceInsert({
+    id,
+    name: attr(el, "name"),
+    enabled: attr(el, "enabled", "true") !== "false",
+    pitch: num(attr(el, "pitch"), 0),
+    mix: num(attr(el, "mix"), 1),
+    modelName: attr(el, "model"),
+    modelBytes: num(attr(el, "bytes"), 0),
+  });
+}
+
+function kids<T>(parent: Element | null, selector: string, map: (el: Element) => T | null): T[] {
+  if (!parent) return [];
+  return [...parent.querySelectorAll(selector)]
+    .map(map)
+    .filter((x): x is T => !!x);
+}
+
+function parsePipelineEl(el: Element, index: number): ExtraPipeline | null {
+  return normalizeExtraPipeline(
+    {
+      id: attr(el, "id"),
+      name: attr(el, "name"),
+      enabled: attr(el, "enabled", "true") !== "false",
+      number: num(attr(el, "number"), index + 2),
+      inputCable: asCableIndex(num(attr(el, "inputCable"), 1)),
+      outputCable: asCableIndex(num(attr(el, "outputCable"), 1)),
+      spectrumFilters: kids(el.querySelector(":scope > filters"), ":scope > filter", parseFilterEl),
+      obsInserts: kids(el.querySelector(":scope > inserts"), ":scope > insert", parseInsertEl),
+      cableInserts: kids(el.querySelector(":scope > cables"), ":scope > cable", parseCableEl),
+      deviceInserts: kids(el.querySelector(":scope > devices"), ":scope > device", parseDeviceEl),
+      aiVoice: parseAiEl(el.querySelector(":scope > ai")),
+      liveChain: parseChainEl(el.querySelector(":scope > chain")),
+    },
+    index + 2,
   );
-  const insertParent = el.querySelector("inserts");
-  const inserts = insertParent
-    ? [...insertParent.querySelectorAll(":scope > insert")].map((f) =>
-        normalizeObsInsert({
-          id: attr(f, "id"),
-          kind: attr(f, "kind") as ObsInsert["kind"],
-          name: attr(f, "name"),
-          enabled: attr(f, "enabled", "true") !== "false",
-          amount: num(attr(f, "amount"), 0),
-          eqLow: num(attr(f, "eqLow"), 0),
-          eqMid: num(attr(f, "eqMid"), 0),
-          eqHigh: num(attr(f, "eqHigh"), 0),
-          phaseInvert: attr(f, "phase") === "true",
-          fullBand: attr(f, "fullBand", "true") !== "false",
-          hz: num(attr(f, "hz"), 1000),
-          q: num(attr(f, "q"), 1.4),
-        }),
-      )
-    : undefined;
-  const chainParent = el.querySelector("chain");
-  const liveChain = chainParent
-    ? [...chainParent.querySelectorAll(":scope > slot")]
-        .map((s) => ({
-          family: attr(s, "family"),
-          id: attr(s, "id"),
-        }))
-        .filter(
-          (s): s is LiveSlot =>
-            (s.family === "spectrum" ||
-              s.family === "obs" ||
-              s.family === "ai" ||
-              s.family === "cable" ||
-              s.family === "device") &&
-            !!s.id,
-        )
-    : undefined;
+}
+
+function parsePresetEl(el: Element): FxSnapshot {
+  const masterEl = el.querySelector(":scope > master");
+  const mixRaw = (masterEl ? attr(masterEl, "mix") : "original") as MixPresetId;
+  const room = parseProfileEl(el.querySelector(":scope > room"));
+  const voice = parseProfileEl(el.querySelector(":scope > voice"));
   return normalizeSnapshot({
     id: attr(el, "id") || newFxId(),
     name: attr(el, "name") || "無名",
@@ -383,25 +606,18 @@ function parsePresetEl(el: Element): FxSnapshot {
       phaseInvert: (masterEl ? attr(masterEl, "phase") : "false") === "true",
       preset: MIX_IDS.has(mixRaw) ? mixRaw : "original",
     },
-    filters: filters.filter((f): f is SpectrumFilter => !!f),
-    inserts: inserts
-      ?.filter((f): f is ObsInsert => !!f),
-    aiVoice: (() => {
-      const aiEl = el.querySelector(":scope > ai");
-      if (!aiEl) return null;
-      const id = attr(aiEl, "id");
-      if (!id) return null;
-      return newAiVoiceInsert({
-        id,
-        name: attr(aiEl, "name"),
-        enabled: attr(aiEl, "enabled", "true") !== "false",
-        pitch: num(attr(aiEl, "pitch"), 0),
-        mix: num(attr(aiEl, "mix"), 1),
-        modelName: attr(aiEl, "model"),
-        modelBytes: num(attr(aiEl, "bytes"), 0),
-      });
-    })(),
-    liveChain,
+    filters: kids(el.querySelector(":scope > filters"), ":scope > filter", parseFilterEl),
+    inserts: kids(el.querySelector(":scope > inserts"), ":scope > insert", parseInsertEl),
+    cableInserts: kids(el.querySelector(":scope > cables"), ":scope > cable", parseCableEl),
+    deviceInserts: kids(el.querySelector(":scope > devices"), ":scope > device", parseDeviceEl),
+    extraPipelines: [
+      ...(el.querySelector(":scope > pipelines")?.querySelectorAll(":scope > pipeline") ??
+        []),
+    ]
+      .map((p, i) => parsePipelineEl(p, i))
+      .filter((p): p is ExtraPipeline => !!p),
+    aiVoice: parseAiEl(el.querySelector(":scope > ai")),
+    liveChain: parseChainEl(el.querySelector(":scope > chain")),
     roomAmount: room.amount,
     voiceAmount: voice.amount,
     roomProfile: room.profile,

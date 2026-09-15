@@ -110,7 +110,7 @@ import {
   type SpectrumFilter,
   type SpectrumFilterKind,
 } from "@/lib/audio/spectrum-filters";
-import type { FxSnapshot } from "@/lib/audio/fx-snapshot";
+import { normalizeSnapshot, type FxSnapshot } from "@/lib/audio/fx-snapshot";
 import {
   MAX_YOUTUBE_CLIPS,
   newYoutubeClip,
@@ -3292,7 +3292,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   captureFxSnapshot: (name) => {
     const s = get();
-    return {
+    return normalizeSnapshot({
       id:
         typeof crypto !== "undefined" && crypto.randomUUID
           ? crypto.randomUUID()
@@ -3300,10 +3300,27 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       name: name.trim() || "無名",
       savedAt: new Date().toISOString(),
       master: { ...s.master },
-      filters: s.spectrumFilters.map((f) => ({ ...f })),
+      filters: s.spectrumFilters.map((f) => ({
+        ...f,
+        reverb: { ...f.reverb },
+      })),
       inserts: s.obsInserts.map((f) => ({ ...f })),
       aiVoice: s.aiVoice ? { ...s.aiVoice } : null,
       liveChain: s.liveChain.map((slot) => ({ ...slot })),
+      cableInserts: s.cableInserts.map((c) => ({ ...c })),
+      deviceInserts: s.deviceInserts.map((d) => ({ ...d })),
+      extraPipelines: s.extraPipelines.map((p) => ({
+        ...p,
+        spectrumFilters: p.spectrumFilters.map((f) => ({
+          ...f,
+          reverb: { ...f.reverb },
+        })),
+        obsInserts: p.obsInserts.map((f) => ({ ...f })),
+        cableInserts: (p.cableInserts ?? []).map((c) => ({ ...c })),
+        deviceInserts: (p.deviceInserts ?? []).map((d) => ({ ...d })),
+        aiVoice: p.aiVoice ? { ...p.aiVoice } : null,
+        liveChain: p.liveChain.map((slot) => ({ ...slot })),
+      })),
       roomAmount: s.roomAmount,
       voiceAmount: s.voiceAmount,
       roomProfile: s.roomProfile
@@ -3312,47 +3329,57 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       voiceProfile: s.voiceProfile
         ? { ...s.voiceProfile, bins: s.voiceProfile.bins.slice() }
         : null,
-    };
+    });
   },
 
   applyFxSnapshot: (snap) => {
-    const master = normalizeMasterFx(snap.master);
-    const spectrumFilters = snap.filters.map((f) => ({ ...f }));
-    const obsInserts = labelObsInserts(
-      (snap.inserts ?? []).map((f) => ({ ...f })),
-    );
-    const aiVoice = snap.aiVoice ? { ...snap.aiVoice } : null;
-    const liveChain = reconcileLiveChain(
-      snap.liveChain ?? [],
-      spectrumFilters,
-      obsInserts,
-      aiVoice,
-    );
+    const n = normalizeSnapshot(snap);
+    const extraPipelines = n.extraPipelines ?? [];
+    const cableInserts = n.cableInserts ?? [];
+    const deviceInserts = n.deviceInserts ?? [];
+    const active = get().activePipelineId;
+    const activePipelineId =
+      active === "main" || extraPipelines.some((p) => p.id === active)
+        ? active
+        : "main";
     set({
-      master,
-      spectrumFilters,
-      obsInserts,
-      aiVoice,
-      liveChain,
-      roomAmount: snap.roomAmount,
-      voiceAmount: snap.voiceAmount,
-      roomProfile: snap.roomProfile
-        ? { ...snap.roomProfile, bins: snap.roomProfile.bins.slice() }
+      master: n.master,
+      spectrumFilters: n.filters,
+      obsInserts: n.inserts,
+      aiVoice: n.aiVoice ?? null,
+      liveChain: n.liveChain ?? [],
+      cableInserts,
+      deviceInserts,
+      extraPipelines,
+      activePipelineId,
+      roomAmount: n.roomAmount,
+      voiceAmount: n.voiceAmount,
+      roomProfile: n.roomProfile
+        ? { ...n.roomProfile, bins: n.roomProfile.bins.slice() }
         : null,
-      voiceProfile: snap.voiceProfile
-        ? { ...snap.voiceProfile, bins: snap.voiceProfile.bins.slice() }
+      voiceProfile: n.voiceProfile
+        ? { ...n.voiceProfile, bins: n.voiceProfile.bins.slice() }
         : null,
-      statusMessage: `エフェクト「${snap.name}」を読み出しました`,
+      statusMessage: `エフェクト「${n.name}」を読み出しました`,
     });
     try {
       const engine = getAudioEngine();
-      engine.applyMasterFx(master);
-      engine.setLiveFx(assembleLiveFx(liveChain, spectrumFilters, obsInserts, aiVoice, get().cableInserts, get().deviceInserts));
-      engine.setPipelineGraph(get().extraPipelines);
-      engine.setRoomProfile(snap.roomProfile);
-      engine.setRoomAmount(snap.roomAmount);
-      engine.setVoiceProfile(snap.voiceProfile);
-      engine.setVoiceAmount(snap.voiceAmount);
+      engine.applyMasterFx(n.master);
+      engine.setLiveFx(
+        assembleLiveFx(
+          n.liveChain ?? [],
+          n.filters,
+          n.inserts,
+          n.aiVoice ?? null,
+          cableInserts,
+          deviceInserts,
+        ),
+      );
+      engine.setPipelineGraph(extraPipelines);
+      engine.setRoomProfile(n.roomProfile);
+      engine.setRoomAmount(n.roomAmount);
+      engine.setVoiceProfile(n.voiceProfile);
+      engine.setVoiceAmount(n.voiceAmount);
     } catch {
       /* not ready */
     }
