@@ -239,6 +239,17 @@ function anyAiVoice(s: {
   return null;
 }
 
+function pipeSlots(p: ExtraPipeline, order = p.liveChain): LiveSlot[] {
+  return reconcileLiveChain(
+    order,
+    p.spectrumFilters,
+    p.obsInserts,
+    p.aiVoice,
+    p.cableInserts ?? [],
+    p.deviceInserts ?? [],
+  );
+}
+
 function commitChain(
   get: () => {
     activePipelineId: "main" | string;
@@ -263,17 +274,23 @@ function commitChain(
     set({ ...patch, liveChain, ...extra });
     return;
   }
-  const extraPipelines = s.extraPipelines.map((x) =>
-    x.id === p.id
-      ? {
-          ...x,
-          ...patch,
-          cableInserts: patch.cableInserts ?? x.cableInserts ?? [],
-          deviceInserts: patch.deviceInserts ?? x.deviceInserts ?? [],
-          aiVoice: patch.aiVoice !== undefined ? patch.aiVoice : x.aiVoice,
-        }
-      : x,
-  );
+  const extraPipelines = s.extraPipelines.map((x) => {
+    if (x.id !== p.id) return x;
+    const merged: ExtraPipeline = {
+      ...x,
+      ...patch,
+      cableInserts: patch.cableInserts ?? x.cableInserts ?? [],
+      deviceInserts: patch.deviceInserts ?? x.deviceInserts ?? [],
+      aiVoice: patch.aiVoice !== undefined ? patch.aiVoice : x.aiVoice,
+      spectrumFilters: patch.spectrumFilters ?? x.spectrumFilters,
+      obsInserts: patch.obsInserts ?? x.obsInserts,
+      liveChain: patch.liveChain ?? x.liveChain,
+    };
+    return {
+      ...merged,
+      liveChain: patch.liveChain ?? pipeSlots(merged),
+    };
+  });
   const liveChain = pushLiveFx({ ...s, extraPipelines });
   set({ extraPipelines, liveChain, ...extra });
 }
@@ -3136,7 +3153,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           get().spectrumFilters,
           get().obsInserts,
           get().aiVoice,
-          get().cableInserts,
+          cableInserts,
+          get().deviceInserts,
         ),
         ...add,
       ];
@@ -3198,7 +3216,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const filter = newSpectrumFilter(kind, hz);
       added = filter.id;
       const liveChain = [
-        ...reconcileLiveChain(p.liveChain, p.spectrumFilters, p.obsInserts),
+        ...pipeSlots(p),
         { family: "spectrum" as const, id: filter.id },
       ];
       return {
@@ -3225,7 +3243,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       added = created.id;
       const obsInserts = labelObsInserts([...p.obsInserts, created]);
       const liveChain = [
-        ...reconcileLiveChain(p.liveChain, p.spectrumFilters, p.obsInserts),
+        ...pipeSlots(p),
         { family: "obs" as const, id: created.id },
       ];
       return { ...p, obsInserts, liveChain };
@@ -3242,11 +3260,20 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   removePipelineItem: (pipeId, itemId) => {
     const extraPipelines = get().extraPipelines.map((p) => {
       if (p.id !== pipeId) return p;
-      return {
+      const spectrumFilters = p.spectrumFilters.filter((f) => f.id !== itemId);
+      const obsInserts = p.obsInserts.filter((f) => f.id !== itemId);
+      const cableInserts = (p.cableInserts ?? []).filter((c) => c.id !== itemId);
+      const deviceInserts = (p.deviceInserts ?? []).filter((d) => d.id !== itemId);
+      const aiVoice = p.aiVoice?.id === itemId ? null : p.aiVoice;
+      const next = {
         ...p,
-        spectrumFilters: p.spectrumFilters.filter((f) => f.id !== itemId),
-        obsInserts: p.obsInserts.filter((f) => f.id !== itemId),
+        spectrumFilters,
+        obsInserts,
+        cableInserts,
+        deviceInserts,
+        aiVoice,
       };
+      return { ...next, liveChain: pipeSlots(next) };
     });
     const liveChain = pushLiveFx({ ...get(), extraPipelines });
     set({ extraPipelines, liveChain });
