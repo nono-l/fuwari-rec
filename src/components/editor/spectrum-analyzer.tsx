@@ -12,23 +12,28 @@ import {
   defaultFilterName,
   defaultFilterQ,
   filterKindLabel,
-  formatGainDb,
+  formatFilterAmount,
   formatHz,
   hzToSpecT,
   qFromBandWidthHz,
   specTToHz,
   usesBandWidth,
   usesGain,
+  amountSliderLabel,
   type SpectrumFilter,
   type SpectrumFilterKind,
 } from "@/lib/audio/spectrum-filters";
 import { assembleLiveFx } from "@/lib/audio/live-fx";
 import { catalogMeta } from "@/lib/audio/obs-filters";
+import { aiVoiceSummary } from "@/lib/audio/ai-voice";
+import { AiVoiceControl } from "@/components/editor/ai-voice-controls";
+import { cableSummary } from "@/lib/audio/cables";
 import {
   InsertControl,
   insertSummary,
 } from "@/components/editor/obs-filter-rack";
 import { useEditorStore } from "@/lib/store/editor-store";
+import { useActivePipeline } from "@/lib/store/use-active-pipeline";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
@@ -42,6 +47,9 @@ const KIND_COLOR: Record<SpectrumFilterKind, string> = {
   notch: "#be123c",
   "keep-band": "#0d9488",
   peak: "#ca8a04",
+  "band-reverb": "#7c3aed",
+  "band-formant": "#c2410c",
+  "band-pitch": "#1d4ed8",
 };
 
 type Draft = {
@@ -98,10 +106,19 @@ export function SpectrumAnalyzer({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const peakHzRef = useRef<HTMLSpanElement>(null);
-  const filters = useEditorStore((s) => s.spectrumFilters);
-  const obsInserts = useEditorStore((s) => s.obsInserts);
-  const liveChain = useEditorStore((s) => s.liveChain);
-  const liveItems = assembleLiveFx(liveChain, filters, obsInserts);
+  const pipe = useActivePipeline();
+  const filters = pipe.spectrumFilters;
+  const obsInserts = pipe.obsInserts;
+  const aiVoice = pipe.aiVoice;
+  const cableInserts = pipe.cableInserts;
+  const liveChain = pipe.liveChain;
+  const liveItems = assembleLiveFx(
+    liveChain,
+    filters,
+    obsInserts,
+    aiVoice,
+    cableInserts,
+  );
   const addSpectrumFilter = useEditorStore((s) => s.addSpectrumFilter);
   const updateSpectrumFilter = useEditorStore((s) => s.updateSpectrumFilter);
   const removeSpectrumFilter = useEditorStore((s) => s.removeSpectrumFilter);
@@ -110,8 +127,16 @@ export function SpectrumAnalyzer({
   const updateObsInsert = useEditorStore((s) => s.updateObsInsert);
   const removeObsInsert = useEditorStore((s) => s.removeObsInsert);
   const toggleObsInsert = useEditorStore((s) => s.toggleObsInsert);
+  const updateAiVoice = useEditorStore((s) => s.updateAiVoice);
+  const removeAiVoice = useEditorStore((s) => s.removeAiVoice);
+  const toggleAiVoice = useEditorStore((s) => s.toggleAiVoice);
+  const updateCableInsert = useEditorStore((s) => s.updateCableInsert);
+  const removeCableInsert = useEditorStore((s) => s.removeCableInsert);
+  const toggleCableInsert = useEditorStore((s) => s.toggleCableInsert);
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
+  const pipeIdRef = useRef(pipe.id);
+  pipeIdRef.current = pipe.id;
 
   const [draft, setDraft] = useState<Draft | null>(null);
   const [obsEditId, setObsEditId] = useState<string | null>(null);
@@ -204,7 +229,14 @@ export function SpectrumAnalyzer({
         ctx.fillStyle = color;
         ctx.globalAlpha = 0.1;
         ctx.fillRect(padL, padT, x - padL, innerH);
-      } else if (shade === "notch" || shade === "keep-band" || shade === "peak") {
+      } else if (
+        shade === "notch" ||
+        shade === "keep-band" ||
+        shade === "peak" ||
+        shade === "band-reverb" ||
+        shade === "band-formant" ||
+        shade === "band-pitch"
+      ) {
         const { lo, hi } = bandEdges(hz, q);
         const x0 = padL + hzToSpecT(lo, sr) * innerW;
         const x1 = padL + hzToSpecT(hi, sr) * innerW;
@@ -281,9 +313,9 @@ export function SpectrumAnalyzer({
         if (bins.length !== binCount && binCount > 0) {
           bins = new Uint8Array(binCount);
         }
-        sr = engine.fillSpectrum(bins);
+        sr = engine.fillSpectrum(bins, pipeIdRef.current);
         if (sr > 0) sampleRate = sr;
-        const wn = engine.fillOutputWave(wave);
+        const wn = engine.fillOutputWave(wave, pipeIdRef.current);
         if (wn > 0 && wave.length !== wn) {
           wave = new Uint8Array(wn);
           engine.fillOutputWave(wave);
@@ -388,7 +420,7 @@ export function SpectrumAnalyzer({
           innerH,
           KIND_COLOR[f.kind],
           usesGain(f.kind)
-            ? `${f.name} ${formatGainDb(f.gain ?? 0)}`
+            ? `${f.name} ${formatFilterAmount(f.kind, f.gain ?? 0)}`
             : f.name,
           f.kind,
           dpr,
@@ -407,7 +439,7 @@ export function SpectrumAnalyzer({
           innerH,
           KIND_COLOR[d.kind],
           usesGain(d.kind)
-            ? `${d.name || formatHz(d.hz)} ${formatGainDb(d.gain)}`
+            ? `${d.name || formatHz(d.hz)} ${formatFilterAmount(d.kind, d.gain)}`
             : d.name || formatHz(d.hz),
           d.kind,
           dpr,
@@ -471,6 +503,12 @@ export function SpectrumAnalyzer({
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
   }, []);
+
+  useEffect(() => {
+    setDraft(null);
+    setObsEditId(null);
+    createdIdRef.current = null;
+  }, [pipe.id]);
 
   const sampleRateNow = () => {
     try {
@@ -620,6 +658,9 @@ export function SpectrumAnalyzer({
         <span className="inline-flex items-center gap-1.5">
           <Activity className="size-3.5 text-primary" />
           フィルター後スペクトラム
+          <span className="font-normal text-muted-foreground">
+            · {pipe.name}
+          </span>
         </span>
         <span className="tabular-nums text-foreground">
           ピーク{" "}
@@ -647,10 +688,23 @@ export function SpectrumAnalyzer({
           className="block h-full w-full"
           aria-label="リアルタイムスペクトラム。タップして周波数フィルターを追加"
         />
+        {liveItems.length === 0 && !draft && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-5">
+            <p
+              className={cn(
+                "select-none text-center font-semibold leading-snug tracking-wide text-foreground/20",
+                compact ? "text-sm sm:text-base" : "text-lg sm:text-xl",
+              )}
+            >
+              ここをタップで
+              <br />
+              各種フィルターを追加できます
+            </p>
+          </div>
+        )}
       </div>
       <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
-        ローパス／ハイパス／ノッチ／バンドパスをかけた直後の音です。切れ方がバーと波形に出ます。
-        縦線をタップすると帯域フィルターがかかります。下の種類表からゲインやコンプも、この同じリストに入ります。上が先。↑↓で入れ替えできます。
+        縦線をタップして帯域フィルターを追加。仮想ケーブルでパイプライン2・3へ分岐できます。上が先。
       </p>
 
       {draft && (
@@ -669,7 +723,7 @@ export function SpectrumAnalyzer({
               className="mt-1 h-9 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
           </label>
-          <div className="mt-3 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+          <div className="mt-3 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
             {FILTER_KINDS.map((k) => (
               <button
                 key={k.id}
@@ -754,14 +808,22 @@ export function SpectrumAnalyzer({
           {usesGain(draft.kind) && (
             <div className="mt-3">
               <div className="mb-1 flex justify-between text-[11px] text-muted-foreground">
-                <span>バンドパスゲイン</span>
+                <span>{amountSliderLabel(draft.kind)}</span>
                 <span className="tabular-nums text-foreground">
-                  {formatGainDb(draft.gain)}
+                  {formatFilterAmount(draft.kind, draft.gain)}
                 </span>
               </div>
               <Slider
-                min={-180}
-                max={180}
+                min={
+                  draft.kind === "band-reverb"
+                    ? 0
+                    : draft.kind === "band-pitch"
+                      ? -120
+                      : -180
+                }
+                max={
+                  draft.kind === "band-pitch" ? 120 : 180
+                }
                 step={1}
                 value={[Math.round(draft.gain * 10)]}
                 onValueChange={([v]) =>
@@ -769,15 +831,29 @@ export function SpectrumAnalyzer({
                 }
               />
               <div className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground">
-                <span>−18 dB（カット）</span>
+                <span>
+                  {draft.kind === "band-reverb"
+                    ? "ドライ"
+                    : draft.kind === "band-pitch"
+                      ? "−12 半音"
+                      : "−18 dB"}
+                </span>
                 <button
                   type="button"
                   className="text-primary hover:underline"
-                  onClick={() => patchDraft({ gain: 0 })}
+                  onClick={() =>
+                    patchDraft({ gain: defaultFilterGain(draft.kind) })
+                  }
                 >
-                  0 に戻す
+                  初期値
                 </button>
-                <span>＋18 dB（ブースト）</span>
+                <span>
+                  {draft.kind === "band-reverb"
+                    ? "ウェット"
+                    : draft.kind === "band-pitch"
+                      ? "＋12 半音"
+                      : "＋18 dB"}
+                </span>
               </div>
             </div>
           )}
@@ -871,7 +947,9 @@ export function SpectrumAnalyzer({
                       {usesBandWidth(f.kind)
                         ? ` · 幅 ${formatHz(bandWidthHz(f.hz, f.q))}`
                         : ""}
-                      {usesGain(f.kind) ? ` · ${formatGainDb(f.gain ?? 0)}` : ""}
+                      {usesGain(f.kind)
+                        ? ` · ${formatFilterAmount(f.kind, f.gain ?? 0)}`
+                        : ""}
                     </div>
                   </div>
                   <Button
@@ -895,6 +973,229 @@ export function SpectrumAnalyzer({
                   >
                     <Trash2 className="size-3.5" />
                   </Button>
+                </li>
+              );
+            }
+            if (item.family === "ai") {
+              const v = item.voice;
+              const selected = obsEditId === v.id;
+              return (
+                <li
+                  key={v.id}
+                  className={cn(
+                    "rounded-xl border border-border bg-card px-2.5 py-2",
+                    selected && "ring-1 ring-primary/40",
+                    !v.enabled && "opacity-55",
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 flex-col">
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        disabled={i === 0}
+                        onClick={() => moveLiveSlot(v.id, -1)}
+                        aria-label="上へ（先にかける）"
+                      >
+                        <ChevronUp className="size-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        disabled={i === liveItems.length - 1}
+                        onClick={() => moveLiveSlot(v.id, 1)}
+                        aria-label="下へ（後にかける）"
+                      >
+                        <ChevronDown className="size-3.5" />
+                      </Button>
+                    </div>
+                    <span className="w-4 shrink-0 text-center text-[10px] tabular-nums text-muted-foreground">
+                      {i + 1}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => toggleAiVoice()}
+                      className={cn(
+                        "size-2.5 shrink-0 rounded-full",
+                        v.enabled ? "bg-primary" : "bg-muted-foreground/40",
+                      )}
+                      aria-label={v.enabled ? "オフにする" : "オンにする"}
+                      style={
+                        v.enabled ? { backgroundColor: "#6d28d9" } : undefined
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 text-left"
+                      onClick={() =>
+                        setObsEditId((id) => (id === v.id ? null : v.id))
+                      }
+                    >
+                      <div className="truncate text-xs font-medium text-foreground">
+                        {v.name}
+                      </div>
+                      <div className="truncate text-[10px] text-muted-foreground">
+                        {aiVoiceSummary(v)}
+                      </div>
+                    </button>
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="ghost"
+                      onClick={() => {
+                        if (obsEditId === v.id) setObsEditId(null);
+                        removeAiVoice();
+                      }}
+                      aria-label="削除"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
+                  {selected && (
+                    <div className="mt-2 pl-11 pr-1">
+                      <AiVoiceControl
+                        voice={v}
+                        onPatch={(p) => updateAiVoice(p)}
+                      />
+                    </div>
+                  )}
+                </li>
+              );
+            }
+            if (item.family === "cable") {
+              const c = item.cable;
+              const selected = obsEditId === c.id;
+              return (
+                <li
+                  key={c.id}
+                  className={cn(
+                    "rounded-xl border border-border bg-card px-2.5 py-2",
+                    selected && "ring-1 ring-primary/40",
+                    !c.enabled && "opacity-55",
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 flex-col">
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        disabled={i === 0}
+                        onClick={() => moveLiveSlot(c.id, -1)}
+                        aria-label="上へ"
+                      >
+                        <ChevronUp className="size-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        disabled={i === liveItems.length - 1}
+                        onClick={() => moveLiveSlot(c.id, 1)}
+                        aria-label="下へ"
+                      >
+                        <ChevronDown className="size-3.5" />
+                      </Button>
+                    </div>
+                    <span className="w-4 shrink-0 text-center text-[10px] tabular-nums text-muted-foreground">
+                      {i + 1}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => toggleCableInsert(c.id)}
+                      className={cn(
+                        "size-2.5 shrink-0 rounded-full",
+                        c.enabled ? "bg-primary" : "bg-muted-foreground/40",
+                      )}
+                      style={
+                        c.enabled ? { backgroundColor: "#0f766e" } : undefined
+                      }
+                      aria-label={c.enabled ? "オフにする" : "オンにする"}
+                    />
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 text-left"
+                      onClick={() =>
+                        setObsEditId((id) => (id === c.id ? null : c.id))
+                      }
+                    >
+                      <div className="truncate text-xs font-medium text-foreground">
+                        {c.name}
+                      </div>
+                      <div className="truncate text-[10px] text-muted-foreground">
+                        {cableSummary(c)}
+                      </div>
+                    </button>
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="ghost"
+                      onClick={() => {
+                        if (obsEditId === c.id) setObsEditId(null);
+                        removeCableInsert(c.id);
+                      }}
+                      aria-label="削除"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
+                  {selected && (
+                    <div className="mt-2 space-y-2 pl-11 pr-1">
+                      <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                        ケーブル
+                        <select
+                          className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground"
+                          value={c.cable}
+                          onChange={(e) =>
+                            updateCableInsert(c.id, {
+                              cable: Number(e.target.value) as 1 | 2 | 3,
+                            })
+                          }
+                        >
+                          <option value={1}>仮想ケーブル1</option>
+                          <option value={2}>仮想ケーブル2</option>
+                          <option value={3}>仮想ケーブル3</option>
+                        </select>
+                      </label>
+                      {c.kind === "out" ? (
+                        <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                          送り方
+                          <select
+                            className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground"
+                            value={c.mode}
+                            onChange={(e) =>
+                              updateCableInsert(c.id, {
+                                mode: e.target.value as "split" | "send",
+                              })
+                            }
+                          >
+                            <option value="split">分岐（本体は続行）</option>
+                            <option value="send">送り切り（本体は無音）</option>
+                          </select>
+                        </label>
+                      ) : (
+                        <div>
+                          <div className="mb-1 flex justify-between text-[11px] text-muted-foreground">
+                            <span>戻りの混ぜ</span>
+                            <span className="tabular-nums text-foreground">
+                              {Math.round(c.mix * 100)}%
+                            </span>
+                          </div>
+                          <Slider
+                            min={0}
+                            max={100}
+                            step={1}
+                            value={[Math.round(c.mix * 100)]}
+                            onValueChange={([n]) =>
+                              updateCableInsert(c.id, { mix: (n ?? 100) / 100 })
+                            }
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </li>
               );
             }
@@ -993,7 +1294,7 @@ export function SpectrumAnalyzer({
 
       {filters.length >= MAX_SPECTRUM_FILTERS && (
         <p className="mt-2 text-[11px] text-muted-foreground">
-          帯域フィルターは {MAX_SPECTRUM_FILTERS} 個までです。不要なものを消してから追加してください。
+          帯域フィルターは {MAX_SPECTRUM_FILTERS} 段までです。不要なものを消してから追加してください。
         </p>
       )}
     </div>

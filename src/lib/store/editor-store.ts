@@ -16,6 +16,12 @@ import {
   type ObsFilterId,
   type ObsInsert,
 } from "@/lib/audio/obs-filters";
+import {
+  MAX_AI_VOICE,
+  newAiVoiceInsert,
+  setAiModelFile,
+  type AiVoiceInsert,
+} from "@/lib/audio/ai-voice";
 import { getAudioEngine, type EngineStatus } from "@/lib/audio/engine";
 import {
   assembleLiveFx,
@@ -23,6 +29,19 @@ import {
   shiftLiveSlot,
   type LiveSlot,
 } from "@/lib/audio/live-fx";
+import {
+  MAX_CABLE_INSERTS,
+  defaultCableName,
+  newCableInsert,
+  type CableInsert,
+  type CableKind,
+} from "@/lib/audio/cables";
+import {
+  extraPipelineBudget,
+  newExtraPipeline,
+  type ExtraPipeline,
+  type PipelineVia,
+} from "@/lib/audio/fx-pipeline";
 import {
   cloneAudioBuffer,
   processSeparation,
@@ -45,6 +64,7 @@ import {
 import {
   isMidiFile,
   parseMidi,
+  midiPartsFromParsed,
   renderMidiToAudioBuffer,
   type MidiNote,
 } from "@/lib/audio/midi";
@@ -87,6 +107,7 @@ import {
 } from "@/lib/youtube-clips";
 import {
   DEFAULT_MIDI_INSTRUMENT,
+  instrumentFromGm,
   instrumentLabel,
   type MidiInstrumentId,
 } from "@/lib/audio/midi-instruments";
@@ -113,20 +134,127 @@ function pushLiveFx(s: {
   liveChain: LiveSlot[];
   spectrumFilters: SpectrumFilter[];
   obsInserts: ObsInsert[];
+  aiVoice: AiVoiceInsert | null;
+  cableInserts?: CableInsert[];
+  extraPipelines?: ExtraPipeline[];
+  pipelineVia?: PipelineVia;
 }) {
+  const cables = s.cableInserts ?? [];
   const liveChain = reconcileLiveChain(
     s.liveChain,
     s.spectrumFilters,
     s.obsInserts,
+    s.aiVoice,
+    cables,
   );
   try {
-    getAudioEngine().setLiveFx(
-      assembleLiveFx(liveChain, s.spectrumFilters, s.obsInserts),
+    const engine = getAudioEngine();
+    engine.setLiveFx(
+      assembleLiveFx(
+        liveChain,
+        s.spectrumFilters,
+        s.obsInserts,
+        s.aiVoice,
+        cables,
+      ),
     );
+    engine.setPipelineGraph(s.extraPipelines ?? []);
   } catch {
     /* not ready */
   }
   return liveChain;
+}
+
+type ChainSlice = {
+  liveChain: LiveSlot[];
+  spectrumFilters: SpectrumFilter[];
+  obsInserts: ObsInsert[];
+  aiVoice: AiVoiceInsert | null;
+  cableInserts: CableInsert[];
+};
+
+function activeExtra(s: {
+  activePipelineId: "main" | string;
+  extraPipelines: ExtraPipeline[];
+}) {
+  if (s.activePipelineId === "main") return null;
+  return s.extraPipelines.find((p) => p.id === s.activePipelineId) ?? null;
+}
+
+function readChain(s: {
+  activePipelineId: "main" | string;
+  extraPipelines: ExtraPipeline[];
+  liveChain: LiveSlot[];
+  spectrumFilters: SpectrumFilter[];
+  obsInserts: ObsInsert[];
+  aiVoice: AiVoiceInsert | null;
+  cableInserts: CableInsert[];
+}): ChainSlice {
+  const p = activeExtra(s);
+  if (!p) {
+    return {
+      liveChain: s.liveChain,
+      spectrumFilters: s.spectrumFilters,
+      obsInserts: s.obsInserts,
+      aiVoice: s.aiVoice,
+      cableInserts: s.cableInserts,
+    };
+  }
+  return {
+    liveChain: p.liveChain,
+    spectrumFilters: p.spectrumFilters,
+    obsInserts: p.obsInserts,
+    aiVoice: p.aiVoice,
+    cableInserts: p.cableInserts ?? [],
+  };
+}
+
+function anyAiVoice(s: {
+  aiVoice: AiVoiceInsert | null;
+  extraPipelines: ExtraPipeline[];
+}) {
+  if (s.aiVoice) return s.aiVoice;
+  for (const p of s.extraPipelines) {
+    if (p.aiVoice) return p.aiVoice;
+  }
+  return null;
+}
+
+function commitChain(
+  get: () => {
+    activePipelineId: "main" | string;
+    extraPipelines: ExtraPipeline[];
+    liveChain: LiveSlot[];
+    spectrumFilters: SpectrumFilter[];
+    obsInserts: ObsInsert[];
+    aiVoice: AiVoiceInsert | null;
+    cableInserts: CableInsert[];
+    pipelineVia?: PipelineVia;
+  },
+  set: (partial: Record<string, unknown>) => void,
+  patch: Partial<ChainSlice>,
+  extra?: { statusMessage?: string },
+) {
+  const s = get();
+  const p = activeExtra(s);
+  if (!p) {
+    const next = { ...s, ...patch };
+    const liveChain = pushLiveFx(next);
+    set({ ...patch, liveChain, ...extra });
+    return;
+  }
+  const extraPipelines = s.extraPipelines.map((x) =>
+    x.id === p.id
+      ? {
+          ...x,
+          ...patch,
+          cableInserts: patch.cableInserts ?? x.cableInserts ?? [],
+          aiVoice: patch.aiVoice !== undefined ? patch.aiVoice : x.aiVoice,
+        }
+      : x,
+  );
+  const liveChain = pushLiveFx({ ...s, extraPipelines });
+  set({ extraPipelines, liveChain, ...extra });
 }
 
 function makeTrack(partial?: Partial<Track>): Track {
@@ -371,6 +499,11 @@ export interface EditorState {
 
   spectrumFilters: SpectrumFilter[];
   obsInserts: ObsInsert[];
+  aiVoice: AiVoiceInsert | null;
+  cableInserts: CableInsert[];
+  extraPipelines: ExtraPipeline[];
+  activePipelineId: "main" | string;
+  pipelineVia: PipelineVia;
   liveChain: LiveSlot[];
 
   rangeMeasuring: boolean;
@@ -499,6 +632,27 @@ export interface EditorState {
   toggleObsInsert: (id: string) => void;
   moveObsInsert: (id: string, delta: -1 | 1) => void;
   replaceObsInserts: (inserts: ObsInsert[]) => void;
+  addAiVoice: () => string | null;
+  updateAiVoice: (patch: Partial<AiVoiceInsert>) => void;
+  removeAiVoice: () => void;
+  toggleAiVoice: () => void;
+  addCableInsert: (kind: CableKind) => string | null;
+  updateCableInsert: (id: string, patch: Partial<CableInsert>) => void;
+  removeCableInsert: (id: string) => void;
+  toggleCableInsert: (id: string) => void;
+  addExtraPipeline: () => string | null;
+  updateExtraPipeline: (id: string, patch: Partial<ExtraPipeline>) => void;
+  removeExtraPipeline: (id: string) => void;
+  setPipelineVia: (via: PipelineVia) => void;
+  setActivePipelineId: (id: "main" | string) => void;
+  addPipelineSpectrum: (
+    pipeId: string,
+    kind: SpectrumFilterKind,
+    hz: number,
+  ) => string | null;
+  addPipelineObs: (pipeId: string, kind: ObsFilterId) => string | null;
+  removePipelineItem: (pipeId: string, itemId: string) => void;
+  togglePipelineItem: (pipeId: string, itemId: string) => void;
   moveLiveSlot: (id: string, delta: -1 | 1) => void;
   applyFxSnapshot: (snap: FxSnapshot) => void;
   captureFxSnapshot: (name: string) => FxSnapshot;
@@ -794,6 +948,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   spectrumFilters: [],
   obsInserts: [],
+  aiVoice: null,
+  cableInserts: [],
+  extraPipelines: [],
+  activePipelineId: "main",
+  pipelineVia: "main",
   liveChain: [],
 
   rangeMeasuring: false,
@@ -1021,47 +1180,81 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       if (get().status === "playing") get().pause();
       const ab = await file.arrayBuffer();
       const parsed = parseMidi(ab);
-      if (parsed.notes.length === 0) {
+      const parts = midiPartsFromParsed(parsed);
+      const noteCount = parts.reduce((n, p) => n + p.notes.length, 0);
+      if (noteCount === 0) {
         set({ statusMessage: "MIDI に再生できるノートがありません" });
         return;
       }
       const engine = getAudioEngine();
       const sampleRate = engine.getSampleRate();
-      const buffer = await renderMidiToAudioBuffer(
-        parsed,
-        sampleRate,
-        get().midiInstrument,
-      );
+      const fileBase =
+        parsed.name || file.name.replace(/\.[^/.]+$/, "") || "MIDI";
+      const existing = id ? get().tracks.find((t) => t.id === id) : null;
+      const reuse =
+        Boolean(existing) &&
+        !existing?.buffer &&
+        !(existing?.midiNotes?.length);
+      const created: string[] = [];
+      const timeline = Math.max(parsed.duration, 0.2);
 
-      let trackId = id;
-      if (!trackId || get().tracks.find((t) => t.id === trackId)?.buffer) {
-        trackId = get().addTrack({
-          name: `MIDI · ${parsed.name || file.name.replace(/\.[^/.]+$/, "") || "読み込み"}`,
-          kind: "midi",
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i]!;
+        const inst = instrumentFromGm(part.program, part.channel);
+        set({
+          statusMessage: `MIDI 変換中… ${i + 1}/${parts.length} ${file.name}`,
         });
+        const buffer = await renderMidiToAudioBuffer(
+          {
+            notes: part.notes,
+            duration: timeline,
+            ticksPerQuarter: parsed.ticksPerQuarter,
+            name: part.name,
+            format: parsed.format,
+            tracks: [part],
+          },
+          sampleRate,
+          inst,
+        );
+        const label =
+          part.name?.trim() ||
+          (parts.length > 1 ? `${fileBase} · ${i + 1}` : fileBase);
+        let trackId: string;
+        if (i === 0 && reuse && id) {
+          trackId = id;
+        } else {
+          trackId = get().addTrack({
+            name: `MIDI · ${label}`,
+            kind: "midi",
+          });
+        }
+        get().updateTrack(trackId, {
+          buffer,
+          undoBuffer: null,
+          name: `MIDI · ${label}`,
+          kind: "midi",
+          offset: 0,
+          midiNotes: part.notes,
+          midiSourceNotes: part.notes,
+          midiInstrument: inst,
+        });
+        created.push(trackId);
       }
-      const baseName =
-        get().tracks.find((t) => t.id === trackId)?.name ??
-        `MIDI · ${parsed.name || file.name.replace(/\.[^/.]+$/, "") || "読み込み"}`;
-      get().updateTrack(trackId, {
-        buffer,
-        undoBuffer: null,
-        name: baseName,
-        kind: "midi",
-        offset: 0,
-        midiNotes: parsed.notes,
-        midiSourceNotes: parsed.notes,
-        midiInstrument: get().midiInstrument,
-      });
+
+      const firstId = created[0]!;
+      const firstNotes = parts[0]!.notes;
       engine.updateDuration(get().tracks);
       set({
         duration: engine.getDuration(),
-        activeTrackId: trackId,
-        mediaRangeTrackId: trackId,
-        midiEditTrackId: trackId,
-        midiViewLow: centerViewLow(parsed.notes),
+        activeTrackId: firstId,
+        mediaRangeTrackId: firstId,
+        midiEditTrackId: firstId,
+        midiViewLow: centerViewLow(firstNotes),
         midiWindowBeat: 0,
-        statusMessage: `MIDI 読み込み完了: ${baseName}（${parsed.notes.length} ノート）— ピアノロールで編集できます`,
+        statusMessage:
+          parts.length > 1
+            ? `MIDI を ${parts.length} トラックに展開しました（${noteCount} ノート）`
+            : `MIDI 読み込み完了: MIDI · ${fileBase}（${noteCount} ノート）— ピアノロールで編集できます`,
       });
     } catch (e) {
       console.error(e);
@@ -1995,7 +2188,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const blob = await getAudioEngine().exportMix(tracks, master, {
         profile: get().roomProfile,
         amount: get().roomAmount,
-      }, assembleLiveFx(get().liveChain, get().spectrumFilters, get().obsInserts));
+      }, assembleLiveFx(get().liveChain, get().spectrumFilters, get().obsInserts, get().aiVoice, get().cableInserts));
       downloadBlob(blob, `fuwari-rec-${Date.now()}.wav`);
       set({ statusMessage: "WAV 書き出し完了" });
     } catch (e) {
@@ -2566,45 +2759,44 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   addSpectrumFilter: (kind, hz) => {
-    if (get().spectrumFilters.length >= MAX_SPECTRUM_FILTERS) {
+    const chain = readChain(get());
+    if (chain.spectrumFilters.length >= MAX_SPECTRUM_FILTERS) {
       set({
-        statusMessage: `フィルターは ${MAX_SPECTRUM_FILTERS} 個までです`,
+        statusMessage: `フィルターは ${MAX_SPECTRUM_FILTERS} 段までです`,
       });
       return null;
     }
     const filter = newSpectrumFilter(kind, hz);
-    const spectrumFilters = [...get().spectrumFilters, filter];
+    const spectrumFilters = [...chain.spectrumFilters, filter];
     const liveChain = [
       ...reconcileLiveChain(
-        get().liveChain,
-        get().spectrumFilters,
-        get().obsInserts,
+        chain.liveChain,
+        chain.spectrumFilters,
+        chain.obsInserts,
+        chain.aiVoice,
+        chain.cableInserts,
       ),
       { family: "spectrum" as const, id: filter.id },
     ];
-    set({
-      spectrumFilters,
-      liveChain: pushLiveFx({ ...get(), spectrumFilters, liveChain }),
+    commitChain(get, set, { spectrumFilters, liveChain }, {
       statusMessage: `フィルター「${filter.name}」を追加`,
     });
     return filter.id;
   },
 
   updateSpectrumFilter: (id, patch) => {
-    const spectrumFilters = get().spectrumFilters.map((f) =>
+    const chain = readChain(get());
+    const spectrumFilters = chain.spectrumFilters.map((f) =>
       f.id === id ? { ...f, ...patch, id: f.id } : f,
     );
-    const liveChain = pushLiveFx({ ...get(), spectrumFilters });
-    set({ spectrumFilters, liveChain });
+    commitChain(get, set, { spectrumFilters });
   },
 
   removeSpectrumFilter: (id) => {
-    const target = get().spectrumFilters.find((f) => f.id === id);
-    const spectrumFilters = get().spectrumFilters.filter((f) => f.id !== id);
-    const liveChain = pushLiveFx({ ...get(), spectrumFilters });
-    set({
-      spectrumFilters,
-      liveChain,
+    const chain = readChain(get());
+    const target = chain.spectrumFilters.find((f) => f.id === id);
+    const spectrumFilters = chain.spectrumFilters.filter((f) => f.id !== id);
+    commitChain(get, set, { spectrumFilters }, {
       statusMessage: target
         ? `フィルター「${target.name}」を削除`
         : "フィルターを削除",
@@ -2612,11 +2804,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   toggleSpectrumFilter: (id) => {
-    const spectrumFilters = get().spectrumFilters.map((f) =>
+    const chain = readChain(get());
+    const spectrumFilters = chain.spectrumFilters.map((f) =>
       f.id === id ? { ...f, enabled: !f.enabled } : f,
     );
-    const liveChain = pushLiveFx({ ...get(), spectrumFilters });
-    set({ spectrumFilters, liveChain });
+    commitChain(get, set, { spectrumFilters });
   },
 
   moveSpectrumFilter: (id, delta) => {
@@ -2624,32 +2816,33 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   replaceSpectrumFilters: (filters) => {
-    const spectrumFilters = filters.slice(0, MAX_SPECTRUM_FILTERS);
-    const liveChain = pushLiveFx({ ...get(), spectrumFilters });
-    set({ spectrumFilters, liveChain });
+    commitChain(get, set, {
+      spectrumFilters: filters.slice(0, MAX_SPECTRUM_FILTERS),
+    });
   },
 
   addObsInsert: (kind) => {
-    if (get().obsInserts.length >= MAX_OBS_INSERTS) {
+    const chain = readChain(get());
+    if (chain.obsInserts.length >= MAX_OBS_INSERTS) {
       set({
         statusMessage: `ライブフィルターは ${MAX_OBS_INSERTS} 段までです`,
       });
       return null;
     }
     const created = newObsInsert(kind);
-    const obsInserts = labelObsInserts([...get().obsInserts, created]);
+    const obsInserts = labelObsInserts([...chain.obsInserts, created]);
     const named = obsInserts.find((f) => f.id === created.id);
     const liveChain = [
       ...reconcileLiveChain(
-        get().liveChain,
-        get().spectrumFilters,
-        get().obsInserts,
+        chain.liveChain,
+        chain.spectrumFilters,
+        chain.obsInserts,
+        chain.aiVoice,
+        chain.cableInserts,
       ),
       { family: "obs" as const, id: created.id },
     ];
-    set({
-      obsInserts,
-      liveChain: pushLiveFx({ ...get(), obsInserts, liveChain }),
+    commitChain(get, set, { obsInserts, liveChain }, {
       statusMessage: named
         ? `「${named.name}」をライブエフェクターに挿入`
         : "フィルターを挿入",
@@ -2658,22 +2851,22 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   updateObsInsert: (id, patch) => {
+    const chain = readChain(get());
     const obsInserts = labelObsInserts(
-      get().obsInserts.map((f) =>
+      chain.obsInserts.map((f) =>
         f.id === id ? { ...f, ...patch, id: f.id, kind: f.kind } : f,
       ),
     );
-    const liveChain = pushLiveFx({ ...get(), obsInserts });
-    set({ obsInserts, liveChain });
+    commitChain(get, set, { obsInserts });
   },
 
   removeObsInsert: (id) => {
-    const target = get().obsInserts.find((f) => f.id === id);
-    const obsInserts = labelObsInserts(get().obsInserts.filter((f) => f.id !== id));
-    const liveChain = pushLiveFx({ ...get(), obsInserts });
-    set({
-      obsInserts,
-      liveChain,
+    const chain = readChain(get());
+    const target = chain.obsInserts.find((f) => f.id === id);
+    const obsInserts = labelObsInserts(
+      chain.obsInserts.filter((f) => f.id !== id),
+    );
+    commitChain(get, set, { obsInserts }, {
       statusMessage: target
         ? `「${target.name}」をライブから外しました`
         : "フィルターを外しました",
@@ -2681,11 +2874,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   toggleObsInsert: (id) => {
-    const obsInserts = get().obsInserts.map((f) =>
+    const chain = readChain(get());
+    const obsInserts = chain.obsInserts.map((f) =>
       f.id === id ? { ...f, enabled: !f.enabled } : f,
     );
-    const liveChain = pushLiveFx({ ...get(), obsInserts });
-    set({ obsInserts, liveChain });
+    commitChain(get, set, { obsInserts });
   },
 
   moveObsInsert: (id, delta) => {
@@ -2693,23 +2886,309 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   replaceObsInserts: (inserts) => {
-    const obsInserts = labelObsInserts(inserts.slice(0, MAX_OBS_INSERTS));
-    const liveChain = pushLiveFx({ ...get(), obsInserts });
-    set({ obsInserts, liveChain });
+    commitChain(get, set, {
+      obsInserts: labelObsInserts(inserts.slice(0, MAX_OBS_INSERTS)),
+    });
+  },
+
+  addAiVoice: () => {
+    const existing = anyAiVoice(get());
+    if (existing) {
+      set({
+        statusMessage: `AIボイスは ${MAX_AI_VOICE} 段までです。位置は↑↓で変えてください`,
+      });
+      return existing.id;
+    }
+    const chain = readChain(get());
+    const created = newAiVoiceInsert();
+    const liveChain = [
+      ...reconcileLiveChain(
+        chain.liveChain,
+        chain.spectrumFilters,
+        chain.obsInserts,
+        null,
+        chain.cableInserts,
+      ),
+      { family: "ai" as const, id: created.id },
+    ];
+    commitChain(get, set, { aiVoice: created, liveChain }, {
+      statusMessage: "AIボイスをライブエフェクターに挿入（一段）",
+    });
+    return created.id;
+  },
+
+  updateAiVoice: (patch) => {
+    const chain = readChain(get());
+    const cur = chain.aiVoice;
+    if (!cur) return;
+    const aiVoice = newAiVoiceInsert({ ...cur, ...patch, id: cur.id });
+    commitChain(get, set, { aiVoice });
+  },
+
+  removeAiVoice: () => {
+    const chain = readChain(get());
+    const cur = chain.aiVoice;
+    if (!cur) return;
+    setAiModelFile(cur.id, null);
+    commitChain(get, set, { aiVoice: null }, {
+      statusMessage: "AIボイスをライブから外しました",
+    });
+  },
+
+  toggleAiVoice: () => {
+    const chain = readChain(get());
+    const cur = chain.aiVoice;
+    if (!cur) return;
+    commitChain(get, set, { aiVoice: { ...cur, enabled: !cur.enabled } });
+  },
+
+  addCableInsert: (kind) => {
+    const chain = readChain(get());
+    if (chain.cableInserts.length >= MAX_CABLE_INSERTS) {
+      set({
+        statusMessage: `仮想ケーブルは ${MAX_CABLE_INSERTS} 段までです`,
+      });
+      return null;
+    }
+    const used = new Set(chain.cableInserts.map((c) => c.cable));
+    const cable = ([1, 2, 3] as const).find((n) => !used.has(n)) ?? 1;
+    const created = newCableInsert(kind, { cable });
+    const cableInserts = [...chain.cableInserts, created];
+    const liveChain = [
+      ...reconcileLiveChain(
+        chain.liveChain,
+        chain.spectrumFilters,
+        chain.obsInserts,
+        chain.aiVoice,
+        chain.cableInserts,
+      ),
+      { family: "cable" as const, id: created.id },
+    ];
+    commitChain(get, set, { cableInserts, liveChain }, {
+      statusMessage: `「${created.name}」を挿入`,
+    });
+    return created.id;
+  },
+
+  updateCableInsert: (id, patch) => {
+    const chain = readChain(get());
+    const cableInserts = chain.cableInserts.map((c) => {
+      if (c.id !== id) return c;
+      const next = newCableInsert(patch.kind ?? c.kind, {
+        ...c,
+        ...patch,
+        id: c.id,
+      });
+      if (!patch.name) next.name = defaultCableName(next);
+      else next.name = patch.name;
+      return next;
+    });
+    commitChain(get, set, { cableInserts });
+  },
+
+  removeCableInsert: (id) => {
+    const chain = readChain(get());
+    const target = chain.cableInserts.find((c) => c.id === id);
+    const cableInserts = chain.cableInserts.filter((c) => c.id !== id);
+    commitChain(get, set, { cableInserts }, {
+      statusMessage: target
+        ? `「${target.name}」を外しました`
+        : "仮想ケーブルを外しました",
+    });
+  },
+
+  toggleCableInsert: (id) => {
+    const chain = readChain(get());
+    const cableInserts = chain.cableInserts.map((c) =>
+      c.id === id ? { ...c, enabled: !c.enabled } : c,
+    );
+    commitChain(get, set, { cableInserts });
+  },
+
+  addExtraPipeline: () => {
+    const budget = extraPipelineBudget();
+    if (get().extraPipelines.length >= budget) {
+      set({
+        statusMessage: `この端末のCPUではパイプラインはあと ${budget} 本までです（本体＋${budget}）`,
+      });
+      return null;
+    }
+    const number = (get().extraPipelines.at(-1)?.number ?? 1) + 1;
+    const cable = (Math.min(3, number - 1) || 1) as 1 | 2 | 3;
+    const created = newExtraPipeline(number, cable);
+    const extraPipelines = [...get().extraPipelines, created];
+    let cableInserts = get().cableInserts;
+    let liveChain = get().liveChain;
+    const hasOut = cableInserts.some(
+      (c) => c.kind === "out" && c.cable === cable,
+    );
+    const hasIn = cableInserts.some(
+      (c) => c.kind === "in" && c.cable === cable,
+    );
+    const add: typeof liveChain = [];
+    if (!hasOut) {
+      const out = newCableInsert("out", { cable, mode: "split" });
+      cableInserts = [...cableInserts, out];
+      add.push({ family: "cable", id: out.id });
+    }
+    if (!hasIn) {
+      const inn = newCableInsert("in", { cable });
+      cableInserts = [...cableInserts, inn];
+      add.push({ family: "cable", id: inn.id });
+    }
+    if (add.length) {
+      liveChain = [
+        ...reconcileLiveChain(
+          liveChain,
+          get().spectrumFilters,
+          get().obsInserts,
+          get().aiVoice,
+          get().cableInserts,
+        ),
+        ...add,
+      ];
+    }
+    const pipelineVia = get().pipelineVia;
+    set({
+      extraPipelines,
+      cableInserts,
+      pipelineVia,
+      activePipelineId: created.id,
+      liveChain: pushLiveFx({
+        ...get(),
+        extraPipelines,
+        cableInserts,
+        pipelineVia,
+        liveChain,
+      }),
+      statusMessage: `${created.name}を追加。編集タブを切り替えられます（音は同時に動きます）`,
+    });
+    return created.id;
+  },
+
+  updateExtraPipeline: (id, patch) => {
+    const extraPipelines = get().extraPipelines.map((p) =>
+      p.id === id ? { ...p, ...patch, id: p.id } : p,
+    );
+    const liveChain = pushLiveFx({ ...get(), extraPipelines });
+    set({ extraPipelines, liveChain });
+  },
+
+  removeExtraPipeline: (id) => {
+    const extraPipelines = get().extraPipelines.filter((p) => p.id !== id);
+    let pipelineVia = get().pipelineVia;
+    const liveChain = pushLiveFx({ ...get(), extraPipelines, pipelineVia });
+    set({
+      extraPipelines,
+      pipelineVia,
+      liveChain,
+      activePipelineId:
+        get().activePipelineId === id ? "main" : get().activePipelineId,
+      statusMessage: "パイプラインを外しました",
+    });
+  },
+
+  setPipelineVia: (via) => {
+    const liveChain = pushLiveFx({ ...get(), pipelineVia: via });
+    set({ pipelineVia: via, liveChain });
+  },
+
+  setActivePipelineId: (id) => {
+    set({ activePipelineId: id });
+  },
+
+  addPipelineSpectrum: (pipeId, kind, hz) => {
+    let added: string | null = null;
+    const extraPipelines = get().extraPipelines.map((p) => {
+      if (p.id !== pipeId) return p;
+      if (p.spectrumFilters.length >= MAX_SPECTRUM_FILTERS) return p;
+      const filter = newSpectrumFilter(kind, hz);
+      added = filter.id;
+      const liveChain = [
+        ...reconcileLiveChain(p.liveChain, p.spectrumFilters, p.obsInserts),
+        { family: "spectrum" as const, id: filter.id },
+      ];
+      return {
+        ...p,
+        spectrumFilters: [...p.spectrumFilters, filter],
+        liveChain,
+      };
+    });
+    if (!added) {
+      set({ statusMessage: "このパイプラインはフィルターがいっぱいです" });
+      return null;
+    }
+    const liveChain = pushLiveFx({ ...get(), extraPipelines });
+    set({ extraPipelines, liveChain, statusMessage: "パイプラインにフィルターを追加" });
+    return added;
+  },
+
+  addPipelineObs: (pipeId, kind) => {
+    let added: string | null = null;
+    const extraPipelines = get().extraPipelines.map((p) => {
+      if (p.id !== pipeId) return p;
+      if (p.obsInserts.length >= MAX_OBS_INSERTS) return p;
+      const created = newObsInsert(kind);
+      added = created.id;
+      const obsInserts = labelObsInserts([...p.obsInserts, created]);
+      const liveChain = [
+        ...reconcileLiveChain(p.liveChain, p.spectrumFilters, p.obsInserts),
+        { family: "obs" as const, id: created.id },
+      ];
+      return { ...p, obsInserts, liveChain };
+    });
+    if (!added) {
+      set({ statusMessage: "このパイプラインはフィルターがいっぱいです" });
+      return null;
+    }
+    const liveChain = pushLiveFx({ ...get(), extraPipelines });
+    set({ extraPipelines, liveChain, statusMessage: "パイプラインにフィルターを追加" });
+    return added;
+  },
+
+  removePipelineItem: (pipeId, itemId) => {
+    const extraPipelines = get().extraPipelines.map((p) => {
+      if (p.id !== pipeId) return p;
+      return {
+        ...p,
+        spectrumFilters: p.spectrumFilters.filter((f) => f.id !== itemId),
+        obsInserts: p.obsInserts.filter((f) => f.id !== itemId),
+      };
+    });
+    const liveChain = pushLiveFx({ ...get(), extraPipelines });
+    set({ extraPipelines, liveChain });
+  },
+
+  togglePipelineItem: (pipeId, itemId) => {
+    const extraPipelines = get().extraPipelines.map((p) => {
+      if (p.id !== pipeId) return p;
+      return {
+        ...p,
+        spectrumFilters: p.spectrumFilters.map((f) =>
+          f.id === itemId ? { ...f, enabled: !f.enabled } : f,
+        ),
+        obsInserts: p.obsInserts.map((f) =>
+          f.id === itemId ? { ...f, enabled: !f.enabled } : f,
+        ),
+      };
+    });
+    const liveChain = pushLiveFx({ ...get(), extraPipelines });
+    set({ extraPipelines, liveChain });
   },
 
   moveLiveSlot: (id, delta) => {
+    const chain = readChain(get());
     const current = reconcileLiveChain(
-      get().liveChain,
-      get().spectrumFilters,
-      get().obsInserts,
+      chain.liveChain,
+      chain.spectrumFilters,
+      chain.obsInserts,
+      chain.aiVoice,
+      chain.cableInserts,
     );
     const liveChain = shiftLiveSlot(current, id, delta);
     if (liveChain === current) return;
     const idx = liveChain.findIndex((s) => s.id === id);
-    pushLiveFx({ ...get(), liveChain });
-    set({
-      liveChain,
+    commitChain(get, set, { liveChain }, {
       statusMessage:
         idx >= 0
           ? `適用順 ${idx + 1}/${liveChain.length}（上が先）`
@@ -2729,6 +3208,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       master: { ...s.master },
       filters: s.spectrumFilters.map((f) => ({ ...f })),
       inserts: s.obsInserts.map((f) => ({ ...f })),
+      aiVoice: s.aiVoice ? { ...s.aiVoice } : null,
       liveChain: s.liveChain.map((slot) => ({ ...slot })),
       roomAmount: s.roomAmount,
       voiceAmount: s.voiceAmount,
@@ -2747,15 +3227,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const obsInserts = labelObsInserts(
       (snap.inserts ?? []).map((f) => ({ ...f })),
     );
+    const aiVoice = snap.aiVoice ? { ...snap.aiVoice } : null;
     const liveChain = reconcileLiveChain(
       snap.liveChain ?? [],
       spectrumFilters,
       obsInserts,
+      aiVoice,
     );
     set({
       master,
       spectrumFilters,
       obsInserts,
+      aiVoice,
       liveChain,
       roomAmount: snap.roomAmount,
       voiceAmount: snap.voiceAmount,
@@ -2770,7 +3253,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     try {
       const engine = getAudioEngine();
       engine.applyMasterFx(master);
-      engine.setLiveFx(assembleLiveFx(liveChain, spectrumFilters, obsInserts));
+      engine.setLiveFx(assembleLiveFx(liveChain, spectrumFilters, obsInserts, aiVoice, get().cableInserts));
+      engine.setPipelineGraph(get().extraPipelines);
       engine.setRoomProfile(snap.roomProfile);
       engine.setRoomAmount(snap.roomAmount);
       engine.setVoiceProfile(snap.voiceProfile);

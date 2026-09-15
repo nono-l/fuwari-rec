@@ -8,6 +8,7 @@ import {
   Shield,
   ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
   UserRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -18,6 +19,7 @@ import { useIsAdmin } from "@/lib/admin/use-is-admin";
 const NAV = [
   { to: "/", label: "スタジオ", icon: Mic2 },
   { to: "/effector", label: "エフェクター", icon: SlidersHorizontal },
+  { to: "/AI", label: "AI", icon: Sparkles },
   { to: "/range", label: "声域測定", icon: Music2 },
   { to: "/analyze", label: "音源解析", icon: ScanSearch },
   { to: "/songdb", label: "楽曲リスト", icon: ListMusic },

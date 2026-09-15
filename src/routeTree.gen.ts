@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AIRouteImport } from './routes/AI'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AnalyzeRouteImport } from './routes/analyze'
 import { Route as CloudRouteImport } from './routes/cloud'
@@ -32,6 +33,11 @@ import { Route as ApiSoundfontIdRouteImport } from './routes/api/soundfont.$id'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AIRoute = AIRouteImport.update({
+  id: '/AI',
+  path: '/AI',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminRoute = AdminRouteImport.update({
@@ -127,6 +133,7 @@ const ApiSoundfontIdRoute = ApiSoundfontIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/AI': typeof AIRoute
   '/admin': typeof AdminRoute
   '/analyze': typeof AnalyzeRoute
   '/cloud': typeof CloudRoute
@@ -148,6 +155,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/AI': typeof AIRoute
   '/admin': typeof AdminRoute
   '/analyze': typeof AnalyzeRoute
   '/cloud': typeof CloudRoute
@@ -169,6 +177,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/AI': typeof AIRoute
   '/admin': typeof AdminRoute
   '/analyze': typeof AnalyzeRoute
   '/cloud': typeof CloudRoute
@@ -192,6 +201,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/AI'
     | '/admin'
     | '/analyze'
     | '/cloud'
@@ -213,6 +223,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/AI'
     | '/admin'
     | '/analyze'
     | '/cloud'
@@ -233,6 +244,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/AI'
     | '/admin'
     | '/analyze'
     | '/cloud'
@@ -255,6 +267,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AIRoute: typeof AIRoute
   AdminRoute: typeof AdminRoute
   AnalyzeRoute: typeof AnalyzeRoute
   CloudRoute: typeof CloudRoute
@@ -280,6 +293,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/AI': {
+      id: '/AI'
+      path: '/AI'
+      fullPath: '/AI'
+      preLoaderRoute: typeof AIRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin': {
@@ -426,6 +446,7 @@ const SongdbRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AIRoute: AIRoute,
   AdminRoute: AdminRoute,
   AnalyzeRoute: AnalyzeRoute,
   CloudRoute: CloudRoute,

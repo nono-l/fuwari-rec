@@ -6,6 +6,7 @@ import { useEditorStore } from "@/lib/store/editor-store";
 import { SpectrumAnalyzer } from "@/components/editor/spectrum-analyzer";
 import { FxLibraryPanel } from "@/components/editor/fx-library-panel";
 import { ObsFilterRack } from "@/components/editor/obs-filter-rack";
+import { PipelineTabs } from "@/components/editor/pipeline-rack";
 import {
   AudioLines,
   Power,
@@ -146,6 +147,7 @@ export function EffectsPanel({
               style={{ width: liveFxActive ? `${levelPct}%` : "0%" }}
             />
           </div>
+          <PipelineTabs />
           <SpectrumAnalyzer compact={!isPage} />
           {!inputEnabled && (
             <p className="text-[11px] text-danger">

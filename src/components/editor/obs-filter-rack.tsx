@@ -3,6 +3,7 @@ import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useEditorStore } from "@/lib/store/editor-store";
+import { useActivePipeline } from "@/lib/store/use-active-pipeline";
 import {
   MAX_OBS_INSERTS,
   OBS_FILTER_CATALOG,
@@ -11,6 +12,8 @@ import {
   type ObsInsert,
   type RecMark,
 } from "@/lib/audio/obs-filters";
+import { MAX_AI_VOICE } from "@/lib/audio/ai-voice";
+import { MAX_CABLE_INSERTS } from "@/lib/audio/cables";
 
 function pct(n: number) {
   return `${Math.round(n * 100)}%`;
@@ -34,9 +37,18 @@ export function insertSummary(ins: ObsInsert) {
 }
 
 export function ObsFilterRack() {
-  const inserts = useEditorStore((s) => s.obsInserts);
+  const pipe = useActivePipeline();
+  const extras = useEditorStore((s) => s.extraPipelines);
+  const mainAi = useEditorStore((s) => s.aiVoice);
+  const inserts = pipe.obsInserts;
+  const aiVoice = pipe.aiVoice;
+  const cableInserts = pipe.cableInserts;
   const addObsInsert = useEditorStore((s) => s.addObsInsert);
+  const addAiVoice = useEditorStore((s) => s.addAiVoice);
+  const addCableInsert = useEditorStore((s) => s.addCableInsert);
   const full = inserts.length >= MAX_OBS_INSERTS;
+  const aiFull = Boolean(mainAi || extras.some((p) => p.aiVoice) || aiVoice);
+  const cableFull = cableInserts.length >= MAX_CABLE_INSERTS;
 
   const insert = (kind: ObsFilterId) => {
     addObsInsert(kind);
@@ -50,7 +62,7 @@ export function ObsFilterRack() {
             音声フィルターの種類
           </h2>
           <p className="mt-0.5 text-[11px] text-background/75 sm:text-xs">
-            説明を見て、上のライブエフェクターのリストへ挿入する。同じ種類は何段でも置ける
+            AIボイスは一段まで。仮想ケーブルでパイプライン2・3へ配線できます。ほかは何段でも置ける
           </p>
         </div>
 
@@ -62,6 +74,76 @@ export function ObsFilterRack() {
         </div>
 
         <ul className="divide-y divide-border">
+          <li className="px-3 py-3 sm:px-5 sm:py-3.5">
+            <FilterRow
+              name="AIボイス"
+              rec="situational"
+              role={`この段に来た音を声色変換へ渡す。設定は ${MAX_AI_VOICE} 段まで。上は前処理、下は変換後`}
+              bar="#6d28d9"
+              control={
+                <div className="flex flex-col items-stretch gap-1 sm:items-end">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={aiFull ? "secondary" : "default"}
+                    disabled={aiFull}
+                    onClick={() => addAiVoice()}
+                    className="w-full"
+                  >
+                    <Plus className="size-3.5" />
+                    {aiFull ? "一段挿入済み" : "ライブに挿入"}
+                  </Button>
+                  {aiFull && (
+                    <span className="text-right text-[10px] tabular-nums text-muted-foreground">
+                      {MAX_AI_VOICE}段まで
+                    </span>
+                  )}
+                </div>
+              }
+            />
+          </li>
+          <li className="px-3 py-3 sm:px-5 sm:py-3.5">
+            <FilterRow
+              name="仮想ケーブルへ出力"
+              rec="situational"
+              role="この段の音を仮想ケーブルへ送る。分岐（チェーン続行）か送り切り。パイプライン2・3の入力になる"
+              bar="#0f766e"
+              control={
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={cableFull}
+                  onClick={() => addCableInsert("out")}
+                  className="w-full"
+                >
+                  <Plus className="size-3.5" />
+                  ライブに挿入
+                </Button>
+              }
+            />
+          </li>
+          <li className="px-3 py-3 sm:px-5 sm:py-3.5">
+            <FilterRow
+              name="仮想ケーブルから入力"
+              rec="situational"
+              role="パイプライン2・3の戻りを、この段で本体チェーンに混ぜる"
+              bar="#115e59"
+              control={
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={cableFull}
+                  onClick={() => addCableInsert("in")}
+                  className="w-full"
+                >
+                  <Plus className="size-3.5" />
+                  ライブに挿入
+                </Button>
+              }
+            />
+          </li>
           {OBS_FILTER_CATALOG.map((row) => {
             const count = inserts.filter((f) => f.kind === row.id).length;
             return (

@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { ListMusic, Mic2, Music2, ScanSearch, SlidersHorizontal } from "lucide-react";
+import { ListMusic, Mic2, Music2, ScanSearch, SlidersHorizontal, Sparkles } from "lucide-react";
 import { AppShell } from "@/components/editor/app-shell";
 import { TrackRow } from "@/components/editor/track-row";
 import { YoutubePanel } from "@/components/editor/youtube-panel";
@@ -134,6 +134,13 @@ export function Studio() {
                 >
                   <Music2 className="size-3.5" />
                   声域測定タブへ
+                </Link>
+                <Link
+                  to="/AI"
+                  className="inline-flex w-full items-center justify-center gap-1.5 rounded-full border border-border bg-card px-3 py-2.5 text-sm font-medium text-foreground transition-colors duration-200 hover:bg-muted"
+                >
+                  <Sparkles className="size-3.5" />
+                  AI土台タブへ
                 </Link>
                 <Link
                   to="/effector"

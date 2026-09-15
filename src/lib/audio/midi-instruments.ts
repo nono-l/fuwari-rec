@@ -55,6 +55,26 @@ export function instrumentGm(id: MidiInstrumentId | undefined) {
   return MIDI_INSTRUMENTS.find((i) => i.id === (id ?? "piano"))?.gm ?? 0;
 }
 
+/** Closest built-in patch for a General MIDI program. Channel 10 (index 9) is drums. */
+export function instrumentFromGm(
+  program: number | null | undefined,
+  channel?: number | null,
+): MidiInstrumentId {
+  if (channel === 9) return "bells";
+  if (program == null || Number.isNaN(program)) return "piano";
+  const p = Math.max(0, Math.min(127, Math.round(program)));
+  let best: MidiInstrumentId = "piano";
+  let bestD = 999;
+  for (const i of MIDI_INSTRUMENTS) {
+    const d = Math.abs(i.gm - p);
+    if (d < bestD) {
+      bestD = d;
+      best = i.id;
+    }
+  }
+  return best;
+}
+
 export type LiveVoice = {
   stop: (when?: number) => void;
 };

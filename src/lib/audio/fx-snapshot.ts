@@ -10,6 +10,7 @@ import {
 import type { RoomProfile } from "./room-profile";
 import { ROOM_FFT } from "./room-profile";
 import { type LiveSlot, reconcileLiveChain } from "./live-fx";
+import { newAiVoiceInsert, type AiVoiceInsert } from "./ai-voice";
 import {
   type SpectrumFilter,
   type SpectrumFilterKind,
@@ -17,6 +18,7 @@ import {
   clampFilterHz,
   defaultFilterGain,
   defaultFilterQ,
+  MAX_SPECTRUM_FILTERS,
 } from "./spectrum-filters";
 
 export type FxSnapshot = {
@@ -26,6 +28,7 @@ export type FxSnapshot = {
   master: MasterFx;
   filters: SpectrumFilter[];
   inserts: ObsInsert[];
+  aiVoice?: AiVoiceInsert | null;
   liveChain?: LiveSlot[];
   roomAmount: number;
   voiceAmount: number;
@@ -46,6 +49,9 @@ const KINDS = new Set<SpectrumFilterKind>([
   "notch",
   "keep-band",
   "peak",
+  "band-reverb",
+  "band-formant",
+  "band-pitch",
 ]);
 
 const MIX_IDS = new Set<MixPresetId>([
@@ -147,7 +153,7 @@ export function normalizeSnapshot(raw: Partial<FxSnapshot>): FxSnapshot {
   const filters = (raw.filters ?? [])
     .map((f) => normalizeFilter(f))
     .filter((f): f is SpectrumFilter => !!f)
-    .slice(0, 8);
+    .slice(0, MAX_SPECTRUM_FILTERS);
   const inserts = labelObsInserts(
     Array.isArray(raw.inserts)
       ? (raw.inserts as Partial<ObsInsert>[])
@@ -161,11 +167,17 @@ export function normalizeSnapshot(raw: Partial<FxSnapshot>): FxSnapshot {
         .filter(
           (s) =>
             s &&
-            (s.family === "spectrum" || s.family === "obs") &&
+            (s.family === "spectrum" ||
+              s.family === "obs" ||
+              s.family === "ai" ||
+              s.family === "cable") &&
             typeof s.id === "string",
         )
         .map((s) => ({ family: s.family, id: s.id }))
     : [];
+  const aiVoice = raw.aiVoice
+    ? newAiVoiceInsert(raw.aiVoice as Partial<AiVoiceInsert>)
+    : null;
   return {
     id: str(raw.id, newFxId()),
     name: str(raw.name, "無名").trim() || "無名",
@@ -173,7 +185,8 @@ export function normalizeSnapshot(raw: Partial<FxSnapshot>): FxSnapshot {
     master: normalizeMasterFx(masterRaw),
     filters,
     inserts,
-    liveChain: reconcileLiveChain(parsedChain, filters, inserts),
+    aiVoice,
+    liveChain: reconcileLiveChain(parsedChain, filters, inserts, aiVoice),
     roomAmount: clamp01(num(raw.roomAmount, 0)),
     voiceAmount: clamp01(num(raw.voiceAmount, 0)),
     roomProfile: normalizeProfile(raw.roomProfile),
@@ -227,6 +240,11 @@ ${filters || "      <!-- none -->"}
     <inserts>
 ${inserts || "      <!-- none -->"}
     </inserts>
+    ${
+      snap.aiVoice
+        ? `<ai id="${esc(snap.aiVoice.id)}" name="${esc(snap.aiVoice.name)}" enabled="${snap.aiVoice.enabled ? "true" : "false"}" pitch="${snap.aiVoice.pitch}" mix="${snap.aiVoice.mix}" model="${esc(snap.aiVoice.modelName)}" bytes="${snap.aiVoice.modelBytes}"/>`
+        : `<ai/>`
+    }
     <chain>
 ${chain || "      <!-- none -->"}
     </chain>
@@ -321,7 +339,11 @@ function parsePresetEl(el: Element): FxSnapshot {
         }))
         .filter(
           (s): s is LiveSlot =>
-            (s.family === "spectrum" || s.family === "obs") && !!s.id,
+            (s.family === "spectrum" ||
+              s.family === "obs" ||
+              s.family === "ai" ||
+              s.family === "cable") &&
+            !!s.id,
         )
     : undefined;
   return normalizeSnapshot({
@@ -348,6 +370,21 @@ function parsePresetEl(el: Element): FxSnapshot {
     filters: filters.filter((f): f is SpectrumFilter => !!f),
     inserts: inserts
       ?.filter((f): f is ObsInsert => !!f),
+    aiVoice: (() => {
+      const aiEl = el.querySelector(":scope > ai");
+      if (!aiEl) return null;
+      const id = attr(aiEl, "id");
+      if (!id) return null;
+      return newAiVoiceInsert({
+        id,
+        name: attr(aiEl, "name"),
+        enabled: attr(aiEl, "enabled", "true") !== "false",
+        pitch: num(attr(aiEl, "pitch"), 0),
+        mix: num(attr(aiEl, "mix"), 1),
+        modelName: attr(aiEl, "model"),
+        modelBytes: num(attr(aiEl, "bytes"), 0),
+      });
+    })(),
     liveChain,
     roomAmount: room.amount,
     voiceAmount: voice.amount,

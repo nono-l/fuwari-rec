@@ -3,7 +3,10 @@ export type SpectrumFilterKind =
   | "cut-below"
   | "notch"
   | "keep-band"
-  | "peak";
+  | "peak"
+  | "band-reverb"
+  | "band-formant"
+  | "band-pitch";
 
 export type SpectrumFilter = {
   id: string;
@@ -18,7 +21,7 @@ export type SpectrumFilter = {
 
 export const SPEC_MIN_HZ = 40;
 export const SPEC_MAX_HZ = 16000;
-export const MAX_SPECTRUM_FILTERS = 8;
+export const MAX_SPECTRUM_FILTERS = 48;
 
 export const FILTER_KINDS: {
   id: SpectrumFilterKind;
@@ -30,6 +33,9 @@ export const FILTER_KINDS: {
   { id: "notch", label: "この付近を消す", hint: "ノッチ" },
   { id: "keep-band", label: "この帯だけ残す", hint: "バンドパス" },
   { id: "peak", label: "この帯を上げ下げ", hint: "バンドパスゲイン ±" },
+  { id: "band-reverb", label: "この帯に残響", hint: "帯域センドリバーブ" },
+  { id: "band-formant", label: "この帯をフォルマント風", hint: "F1/F2 ピーク" },
+  { id: "band-pitch", label: "この帯をピッチシフト", hint: "簡易グレイン" },
 ];
 
 export function formatHz(hz: number) {
@@ -43,12 +49,23 @@ export function filterKindLabel(kind: SpectrumFilterKind) {
 
 export function defaultFilterQ(kind: SpectrumFilterKind) {
   if (kind === "notch") return 6;
-  if (kind === "keep-band" || kind === "peak") return 1.4;
+  if (
+    kind === "keep-band" ||
+    kind === "peak" ||
+    kind === "band-reverb" ||
+    kind === "band-formant" ||
+    kind === "band-pitch"
+  ) {
+    return 1.4;
+  }
   return 0.7;
 }
 
 export function defaultFilterGain(kind: SpectrumFilterKind) {
-  return kind === "peak" ? 6 : 0;
+  if (kind === "peak" || kind === "band-formant") return 6;
+  if (kind === "band-reverb") return 8;
+  if (kind === "band-pitch") return 2;
+  return 0;
 }
 
 export function clampFilterGain(gain: number) {
@@ -64,7 +81,33 @@ export function formatGainDb(gain: number) {
 }
 
 export function usesGain(kind: SpectrumFilterKind) {
-  return kind === "peak";
+  return (
+    kind === "peak" ||
+    kind === "band-reverb" ||
+    kind === "band-formant" ||
+    kind === "band-pitch"
+  );
+}
+
+export function formatFilterAmount(kind: SpectrumFilterKind, gain: number) {
+  if (kind === "band-reverb") {
+    const pct = Math.round((Math.max(0, Math.min(18, gain)) / 18) * 100);
+    return `${pct}%`;
+  }
+  if (kind === "band-pitch") {
+    const s = Math.round(gain * 10) / 10;
+    if (s > 0.05) return `+${s.toFixed(1)} 半音`;
+    if (s < -0.05) return `${s.toFixed(1)} 半音`;
+    return "0 半音";
+  }
+  return formatGainDb(gain);
+}
+
+export function amountSliderLabel(kind: SpectrumFilterKind) {
+  if (kind === "band-reverb") return "残響の量";
+  if (kind === "band-formant") return "フォルマントの量";
+  if (kind === "band-pitch") return "シフト（半音）";
+  return "バンドパスゲイン";
 }
 
 export function defaultFilterName(kind: SpectrumFilterKind, hz: number) {
@@ -77,7 +120,13 @@ export function defaultFilterName(kind: SpectrumFilterKind, hz: number) {
           ? "ノッチ"
           : kind === "peak"
             ? "帯ゲイン"
-            : "帯域通過";
+            : kind === "band-reverb"
+              ? "帯残響"
+              : kind === "band-formant"
+                ? "帯フォルマント"
+                : kind === "band-pitch"
+                  ? "帯ピッチ"
+                  : "帯域通過";
   return `${short} ${formatHz(hz)}`;
 }
 
@@ -107,7 +156,14 @@ export function bandEdges(hz: number, q: number) {
 }
 
 export function usesBandWidth(kind: SpectrumFilterKind) {
-  return kind === "notch" || kind === "keep-band" || kind === "peak";
+  return (
+    kind === "notch" ||
+    kind === "keep-band" ||
+    kind === "peak" ||
+    kind === "band-reverb" ||
+    kind === "band-formant" ||
+    kind === "band-pitch"
+  );
 }
 
 export function newSpectrumFilter(
@@ -142,7 +198,10 @@ export function applyFilterToBiquad(
         ? "highpass"
         : f.kind === "notch"
           ? "notch"
-          : f.kind === "peak"
+          : f.kind === "peak" ||
+              f.kind === "band-formant" ||
+              f.kind === "band-reverb" ||
+              f.kind === "band-pitch"
             ? "peaking"
             : "bandpass";
   if (node.type !== type) node.type = type;

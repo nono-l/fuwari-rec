@@ -11,8 +11,10 @@ import {
   subtractRoomFromBuffer,
   type RoomProfile,
 } from "./room-profile";
-import { connectLiveChain, type LiveFxItem } from "./live-fx";
+import { connectLiveChain, assembleLiveFx, type LiveFxItem } from "./live-fx";
 import { InsertRack } from "./insert-rack";
+import { CablePatchbay } from "./cables";
+import { type ExtraPipeline } from "./fx-pipeline";
 import roomWorkletUrl from "./worklets/room-subtract.js?url";
 import pitchWorkletUrl from "./worklets/pitch-shift.js?url";
 import dynamicsWorkletUrl from "./worklets/obs-dynamics.js?url";
@@ -52,6 +54,13 @@ export class AudioEngine {
   private masterGain: GainNode | null = null;
   private highShelf: BiquadFilterNode | null = null;
   private insertRack: InsertRack | null = null;
+  private cables: CablePatchbay | null = null;
+  private listenMix: GainNode | null = null;
+  private mainListen: GainNode | null = null;
+  private extraRacks = new Map<string, InsertRack>();
+  private extraWrites: AudioNode[] = [];
+  private extraAnalysers = new Map<string, AnalyserNode>();
+  private extraPipelines: ExtraPipeline[] = [];
   private dynWorkletReady = false;
   private lastFx: MasterFx | null = null;
   private roomPre: GainNode | null = null;
@@ -169,11 +178,15 @@ export class AudioEngine {
   }
 
   /** Fill `out` with 0–255 magnitude bins. Returns sampleRate, or 0 if unavailable. */
-  fillSpectrum(out: Uint8Array): number {
+  fillSpectrum(out: Uint8Array, pipeId?: string | null): number {
     this.getContext();
-    if (!this.specAnalyser || !this.specData) return 0;
+    const analyser = this.specFor(pipeId);
+    if (!analyser || !this.specData) return 0;
+    if (this.specData.length !== analyser.frequencyBinCount) {
+      this.specData = new Uint8Array(analyser.frequencyBinCount);
+    }
     // @ts-expect-error TS lib sometimes wants ArrayBufferView strictness
-    this.specAnalyser.getByteFrequencyData(this.specData);
+    analyser.getByteFrequencyData(this.specData);
     const n = Math.min(out.length, this.specData.length);
     out.set(this.specData.subarray(0, n));
     if (n < out.length) out.fill(0, n);
@@ -181,11 +194,15 @@ export class AudioEngine {
   }
 
   /** Time-domain samples (0–255, 128 = 0) of the same post-FX output tap. */
-  fillOutputWave(out: Uint8Array): number {
+  fillOutputWave(out: Uint8Array, pipeId?: string | null): number {
     this.getContext();
-    if (!this.specAnalyser || !this.specWave) return 0;
+    const analyser = this.specFor(pipeId);
+    if (!analyser || !this.specWave) return 0;
+    if (this.specWave.length !== analyser.fftSize) {
+      this.specWave = new Uint8Array(analyser.fftSize);
+    }
     // @ts-expect-error TS lib sometimes wants ArrayBufferView strictness
-    this.specAnalyser.getByteTimeDomainData(this.specWave);
+    analyser.getByteTimeDomainData(this.specWave);
     const n = Math.min(out.length, this.specWave.length);
     out.set(this.specWave.subarray(0, n));
     if (n < out.length) out.fill(128, n);
@@ -194,7 +211,101 @@ export class AudioEngine {
 
   setLiveFx(items: LiveFxItem[]) {
     if (!this.insertRack) this.getContext();
+    const needsPitch = items.some(
+      (i) =>
+        (i.family === "spectrum" && i.filter.kind === "band-pitch") ||
+        (i.family === "ai" && Math.abs(i.voice.pitch) >= 0.05),
+    );
+    if (needsPitch && !this.livePitchReady) {
+      void this.ensurePitchWorklet().then(() => {
+        this.insertRack?.setLiveFx(items);
+      });
+      return;
+    }
     this.insertRack?.setLiveFx(items);
+  }
+
+  setPipelineGraph(pipelines: ExtraPipeline[]) {
+    if (!this.insertRack) this.getContext();
+    this.extraPipelines = pipelines;
+    const needsPitch = pipelines.some(
+      (p) =>
+        p.spectrumFilters.some((f) => f.enabled && f.kind === "band-pitch") ||
+        (p.aiVoice && Math.abs(p.aiVoice.pitch) >= 0.05),
+    );
+    if (needsPitch && !this.livePitchReady) {
+      void this.ensurePitchWorklet().then(() => this.rebuildExtraPipelines());
+      return;
+    }
+    this.rebuildExtraPipelines();
+  }
+
+  private specFor(pipeId?: string | null): AnalyserNode | null {
+    if (pipeId && pipeId !== "main") {
+      return this.extraAnalysers.get(pipeId) ?? this.specAnalyser;
+    }
+    return this.specAnalyser;
+  }
+
+  private makeSpecAnalyser(ctx: BaseAudioContext): AnalyserNode {
+    const a = ctx.createAnalyser();
+    a.fftSize = 2048;
+    a.smoothingTimeConstant = 0.45;
+    a.minDecibels = -90;
+    a.maxDecibels = -18;
+    return a;
+  }
+
+  private disposeExtraPipelines() {
+    for (const n of this.extraWrites) {
+      try {
+        n.disconnect();
+      } catch {
+        /* noop */
+      }
+    }
+    this.extraWrites = [];
+    for (const a of this.extraAnalysers.values()) {
+      try {
+        a.disconnect();
+      } catch {
+        /* noop */
+      }
+    }
+    this.extraAnalysers.clear();
+    for (const rack of this.extraRacks.values()) rack.dispose();
+    this.extraRacks.clear();
+  }
+
+  private rebuildExtraPipelines() {
+    this.disposeExtraPipelines();
+    const ctx = this.ctx;
+    const bay = this.cables;
+    if (!ctx || !bay || !this.mainListen) return;
+    this.mainListen.gain.value = 1;
+    for (const p of this.extraPipelines) {
+      const rack = new InsertRack(ctx);
+      rack.setWorkletFactory(() => this.makeDynamicsWorklet());
+      rack.setCableBus(bay);
+      rack.setLiveFx(
+        assembleLiveFx(
+          p.liveChain,
+          p.spectrumFilters,
+          p.obsInserts,
+          p.aiVoice,
+          p.cableInserts ?? [],
+        ),
+      );
+      bay.send(p.inputCable).connect(rack.input);
+      if (p.enabled) {
+        rack.output.connect(bay.ret(p.outputCable));
+      }
+      const an = this.makeSpecAnalyser(ctx);
+      rack.output.connect(an);
+      this.extraAnalysers.set(p.id, an);
+      this.extraRacks.set(p.id, rack);
+      this.extraWrites.push(rack.input);
+    }
   }
 
   private makeDynamicsWorklet(): AudioWorkletNode | null {
@@ -311,6 +422,13 @@ export class AudioEngine {
 
     this.insertRack = new InsertRack(ctx);
     this.insertRack.setWorkletFactory(() => this.makeDynamicsWorklet());
+    this.cables = new CablePatchbay(ctx);
+    this.insertRack.setCableBus(this.cables);
+
+    this.listenMix = ctx.createGain();
+    this.listenMix.gain.value = 1;
+    this.mainListen = ctx.createGain();
+    this.mainListen.gain.value = 1;
 
     this.highShelf = ctx.createBiquadFilter();
     this.highShelf.type = "highshelf";
@@ -344,7 +462,9 @@ export class AudioEngine {
     this.bus.connect(this.roomPre);
     this.roomPre.connect(this.roomPost);
     this.roomPost.connect(this.insertRack.input);
-    this.insertRack.output.connect(this.highShelf);
+    this.insertRack.output.connect(this.mainListen);
+    this.mainListen.connect(this.listenMix);
+    this.listenMix.connect(this.highShelf);
     this.insertRack.output.connect(this.specAnalyser);
     this.highShelf.connect(this.dryGain);
     this.highShelf.connect(this.reverb);
@@ -1317,6 +1437,11 @@ export class AudioEngine {
     } catch {
       workletOk = false;
     }
+    try {
+      await offline.audioWorklet.addModule(pitchWorkletUrl);
+    } catch {
+      /* band pitch falls back to dry band */
+    }
 
     const bus = offline.createGain();
 
@@ -1352,6 +1477,7 @@ export class AudioEngine {
             }
           }
         : undefined,
+      new CablePatchbay(offline),
     );
     afterFx.connect(highShelf);
     highShelf.connect(dry);
@@ -1406,6 +1532,9 @@ export class AudioEngine {
     }
     this.disconnectMonitorOnly();
     this.releaseInputStreamTracks();
+    this.disposeExtraPipelines();
+    this.cables?.dispose();
+    this.cables = null;
     cancelAnimationFrame(this.raf);
     if (this.levelRaf) cancelAnimationFrame(this.levelRaf);
     if (this.ctx) {

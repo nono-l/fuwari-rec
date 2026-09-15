@@ -2,9 +2,11 @@ import {
   createLiveHandle,
   liveChainKey,
   liveItemEnabled,
+  liveItemId,
   type LiveFxItem,
   type LiveHandle,
 } from "./live-fx";
+import type { CablePatchbay } from "./cables";
 
 /**
  * Ordered live FX chain (spectrum + OBS inserts interleaved).
@@ -16,6 +18,7 @@ export class InsertRack {
   private handles: LiveHandle[] = [];
   private items: LiveFxItem[] = [];
   private workletFactory: (() => AudioWorkletNode | null) | null = null;
+  private cables: CablePatchbay | null = null;
 
   constructor(private readonly ctx: BaseAudioContext) {
     this.input = ctx.createGain();
@@ -29,6 +32,10 @@ export class InsertRack {
     this.workletFactory = fn;
   }
 
+  setCableBus(bay: CablePatchbay | null) {
+    this.cables = bay;
+  }
+
   setLiveFx(items: LiveFxItem[]) {
     const prev = liveChainKey(this.items);
     this.items = items;
@@ -40,9 +47,7 @@ export class InsertRack {
       this.handles.length > 0
     ) {
       for (const item of active) {
-        const id =
-          item.family === "spectrum" ? item.filter.id : item.insert.id;
-        this.handles.find((h) => h.id === id)?.apply(item);
+        this.handles.find((h) => h.id === liveItemId(item))?.apply(item);
       }
       return;
     }
@@ -54,11 +59,10 @@ export class InsertRack {
     let prev: AudioNode = this.input;
     for (const item of this.items) {
       if (!liveItemEnabled(item)) continue;
-      const handle = createLiveHandle(
-        this.ctx,
-        item,
-        this.workletFactory ?? undefined,
-      );
+      const handle = createLiveHandle(this.ctx, item, {
+        workletFactory: this.workletFactory ?? undefined,
+        cables: this.cables,
+      });
       this.handles.push(handle);
       prev.connect(handle.input);
       prev = handle.output;

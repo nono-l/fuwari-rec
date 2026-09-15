@@ -4,6 +4,7 @@ import { AppHeader } from "@/components/editor/app-header";
 import { AppNav } from "@/components/editor/app-nav";
 import { TransportBar } from "@/components/editor/transport-bar";
 import { useEditorStore } from "@/lib/store/editor-store";
+import { useAiRuntimeStore } from "@/lib/store/ai-runtime-store";
 
 export function AppShell({
   title,
@@ -17,6 +18,7 @@ export function AppShell({
   transport?: boolean;
 }) {
   const initEngine = useEditorStore((s) => s.initEngine);
+  const hydrateAi = useAiRuntimeStore((s) => s.hydrate);
   const togglePlay = useEditorStore((s) => s.togglePlay);
   const toggleRecord = useEditorStore((s) => s.toggleRecord);
   const stop = useEditorStore((s) => s.stop);
@@ -25,7 +27,8 @@ export function AppShell({
 
   useEffect(() => {
     initEngine();
-  }, [initEngine]);
+    void hydrateAi();
+  }, [initEngine, hydrateAi]);
 
   useEffect(() => {
     if (!transport) return;

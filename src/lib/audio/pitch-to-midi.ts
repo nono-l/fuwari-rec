@@ -163,11 +163,26 @@ export function notesToParsed(
   notes: MidiNote[],
   name: string,
 ): ParsedMidi {
+  const duration =
+    notes.reduce((m, n) => Math.max(m, n.start + n.duration), 0) + 0.2;
   return {
     notes,
-    duration: notes.reduce((m, n) => Math.max(m, n.start + n.duration), 0) + 0.2,
+    duration,
     ticksPerQuarter: 480,
     name,
+    format: 1,
+    tracks: notes.length
+      ? [
+          {
+            index: 0,
+            name,
+            channel: notes[0]?.channel ?? 0,
+            program: null,
+            notes,
+            duration,
+          },
+        ]
+      : [],
   };
 }
 

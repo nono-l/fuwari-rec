@@ -18,11 +18,22 @@ export interface MidiNote {
   sourceMidi?: number;
 }
 
+export interface MidiFileTrack {
+  index: number;
+  name: string | null;
+  channel: number | null;
+  program: number | null;
+  notes: MidiNote[];
+  duration: number;
+}
+
 export interface ParsedMidi {
   notes: MidiNote[];
   duration: number;
   ticksPerQuarter: number;
   name: string | null;
+  format: number;
+  tracks: MidiFileTrack[];
 }
 
 function readU16(v: DataView, o: number) {
@@ -55,6 +66,7 @@ export function parseMidi(buffer: ArrayBuffer): ParsedMidi {
   if (header !== "MThd") throw new Error("有効な MIDI ファイルではありません");
 
   const headerLen = readU32(view, 4);
+  const format = readU16(view, 8);
   const nTracks = readU16(view, 10);
   const division = readU16(view, 12);
 
@@ -65,7 +77,8 @@ export function parseMidi(buffer: ArrayBuffer): ParsedMidi {
 
   let offset = 8 + headerLen;
   type RawEv = { tick: number; type: string; data: number[] };
-  const trackEvents: RawEv[][] = [];
+  type RawTrack = { name: string | null; events: RawEv[] };
+  const rawTracks: RawTrack[] = [];
   let sequenceName: string | null = null;
 
   for (let t = 0; t < nTracks; t++) {
@@ -86,6 +99,7 @@ export function parseMidi(buffer: ArrayBuffer): ParsedMidi {
     let tick = 0;
     let i = start;
     let running = 0;
+    let trackName: string | null = null;
 
     while (i < end) {
       const [delta, afterDelta] = readVarLen(bytes, i);
@@ -113,13 +127,16 @@ export function parseMidi(buffer: ArrayBuffer): ParsedMidi {
             ((data[0]! << 16) | (data[1]! << 8) | data[2]!) >>> 0;
           events.push({ tick, type: "tempo", data: [us] });
         } else if (
-          (meta === 0x03 || meta === 0x01) &&
-          data.length &&
-          !sequenceName
+          (meta === 0x03 || meta === 0x04 || meta === 0x01) &&
+          data.length
         ) {
           try {
-            sequenceName =
+            const text =
               new TextDecoder().decode(Uint8Array.from(data)).trim() || null;
+            if (text) {
+              if (!trackName) trackName = text;
+              if (!sequenceName) sequenceName = text;
+            }
           } catch {
             /* ignore */
           }
@@ -146,39 +163,22 @@ export function parseMidi(buffer: ArrayBuffer): ParsedMidi {
             type: cmd === 0x90 && data2 > 0 ? "on" : "off",
             data: [ch, data1, data2],
           });
+        } else if (cmd === 0xc0) {
+          events.push({ tick, type: "program", data: [ch, data1] });
         }
       }
     }
-    trackEvents.push(events);
+    rawTracks.push({ name: trackName, events });
   }
 
   type TempoEv = { tick: number; us: number };
   const tempos: TempoEv[] = [{ tick: 0, us: 500_000 }];
-  const noteEvents: {
-    tick: number;
-    type: "on" | "off";
-    ch: number;
-    note: number;
-    vel: number;
-  }[] = [];
-
-  for (const events of trackEvents) {
-    for (const e of events) {
-      if (e.type === "tempo") {
-        tempos.push({ tick: e.tick, us: e.data[0]! });
-      } else if (e.type === "on" || e.type === "off") {
-        noteEvents.push({
-          tick: e.tick,
-          type: e.type as "on" | "off",
-          ch: e.data[0]!,
-          note: e.data[1]!,
-          vel: e.data[2]!,
-        });
-      }
+  for (const tr of rawTracks) {
+    for (const e of tr.events) {
+      if (e.type === "tempo") tempos.push({ tick: e.tick, us: e.data[0]! });
     }
   }
   tempos.sort((a, b) => a.tick - b.tick);
-  noteEvents.sort((a, b) => a.tick - b.tick);
 
   const tickToSec = (tick: number): number => {
     let sec = 0;
@@ -195,55 +195,113 @@ export function parseMidi(buffer: ArrayBuffer): ParsedMidi {
     return sec;
   };
 
-  type Active = { startTick: number; vel: number };
-  const active = new Map<string, Active>();
-  const notes: MidiNote[] = [];
-
-  for (const e of noteEvents) {
-    const key = `${e.ch}:${e.note}`;
-    if (e.type === "on") {
-      active.set(key, { startTick: e.tick, vel: e.vel });
-    } else {
-      const a = active.get(key);
-      if (!a) continue;
-      active.delete(key);
-      const start = tickToSec(a.startTick);
-      const end = tickToSec(e.tick);
-      const duration = Math.max(0.03, end - start);
+  const tracks: MidiFileTrack[] = rawTracks.map((tr, index) => {
+    type Active = { startTick: number; vel: number };
+    const active = new Map<string, Active>();
+    const notes: MidiNote[] = [];
+    let program: number | null = null;
+    for (const e of tr.events) {
+      if (e.type === "program" && program == null) {
+        program = e.data[1] ?? null;
+        continue;
+      }
+      if (e.type !== "on" && e.type !== "off") continue;
+      const ch = e.data[0]!;
+      const note = e.data[1]!;
+      const vel = e.data[2]!;
+      const key = `${ch}:${note}`;
+      if (e.type === "on") {
+        active.set(key, { startTick: e.tick, vel });
+      } else {
+        const a = active.get(key);
+        if (!a) continue;
+        active.delete(key);
+        const start = tickToSec(a.startTick);
+        const end = tickToSec(e.tick);
+        notes.push({
+          midi: note,
+          start,
+          duration: Math.max(0.03, end - start),
+          velocity: Math.min(1, Math.max(0.05, a.vel / 127)),
+          channel: ch,
+        });
+      }
+    }
+    for (const [key, a] of active) {
+      const [ch, note] = key.split(":").map(Number);
       notes.push({
-        midi: e.note,
-        start,
-        duration,
+        midi: note!,
+        start: tickToSec(a.startTick),
+        duration: 0.5,
         velocity: Math.min(1, Math.max(0.05, a.vel / 127)),
-        channel: e.ch,
+        channel: ch!,
       });
     }
-  }
-  for (const [key, a] of active) {
-    const note = Number(key.split(":")[1]);
-    const ch = Number(key.split(":")[0]);
-    const start = tickToSec(a.startTick);
-    notes.push({
-      midi: note,
-      start,
-      duration: 0.5,
-      velocity: Math.min(1, Math.max(0.05, a.vel / 127)),
-      channel: ch,
-    });
-  }
+    notes.sort((a, b) => a.start - b.start || a.midi - b.midi);
+    const counts = new Map<number, number>();
+    for (const n of notes) counts.set(n.channel, (counts.get(n.channel) ?? 0) + 1);
+    let channel: number | null = null;
+    let best = 0;
+    for (const [ch, n] of counts) {
+      if (n > best) {
+        best = n;
+        channel = ch;
+      }
+    }
+    const duration = notes.reduce((m, n) => Math.max(m, n.start + n.duration), 0);
+    return {
+      index,
+      name: tr.name,
+      channel,
+      program,
+      notes,
+      duration,
+    };
+  });
 
+  const notes = tracks.flatMap((t) => t.notes);
   notes.sort((a, b) => a.start - b.start);
   let duration = 0;
-  for (const n of notes) {
-    duration = Math.max(duration, n.start + n.duration);
-  }
+  for (const n of notes) duration = Math.max(duration, n.start + n.duration);
 
   return {
     notes,
     duration: duration + 0.15,
     ticksPerQuarter,
     name: sequenceName,
+    format,
+    tracks,
   };
+}
+
+/** Non-empty SMF tracks, or channel splits when a Type 0 file packed several parts into one track. */
+export function midiPartsFromParsed(parsed: ParsedMidi): MidiFileTrack[] {
+  const withNotes = parsed.tracks.filter((t) => t.notes.length > 0);
+  if (withNotes.length === 0) return [];
+  if (withNotes.length > 1) return withNotes;
+  const only = withNotes[0]!;
+  const chans: number[] = [];
+  for (const n of only.notes) {
+    if (!chans.includes(n.channel)) chans.push(n.channel);
+  }
+  if (chans.length < 2) return withNotes;
+  return chans.map((ch, i) => {
+    const notes = only.notes.filter((n) => n.channel === ch);
+    const duration = notes.reduce((m, n) => Math.max(m, n.start + n.duration), 0);
+    return {
+      index: i,
+      name:
+        ch === 9
+          ? "ドラム"
+          : only.name
+            ? `${only.name} · Ch${ch + 1}`
+            : `Ch ${ch + 1}`,
+      channel: ch,
+      program: only.program,
+      notes,
+      duration,
+    };
+  });
 }
 
 /**
