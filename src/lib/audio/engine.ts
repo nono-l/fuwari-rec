@@ -11,7 +11,7 @@ import {
   subtractRoomFromBuffer,
   type RoomProfile,
 } from "./room-profile";
-import { connectLiveChain, assembleLiveFx, type LiveFxItem } from "./live-fx";
+import { assembleLiveFx, type LiveFxItem } from "./live-fx";
 import { InsertRack } from "./insert-rack";
 import { CablePatchbay } from "./cables";
 import { DeviceIoBay } from "./device-io";
@@ -1429,6 +1429,7 @@ export class AudioEngine {
     fx: MasterFx,
     room?: { profile: RoomProfile | null; amount: number },
     liveFx: LiveFxItem[] = [],
+    extraPipelines: ExtraPipeline[] = [],
   ): Promise<Blob> {
     this.updateDuration(tracks);
     if (this.duration <= 0) {
@@ -1469,26 +1470,48 @@ export class AudioEngine {
     const master = offline.createGain();
     master.gain.value = fx.volume;
 
-    const afterFx = connectLiveChain(
-      offline,
-      bus,
-      liveFx,
-      workletOk
-        ? () => {
-            try {
-              return new AudioWorkletNode(offline, "obs-dynamics", {
-                numberOfInputs: 1,
-                numberOfOutputs: 1,
-                outputChannelCount: [2],
-              });
-            } catch {
-              return null;
-            }
+    const cables = new CablePatchbay(offline);
+    const workletFactory = workletOk
+      ? () => {
+          try {
+            return new AudioWorkletNode(offline, "obs-dynamics", {
+              numberOfInputs: 1,
+              numberOfOutputs: 1,
+              outputChannelCount: [2],
+            });
+          } catch {
+            return null;
           }
-        : undefined,
-      new CablePatchbay(offline),
-    );
-    afterFx.connect(highShelf);
+        }
+      : undefined;
+
+    const mainRack = new InsertRack(offline);
+    mainRack.setWorkletFactory(workletFactory ?? (() => null));
+    mainRack.setCableBus(cables);
+    mainRack.setLiveFx(liveFx);
+
+    const extraRacks: InsertRack[] = [];
+    for (const p of extraPipelines) {
+      const rack = new InsertRack(offline);
+      rack.setWorkletFactory(workletFactory ?? (() => null));
+      rack.setCableBus(cables);
+      rack.setLiveFx(
+        assembleLiveFx(
+          p.liveChain,
+          p.spectrumFilters,
+          p.obsInserts,
+          p.aiVoice,
+          p.cableInserts ?? [],
+          p.deviceInserts ?? [],
+        ),
+      );
+      cables.send(p.inputCable).connect(rack.input);
+      if (p.enabled) rack.output.connect(cables.ret(p.outputCable));
+      extraRacks.push(rack);
+    }
+
+    bus.connect(mainRack.input);
+    mainRack.output.connect(highShelf);
     highShelf.connect(dry);
     highShelf.connect(reverb);
     reverb.connect(wet);
@@ -1524,6 +1547,9 @@ export class AudioEngine {
     }
 
     const rendered = await offline.startRendering();
+    for (const rack of extraRacks) rack.dispose();
+    mainRack.dispose();
+    cables.dispose();
     return audioBufferToWav(rendered);
   }
 

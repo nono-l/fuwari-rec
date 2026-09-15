@@ -335,11 +335,16 @@ export function connectLiveChain(
   items: LiveFxItem[],
   workletFactory?: () => AudioWorkletNode | null,
   cables?: CablePatchbay | null,
+  devices?: DeviceIoBay | null,
 ): AudioNode {
   let prev: AudioNode = source;
   for (const item of items) {
     if (!liveItemEnabled(item)) continue;
-    const handle = createLiveHandle(ctx, item, { workletFactory, cables });
+    const handle = createLiveHandle(ctx, item, {
+      workletFactory,
+      cables,
+      devices,
+    });
     prev.connect(handle.input);
     prev = handle.output;
   }

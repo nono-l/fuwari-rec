@@ -271,7 +271,8 @@ export function createDeviceIoHandle(
         send.connect(output);
       }
     } else {
-      dry.gain.value = v.mode === "send" ? 0 : 1;
+      // No sink in offline bounce: keep dry so the WAV is the speaker.
+      dry.gain.value = !bay || v.mode !== "send" ? 1 : 0;
       send.gain.value = v.mix;
       input.connect(dry);
       dry.connect(output);
@@ -299,7 +300,7 @@ export function createDeviceIoHandle(
       }
       if (next.kind === "mic-in") send.gain.value = next.mix;
       else {
-        dry.gain.value = next.mode === "send" ? 0 : 1;
+        dry.gain.value = !bay || next.mode !== "send" ? 1 : 0;
         send.gain.value = next.mix;
       }
     },

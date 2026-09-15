@@ -2229,10 +2229,23 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({ isExporting: true, statusMessage: "書き出し中…" });
     try {
       if (get().status === "playing") get().pause();
-      const blob = await getAudioEngine().exportMix(tracks, master, {
-        profile: get().roomProfile,
-        amount: get().roomAmount,
-      }, assembleLiveFx(get().liveChain, get().spectrumFilters, get().obsInserts, get().aiVoice, get().cableInserts, get().deviceInserts));
+      const blob = await getAudioEngine().exportMix(
+        tracks,
+        master,
+        {
+          profile: get().roomProfile,
+          amount: get().roomAmount,
+        },
+        assembleLiveFx(
+          get().liveChain,
+          get().spectrumFilters,
+          get().obsInserts,
+          get().aiVoice,
+          get().cableInserts,
+          get().deviceInserts,
+        ),
+        get().extraPipelines,
+      );
       downloadBlob(blob, `fuwari-rec-${Date.now()}.wav`);
       set({ statusMessage: "WAV 書き出し完了" });
     } catch (e) {
