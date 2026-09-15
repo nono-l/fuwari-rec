@@ -14,6 +14,7 @@ import {
 import { connectLiveChain, assembleLiveFx, type LiveFxItem } from "./live-fx";
 import { InsertRack } from "./insert-rack";
 import { CablePatchbay } from "./cables";
+import { DeviceIoBay } from "./device-io";
 import { type ExtraPipeline } from "./fx-pipeline";
 import roomWorkletUrl from "./worklets/room-subtract.js?url";
 import pitchWorkletUrl from "./worklets/pitch-shift.js?url";
@@ -55,6 +56,7 @@ export class AudioEngine {
   private highShelf: BiquadFilterNode | null = null;
   private insertRack: InsertRack | null = null;
   private cables: CablePatchbay | null = null;
+  private deviceIo: DeviceIoBay | null = null;
   private listenMix: GainNode | null = null;
   private mainListen: GainNode | null = null;
   private extraRacks = new Map<string, InsertRack>();
@@ -287,6 +289,7 @@ export class AudioEngine {
       const rack = new InsertRack(ctx);
       rack.setWorkletFactory(() => this.makeDynamicsWorklet());
       rack.setCableBus(bay);
+      rack.setDeviceBus(this.deviceIo);
       rack.setLiveFx(
         assembleLiveFx(
           p.liveChain,
@@ -294,6 +297,7 @@ export class AudioEngine {
           p.obsInserts,
           p.aiVoice,
           p.cableInserts ?? [],
+          p.deviceInserts ?? [],
         ),
       );
       bay.send(p.inputCable).connect(rack.input);
@@ -424,6 +428,8 @@ export class AudioEngine {
     this.insertRack.setWorkletFactory(() => this.makeDynamicsWorklet());
     this.cables = new CablePatchbay(ctx);
     this.insertRack.setCableBus(this.cables);
+    this.deviceIo = new DeviceIoBay(ctx);
+    this.insertRack.setDeviceBus(this.deviceIo);
 
     this.listenMix = ctx.createGain();
     this.listenMix.gain.value = 1;
@@ -1200,6 +1206,7 @@ export class AudioEngine {
     this.liveGain = ctx.createGain();
     this.liveGain.gain.value = this.inputEnabled ? 0.95 : 0;
     this.liveSource.connect(this.liveGain);
+    this.deviceIo?.setLiveMic(this.liveGain);
     this.liveActive = true;
     this.liveChainWired = false;
     await this.ensurePitchWorklet();
@@ -1226,6 +1233,8 @@ export class AudioEngine {
       }
       this.liveGain = null;
     }
+    this.deviceIo?.setLiveMic(null);
+    this.deviceIo?.stopExtras();
     this.livePitchInserted = false;
     this.liveChainWired = false;
     if (this.livePitchNode) {
@@ -1535,6 +1544,8 @@ export class AudioEngine {
     this.disposeExtraPipelines();
     this.cables?.dispose();
     this.cables = null;
+    this.deviceIo?.dispose();
+    this.deviceIo = null;
     cancelAnimationFrame(this.raf);
     if (this.levelRaf) cancelAnimationFrame(this.levelRaf);
     if (this.ctx) {

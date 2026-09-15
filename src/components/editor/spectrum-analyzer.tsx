@@ -27,7 +27,8 @@ import { assembleLiveFx } from "@/lib/audio/live-fx";
 import { catalogMeta } from "@/lib/audio/obs-filters";
 import { aiVoiceSummary } from "@/lib/audio/ai-voice";
 import { AiVoiceControl } from "@/components/editor/ai-voice-controls";
-import { cableSummary } from "@/lib/audio/cables";
+import { CABLE_INDEXES, asCableIndex, cableSummary } from "@/lib/audio/cables";
+import { deviceIoSummary } from "@/lib/audio/device-io";
 import {
   InsertControl,
   insertSummary,
@@ -111,6 +112,7 @@ export function SpectrumAnalyzer({
   const obsInserts = pipe.obsInserts;
   const aiVoice = pipe.aiVoice;
   const cableInserts = pipe.cableInserts;
+  const deviceInserts = pipe.deviceInserts;
   const liveChain = pipe.liveChain;
   const liveItems = assembleLiveFx(
     liveChain,
@@ -118,6 +120,7 @@ export function SpectrumAnalyzer({
     obsInserts,
     aiVoice,
     cableInserts,
+    deviceInserts,
   );
   const addSpectrumFilter = useEditorStore((s) => s.addSpectrumFilter);
   const updateSpectrumFilter = useEditorStore((s) => s.updateSpectrumFilter);
@@ -133,6 +136,11 @@ export function SpectrumAnalyzer({
   const updateCableInsert = useEditorStore((s) => s.updateCableInsert);
   const removeCableInsert = useEditorStore((s) => s.removeCableInsert);
   const toggleCableInsert = useEditorStore((s) => s.toggleCableInsert);
+  const updateDeviceInsert = useEditorStore((s) => s.updateDeviceInsert);
+  const removeDeviceInsert = useEditorStore((s) => s.removeDeviceInsert);
+  const toggleDeviceInsert = useEditorStore((s) => s.toggleDeviceInsert);
+  const inputDevices = useEditorStore((s) => s.inputDevices);
+  const outputDevices = useEditorStore((s) => s.outputDevices);
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
   const pipeIdRef = useRef(pipe.id);
@@ -1150,13 +1158,15 @@ export function SpectrumAnalyzer({
                           value={c.cable}
                           onChange={(e) =>
                             updateCableInsert(c.id, {
-                              cable: Number(e.target.value) as 1 | 2 | 3,
+                              cable: asCableIndex(e.target.value),
                             })
                           }
                         >
-                          <option value={1}>仮想ケーブル1</option>
-                          <option value={2}>仮想ケーブル2</option>
-                          <option value={3}>仮想ケーブル3</option>
+                          {CABLE_INDEXES.map((n) => (
+                            <option key={n} value={n}>
+                              仮想ケーブル{n}
+                            </option>
+                          ))}
                         </select>
                       </label>
                       {c.kind === "out" ? (
@@ -1194,6 +1204,149 @@ export function SpectrumAnalyzer({
                           />
                         </div>
                       )}
+                    </div>
+                  )}
+                </li>
+              );
+            }
+            if (item.family === "device") {
+              const d = item.io;
+              const selected = obsEditId === d.id;
+              const list =
+                d.kind === "mic-in" ? inputDevices : outputDevices;
+              return (
+                <li
+                  key={d.id}
+                  className={cn(
+                    "rounded-xl border border-border bg-card px-2.5 py-2",
+                    selected && "ring-1 ring-primary/40",
+                    !d.enabled && "opacity-55",
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 flex-col">
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        disabled={i === 0}
+                        onClick={() => moveLiveSlot(d.id, -1)}
+                        aria-label="上へ"
+                      >
+                        <ChevronUp className="size-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        disabled={i === liveItems.length - 1}
+                        onClick={() => moveLiveSlot(d.id, 1)}
+                        aria-label="下へ"
+                      >
+                        <ChevronDown className="size-3.5" />
+                      </Button>
+                    </div>
+                    <span className="w-4 shrink-0 text-center text-[10px] tabular-nums text-muted-foreground">
+                      {i + 1}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => toggleDeviceInsert(d.id)}
+                      className={cn(
+                        "size-2.5 shrink-0 rounded-full",
+                        d.enabled ? "bg-primary" : "bg-muted-foreground/40",
+                      )}
+                      style={
+                        d.enabled ? { backgroundColor: "#0369a1" } : undefined
+                      }
+                      aria-label={d.enabled ? "オフにする" : "オンにする"}
+                    />
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 text-left"
+                      onClick={() =>
+                        setObsEditId((id) => (id === d.id ? null : d.id))
+                      }
+                    >
+                      <div className="truncate text-xs font-medium text-foreground">
+                        {d.name}
+                      </div>
+                      <div className="truncate text-[10px] text-muted-foreground">
+                        {deviceIoSummary(d)}
+                      </div>
+                    </button>
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="ghost"
+                      onClick={() => {
+                        if (obsEditId === d.id) setObsEditId(null);
+                        removeDeviceInsert(d.id);
+                      }}
+                      aria-label="削除"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
+                  {selected && (
+                    <div className="mt-2 space-y-2 pl-11 pr-1">
+                      <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                        デバイス
+                        <select
+                          className="max-w-[14rem] rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground"
+                          value={d.deviceId}
+                          onChange={(e) => {
+                            const id = e.target.value;
+                            const label =
+                              list.find((x) => x.deviceId === id)?.label ?? "";
+                            updateDeviceInsert(d.id, {
+                              deviceId: id,
+                              deviceLabel: label,
+                            });
+                          }}
+                        >
+                          <option value="">既定</option>
+                          {list.map((dev) => (
+                            <option key={dev.deviceId} value={dev.deviceId}>
+                              {dev.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {d.kind === "speaker-out" && (
+                        <label className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                          送り方
+                          <select
+                            className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground"
+                            value={d.mode}
+                            onChange={(e) =>
+                              updateDeviceInsert(d.id, {
+                                mode: e.target.value as "split" | "send",
+                              })
+                            }
+                          >
+                            <option value="split">分岐（本体は続行）</option>
+                            <option value="send">送り切り（本体は無音）</option>
+                          </select>
+                        </label>
+                      )}
+                      <div>
+                        <div className="mb-1 flex justify-between text-[11px] text-muted-foreground">
+                          <span>{d.kind === "mic-in" ? "混ぜ" : "送り量"}</span>
+                          <span className="tabular-nums text-foreground">
+                            {Math.round(d.mix * 100)}%
+                          </span>
+                        </div>
+                        <Slider
+                          min={0}
+                          max={100}
+                          step={1}
+                          value={[Math.round(d.mix * 100)]}
+                          onValueChange={([n]) =>
+                            updateDeviceInsert(d.id, { mix: (n ?? 100) / 100 })
+                          }
+                        />
+                      </div>
                     </div>
                   )}
                 </li>

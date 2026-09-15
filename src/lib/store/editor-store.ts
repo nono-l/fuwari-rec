@@ -30,7 +30,10 @@ import {
   type LiveSlot,
 } from "@/lib/audio/live-fx";
 import {
+  CABLE_INDEXES,
   MAX_CABLE_INSERTS,
+  MAX_CABLES,
+  asCableIndex,
   defaultCableName,
   newCableInsert,
   type CableInsert,
@@ -38,10 +41,18 @@ import {
 } from "@/lib/audio/cables";
 import {
   extraPipelineBudget,
+  MAX_PIPELINES,
   newExtraPipeline,
   type ExtraPipeline,
   type PipelineVia,
 } from "@/lib/audio/fx-pipeline";
+import {
+  MAX_DEVICE_IO,
+  defaultDeviceIoName,
+  newDeviceIoInsert,
+  type DeviceIoInsert,
+  type DeviceIoKind,
+} from "@/lib/audio/device-io";
 import {
   cloneAudioBuffer,
   processSeparation,
@@ -136,16 +147,19 @@ function pushLiveFx(s: {
   obsInserts: ObsInsert[];
   aiVoice: AiVoiceInsert | null;
   cableInserts?: CableInsert[];
+  deviceInserts?: DeviceIoInsert[];
   extraPipelines?: ExtraPipeline[];
   pipelineVia?: PipelineVia;
 }) {
   const cables = s.cableInserts ?? [];
+  const devices = s.deviceInserts ?? [];
   const liveChain = reconcileLiveChain(
     s.liveChain,
     s.spectrumFilters,
     s.obsInserts,
     s.aiVoice,
     cables,
+    devices,
   );
   try {
     const engine = getAudioEngine();
@@ -156,6 +170,7 @@ function pushLiveFx(s: {
         s.obsInserts,
         s.aiVoice,
         cables,
+        devices,
       ),
     );
     engine.setPipelineGraph(s.extraPipelines ?? []);
@@ -171,6 +186,7 @@ type ChainSlice = {
   obsInserts: ObsInsert[];
   aiVoice: AiVoiceInsert | null;
   cableInserts: CableInsert[];
+  deviceInserts: DeviceIoInsert[];
 };
 
 function activeExtra(s: {
@@ -189,6 +205,7 @@ function readChain(s: {
   obsInserts: ObsInsert[];
   aiVoice: AiVoiceInsert | null;
   cableInserts: CableInsert[];
+  deviceInserts: DeviceIoInsert[];
 }): ChainSlice {
   const p = activeExtra(s);
   if (!p) {
@@ -198,6 +215,7 @@ function readChain(s: {
       obsInserts: s.obsInserts,
       aiVoice: s.aiVoice,
       cableInserts: s.cableInserts,
+      deviceInserts: s.deviceInserts,
     };
   }
   return {
@@ -206,6 +224,7 @@ function readChain(s: {
     obsInserts: p.obsInserts,
     aiVoice: p.aiVoice,
     cableInserts: p.cableInserts ?? [],
+    deviceInserts: p.deviceInserts ?? [],
   };
 }
 
@@ -229,6 +248,7 @@ function commitChain(
     obsInserts: ObsInsert[];
     aiVoice: AiVoiceInsert | null;
     cableInserts: CableInsert[];
+    deviceInserts: DeviceIoInsert[];
     pipelineVia?: PipelineVia;
   },
   set: (partial: Record<string, unknown>) => void,
@@ -249,6 +269,7 @@ function commitChain(
           ...x,
           ...patch,
           cableInserts: patch.cableInserts ?? x.cableInserts ?? [],
+          deviceInserts: patch.deviceInserts ?? x.deviceInserts ?? [],
           aiVoice: patch.aiVoice !== undefined ? patch.aiVoice : x.aiVoice,
         }
       : x,
@@ -501,6 +522,7 @@ export interface EditorState {
   obsInserts: ObsInsert[];
   aiVoice: AiVoiceInsert | null;
   cableInserts: CableInsert[];
+  deviceInserts: DeviceIoInsert[];
   extraPipelines: ExtraPipeline[];
   activePipelineId: "main" | string;
   pipelineVia: PipelineVia;
@@ -640,6 +662,10 @@ export interface EditorState {
   updateCableInsert: (id: string, patch: Partial<CableInsert>) => void;
   removeCableInsert: (id: string) => void;
   toggleCableInsert: (id: string) => void;
+  addDeviceInsert: (kind: DeviceIoKind) => string | null;
+  updateDeviceInsert: (id: string, patch: Partial<DeviceIoInsert>) => void;
+  removeDeviceInsert: (id: string) => void;
+  toggleDeviceInsert: (id: string) => void;
   addExtraPipeline: () => string | null;
   updateExtraPipeline: (id: string, patch: Partial<ExtraPipeline>) => void;
   removeExtraPipeline: (id: string) => void;
@@ -950,6 +976,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   obsInserts: [],
   aiVoice: null,
   cableInserts: [],
+  deviceInserts: [],
   extraPipelines: [],
   activePipelineId: "main",
   pipelineVia: "main",
@@ -2188,7 +2215,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const blob = await getAudioEngine().exportMix(tracks, master, {
         profile: get().roomProfile,
         amount: get().roomAmount,
-      }, assembleLiveFx(get().liveChain, get().spectrumFilters, get().obsInserts, get().aiVoice, get().cableInserts));
+      }, assembleLiveFx(get().liveChain, get().spectrumFilters, get().obsInserts, get().aiVoice, get().cableInserts, get().deviceInserts));
       downloadBlob(blob, `fuwari-rec-${Date.now()}.wav`);
       set({ statusMessage: "WAV 書き出し完了" });
     } catch (e) {
@@ -2775,6 +2802,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         chain.obsInserts,
         chain.aiVoice,
         chain.cableInserts,
+        chain.deviceInserts,
       ),
       { family: "spectrum" as const, id: filter.id },
     ];
@@ -2839,6 +2867,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         chain.obsInserts,
         chain.aiVoice,
         chain.cableInserts,
+        chain.deviceInserts,
       ),
       { family: "obs" as const, id: created.id },
     ];
@@ -2908,6 +2937,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         chain.obsInserts,
         null,
         chain.cableInserts,
+        chain.deviceInserts,
       ),
       { family: "ai" as const, id: created.id },
     ];
@@ -2951,7 +2981,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return null;
     }
     const used = new Set(chain.cableInserts.map((c) => c.cable));
-    const cable = ([1, 2, 3] as const).find((n) => !used.has(n)) ?? 1;
+    const cable = CABLE_INDEXES.find((n) => !used.has(n)) ?? 1;
     const created = newCableInsert(kind, { cable });
     const cableInserts = [...chain.cableInserts, created];
     const liveChain = [
@@ -2961,6 +2991,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         chain.obsInserts,
         chain.aiVoice,
         chain.cableInserts,
+        chain.deviceInserts,
       ),
       { family: "cable" as const, id: created.id },
     ];
@@ -3005,16 +3036,78 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     commitChain(get, set, { cableInserts });
   },
 
+  addDeviceInsert: (kind) => {
+    const chain = readChain(get());
+    if (chain.deviceInserts.length >= MAX_DEVICE_IO) {
+      set({
+        statusMessage: `マイク／スピーカー段は ${MAX_DEVICE_IO} までです`,
+      });
+      return null;
+    }
+    const created = newDeviceIoInsert(kind);
+    const deviceInserts = [...chain.deviceInserts, created];
+    const liveChain = [
+      ...reconcileLiveChain(
+        chain.liveChain,
+        chain.spectrumFilters,
+        chain.obsInserts,
+        chain.aiVoice,
+        chain.cableInserts,
+        chain.deviceInserts,
+      ),
+      { family: "device" as const, id: created.id },
+    ];
+    commitChain(get, set, { deviceInserts, liveChain }, {
+      statusMessage: `「${created.name}」を挿入`,
+    });
+    return created.id;
+  },
+
+  updateDeviceInsert: (id, patch) => {
+    const chain = readChain(get());
+    const deviceInserts = chain.deviceInserts.map((d) => {
+      if (d.id !== id) return d;
+      const next = newDeviceIoInsert(patch.kind ?? d.kind, {
+        ...d,
+        ...patch,
+        id: d.id,
+      });
+      if (!patch.name) next.name = defaultDeviceIoName(next);
+      else next.name = patch.name;
+      return next;
+    });
+    commitChain(get, set, { deviceInserts });
+  },
+
+  removeDeviceInsert: (id) => {
+    const chain = readChain(get());
+    const target = chain.deviceInserts.find((d) => d.id === id);
+    const deviceInserts = chain.deviceInserts.filter((d) => d.id !== id);
+    commitChain(get, set, { deviceInserts }, {
+      statusMessage: target
+        ? `「${target.name}」を外しました`
+        : "入出力段を外しました",
+    });
+  },
+
+  toggleDeviceInsert: (id) => {
+    const chain = readChain(get());
+    const deviceInserts = chain.deviceInserts.map((d) =>
+      d.id === id ? { ...d, enabled: !d.enabled } : d,
+    );
+    commitChain(get, set, { deviceInserts });
+  },
+
   addExtraPipeline: () => {
     const budget = extraPipelineBudget();
     if (get().extraPipelines.length >= budget) {
       set({
-        statusMessage: `この端末のCPUではパイプラインはあと ${budget} 本までです（本体＋${budget}）`,
+        statusMessage: `パイプラインは ${MAX_PIPELINES} 本までです`,
       });
       return null;
     }
     const number = (get().extraPipelines.at(-1)?.number ?? 1) + 1;
-    const cable = (Math.min(3, number - 1) || 1) as 1 | 2 | 3;
+    const cable = asCableIndex(Math.min(number - 1, MAX_CABLES));
     const created = newExtraPipeline(number, cable);
     const extraPipelines = [...get().extraPipelines, created];
     let cableInserts = get().cableInserts;
@@ -3184,6 +3277,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       chain.obsInserts,
       chain.aiVoice,
       chain.cableInserts,
+      chain.deviceInserts,
     );
     const liveChain = shiftLiveSlot(current, id, delta);
     if (liveChain === current) return;
@@ -3253,7 +3347,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     try {
       const engine = getAudioEngine();
       engine.applyMasterFx(master);
-      engine.setLiveFx(assembleLiveFx(liveChain, spectrumFilters, obsInserts, aiVoice, get().cableInserts));
+      engine.setLiveFx(assembleLiveFx(liveChain, spectrumFilters, obsInserts, aiVoice, get().cableInserts, get().deviceInserts));
       engine.setPipelineGraph(get().extraPipelines);
       engine.setRoomProfile(snap.roomProfile);
       engine.setRoomAmount(snap.roomAmount);

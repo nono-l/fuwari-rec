@@ -8,6 +8,7 @@ export function useActivePipeline() {
   const obsInserts = useEditorStore((s) => s.obsInserts);
   const aiVoice = useEditorStore((s) => s.aiVoice);
   const cableInserts = useEditorStore((s) => s.cableInserts);
+  const deviceInserts = useEditorStore((s) => s.deviceInserts);
   const liveChain = useEditorStore((s) => s.liveChain);
 
   if (extra) {
@@ -23,6 +24,7 @@ export function useActivePipeline() {
       obsInserts: extra.obsInserts,
       aiVoice: extra.aiVoice,
       cableInserts: extra.cableInserts ?? [],
+      deviceInserts: extra.deviceInserts ?? [],
       liveChain: extra.liveChain,
     };
   }
@@ -38,6 +40,7 @@ export function useActivePipeline() {
     obsInserts,
     aiVoice,
     cableInserts,
+    deviceInserts,
     liveChain,
   };
 }

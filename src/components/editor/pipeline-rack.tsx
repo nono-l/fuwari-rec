@@ -2,8 +2,8 @@ import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useEditorStore } from "@/lib/store/editor-store";
-import { extraPipelineBudget } from "@/lib/audio/fx-pipeline";
-import { type CableIndex } from "@/lib/audio/cables";
+import { extraPipelineBudget, MAX_PIPELINES } from "@/lib/audio/fx-pipeline";
+import { CABLE_INDEXES, type CableIndex } from "@/lib/audio/cables";
 
 export function PipelineTabs() {
   const extra = useEditorStore((s) => s.extraPipelines);
@@ -56,7 +56,7 @@ export function PipelineTabs() {
           className="shrink-0 rounded-full"
         >
           <Plus className="size-3.5" />
-          {full ? `上限+${budget}` : "追加"}
+          {full ? `上限${MAX_PIPELINES}` : "追加"}
         </Button>
       </div>
       <p className="text-[11px] leading-relaxed text-muted-foreground">
@@ -83,9 +83,11 @@ export function PipelineTabs() {
                 })
               }
             >
-              <option value={1}>仮想ケーブル1</option>
-              <option value={2}>仮想ケーブル2</option>
-              <option value={3}>仮想ケーブル3</option>
+              {CABLE_INDEXES.map((n) => (
+                <option key={n} value={n}>
+                  仮想ケーブル{n}
+                </option>
+              ))}
             </select>
           </label>
           <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
@@ -99,9 +101,11 @@ export function PipelineTabs() {
                 })
               }
             >
-              <option value={1}>仮想ケーブル1戻り</option>
-              <option value={2}>仮想ケーブル2戻り</option>
-              <option value={3}>仮想ケーブル3戻り</option>
+              {CABLE_INDEXES.map((n) => (
+                <option key={n} value={n}>
+                  仮想ケーブル{n}戻り
+                </option>
+              ))}
             </select>
           </label>
           <Button

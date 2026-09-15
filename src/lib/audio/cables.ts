@@ -1,7 +1,8 @@
-export const MAX_CABLES = 3;
-export const MAX_CABLE_INSERTS = 8;
+export const MAX_CABLES = 7;
+export const MAX_CABLE_INSERTS = 16;
+export const CABLE_INDEXES = [1, 2, 3, 4, 5, 6, 7] as const;
 
-export type CableIndex = 1 | 2 | 3;
+export type CableIndex = (typeof CABLE_INDEXES)[number];
 export type CableKind = "out" | "in";
 export type CableOutMode = "split" | "send";
 
@@ -19,8 +20,7 @@ export type CableInsert = {
 
 export function asCableIndex(n: unknown): CableIndex {
   const v = Math.round(Number(n));
-  if (v === 2) return 2;
-  if (v === 3) return 3;
+  if (v >= 1 && v <= MAX_CABLES) return v as CableIndex;
   return 1;
 }
 

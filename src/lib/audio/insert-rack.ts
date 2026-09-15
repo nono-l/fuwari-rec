@@ -7,6 +7,7 @@ import {
   type LiveHandle,
 } from "./live-fx";
 import type { CablePatchbay } from "./cables";
+import type { DeviceIoBay } from "./device-io";
 
 /**
  * Ordered live FX chain (spectrum + OBS inserts interleaved).
@@ -19,6 +20,7 @@ export class InsertRack {
   private items: LiveFxItem[] = [];
   private workletFactory: (() => AudioWorkletNode | null) | null = null;
   private cables: CablePatchbay | null = null;
+  private devices: DeviceIoBay | null = null;
 
   constructor(private readonly ctx: BaseAudioContext) {
     this.input = ctx.createGain();
@@ -34,6 +36,10 @@ export class InsertRack {
 
   setCableBus(bay: CablePatchbay | null) {
     this.cables = bay;
+  }
+
+  setDeviceBus(bay: DeviceIoBay | null) {
+    this.devices = bay;
   }
 
   setLiveFx(items: LiveFxItem[]) {
@@ -62,6 +68,7 @@ export class InsertRack {
       const handle = createLiveHandle(this.ctx, item, {
         workletFactory: this.workletFactory ?? undefined,
         cables: this.cables,
+        devices: this.devices,
       });
       this.handles.push(handle);
       prev.connect(handle.input);

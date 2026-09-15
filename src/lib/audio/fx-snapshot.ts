@@ -170,7 +170,8 @@ export function normalizeSnapshot(raw: Partial<FxSnapshot>): FxSnapshot {
             (s.family === "spectrum" ||
               s.family === "obs" ||
               s.family === "ai" ||
-              s.family === "cable") &&
+              s.family === "cable" ||
+              s.family === "device") &&
             typeof s.id === "string",
         )
         .map((s) => ({ family: s.family, id: s.id }))
@@ -342,7 +343,8 @@ function parsePresetEl(el: Element): FxSnapshot {
             (s.family === "spectrum" ||
               s.family === "obs" ||
               s.family === "ai" ||
-              s.family === "cable") &&
+              s.family === "cable" ||
+              s.family === "device") &&
             !!s.id,
         )
     : undefined;

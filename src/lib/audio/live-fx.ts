@@ -10,9 +10,14 @@ import {
   type CableInsert,
   type CablePatchbay,
 } from "./cables";
+import {
+  createDeviceIoHandle,
+  type DeviceIoBay,
+  type DeviceIoInsert,
+} from "./device-io";
 
 export type LiveSlot = {
-  family: "spectrum" | "obs" | "ai" | "cable";
+  family: "spectrum" | "obs" | "ai" | "cable" | "device";
   id: string;
 };
 
@@ -20,11 +25,13 @@ export type LiveFxItem =
   | { family: "spectrum"; filter: SpectrumFilter }
   | { family: "obs"; insert: ObsInsert }
   | { family: "ai"; voice: AiVoiceInsert }
-  | { family: "cable"; cable: CableInsert };
+  | { family: "cable"; cable: CableInsert }
+  | { family: "device"; io: DeviceIoInsert };
 
 export type LiveHandleOpts = {
   workletFactory?: () => AudioWorkletNode | null;
   cables?: CablePatchbay | null;
+  devices?: DeviceIoBay | null;
 };
 
 export type LiveHandle = {
@@ -39,14 +46,16 @@ export function liveItemId(item: LiveFxItem) {
   if (item.family === "spectrum") return item.filter.id;
   if (item.family === "obs") return item.insert.id;
   if (item.family === "ai") return item.voice.id;
-  return item.cable.id;
+  if (item.family === "cable") return item.cable.id;
+  return item.io.id;
 }
 
 export function liveItemEnabled(item: LiveFxItem) {
   if (item.family === "spectrum") return item.filter.enabled;
   if (item.family === "obs") return item.insert.enabled;
   if (item.family === "ai") return item.voice.enabled;
-  return item.cable.enabled;
+  if (item.family === "cable") return item.cable.enabled;
+  return item.io.enabled;
 }
 
 export function liveChainKey(items: LiveFxItem[]) {
@@ -62,7 +71,10 @@ export function liveChainKey(items: LiveFxItem[]) {
       if (item.family === "ai") {
         return `a:${item.voice.id}:${Math.abs(item.voice.pitch) >= 0.05 ? "p" : "d"}`;
       }
-      return `c:${item.cable.id}:${item.cable.kind}:${item.cable.cable}:${item.cable.mode}`;
+      if (item.family === "cable") {
+        return `c:${item.cable.id}:${item.cable.kind}:${item.cable.cable}:${item.cable.mode}`;
+      }
+      return `d:${item.io.id}:${item.io.kind}:${item.io.deviceId}:${item.io.mode}`;
     })
     .join(">");
 }
@@ -73,10 +85,12 @@ export function assembleLiveFx(
   obs: ObsInsert[],
   ai: AiVoiceInsert | null = null,
   cables: CableInsert[] = [],
+  devices: DeviceIoInsert[] = [],
 ): LiveFxItem[] {
   const specs = new Map(spectrum.map((f) => [f.id, f]));
   const inserts = new Map(obs.map((f) => [f.id, f]));
   const cabs = new Map(cables.map((f) => [f.id, f]));
+  const dios = new Map(devices.map((f) => [f.id, f]));
   const used = new Set<string>();
   const out: LiveFxItem[] = [];
   for (const slot of order) {
@@ -99,9 +113,17 @@ export function assembleLiveFx(
       if (!f || used.has(f.id)) continue;
       used.add(f.id);
       out.push({ family: "cable", cable: f });
+    } else if (slot.family === "device") {
+      const f = dios.get(slot.id);
+      if (!f || used.has(f.id)) continue;
+      used.add(f.id);
+      out.push({ family: "device", io: f });
     }
   }
   if (ai && !used.has(ai.id)) out.push({ family: "ai", voice: ai });
+  for (const f of devices) {
+    if (!used.has(f.id)) out.push({ family: "device", io: f });
+  }
   for (const f of cables) {
     if (!used.has(f.id)) out.push({ family: "cable", cable: f });
   }
@@ -120,8 +142,9 @@ export function reconcileLiveChain(
   obs: ObsInsert[],
   ai: AiVoiceInsert | null = null,
   cables: CableInsert[] = [],
+  devices: DeviceIoInsert[] = [],
 ): LiveSlot[] {
-  return assembleLiveFx(order, spectrum, obs, ai, cables).map((item) => {
+  return assembleLiveFx(order, spectrum, obs, ai, cables, devices).map((item) => {
     if (item.family === "spectrum") {
       return { family: "spectrum" as const, id: item.filter.id };
     }
@@ -131,7 +154,10 @@ export function reconcileLiveChain(
     if (item.family === "ai") {
       return { family: "ai" as const, id: item.voice.id };
     }
-    return { family: "cable" as const, id: item.cable.id };
+    if (item.family === "cable") {
+      return { family: "cable" as const, id: item.cable.id };
+    }
+    return { family: "device" as const, id: item.io.id };
   });
 }
 
@@ -159,6 +185,7 @@ export function createLiveHandle(
   const workletFactory =
     typeof opts === "function" ? opts : opts?.workletFactory;
   const bay = typeof opts === "function" ? null : opts?.cables;
+  const devices = typeof opts === "function" ? null : opts?.devices;
   if (item.family === "spectrum") {
     if (isBandFxKind(item.filter.kind)) {
       const h = createBandFxHandle(ctx, item.filter);
@@ -226,6 +253,18 @@ export function createLiveHandle(
       output: h.output,
       apply: (next) => {
         if (next.family === "cable") h.apply(next.cable);
+      },
+      dispose: h.dispose,
+    };
+  }
+  if (item.family === "device") {
+    const h = createDeviceIoHandle(ctx, item.io, devices ?? null);
+    return {
+      id: item.io.id,
+      input: h.input,
+      output: h.output,
+      apply: (next) => {
+        if (next.family === "device") h.apply(next.io);
       },
       dispose: h.dispose,
     };

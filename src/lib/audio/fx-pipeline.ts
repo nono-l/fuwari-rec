@@ -3,6 +3,7 @@ import type { ObsInsert } from "./obs-filters";
 import type { LiveSlot } from "./live-fx";
 import type { AiVoiceInsert } from "./ai-voice";
 import type { CableInsert } from "./cables";
+import type { DeviceIoInsert } from "./device-io";
 import { asCableIndex, type CableIndex } from "./cables";
 
 /** @deprecated Audio always runs in parallel; kept for saved state. */
@@ -18,16 +19,15 @@ export type ExtraPipeline = {
   spectrumFilters: SpectrumFilter[];
   obsInserts: ObsInsert[];
   cableInserts: CableInsert[];
+  deviceInserts: DeviceIoInsert[];
   aiVoice: AiVoiceInsert | null;
   liveChain: LiveSlot[];
 };
 
+export const MAX_PIPELINES = 7;
+
 export function extraPipelineBudget(): number {
-  if (typeof navigator === "undefined") return 2;
-  const cores = navigator.hardwareConcurrency || 4;
-  if (cores <= 2) return 1;
-  if (cores <= 4) return 2;
-  return 3;
+  return MAX_PIPELINES - 1;
 }
 
 export function newExtraPipeline(number: number, cable: CableIndex): ExtraPipeline {
@@ -45,6 +45,7 @@ export function newExtraPipeline(number: number, cable: CableIndex): ExtraPipeli
     spectrumFilters: [],
     obsInserts: [],
     cableInserts: [],
+    deviceInserts: [],
     aiVoice: null,
     liveChain: [],
   };

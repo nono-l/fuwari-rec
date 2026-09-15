@@ -14,6 +14,7 @@ import {
 } from "@/lib/audio/obs-filters";
 import { MAX_AI_VOICE } from "@/lib/audio/ai-voice";
 import { MAX_CABLE_INSERTS } from "@/lib/audio/cables";
+import { MAX_DEVICE_IO } from "@/lib/audio/device-io";
 
 function pct(n: number) {
   return `${Math.round(n * 100)}%`;
@@ -46,9 +47,11 @@ export function ObsFilterRack() {
   const addObsInsert = useEditorStore((s) => s.addObsInsert);
   const addAiVoice = useEditorStore((s) => s.addAiVoice);
   const addCableInsert = useEditorStore((s) => s.addCableInsert);
+  const addDeviceInsert = useEditorStore((s) => s.addDeviceInsert);
   const full = inserts.length >= MAX_OBS_INSERTS;
   const aiFull = Boolean(mainAi || extras.some((p) => p.aiVoice) || aiVoice);
   const cableFull = cableInserts.length >= MAX_CABLE_INSERTS;
+  const deviceFull = pipe.deviceInserts.length >= MAX_DEVICE_IO;
 
   const insert = (kind: ObsFilterId) => {
     addObsInsert(kind);
@@ -136,6 +139,48 @@ export function ObsFilterRack() {
                   variant="secondary"
                   disabled={cableFull}
                   onClick={() => addCableInsert("in")}
+                  className="w-full"
+                >
+                  <Plus className="size-3.5" />
+                  ライブに挿入
+                </Button>
+              }
+            />
+          </li>
+          <li className="px-3 py-3 sm:px-5 sm:py-3.5">
+            <FilterRow
+              name="マイクから入力"
+              rec="situational"
+              role="この段でマイク（別デバイスも可）をチェーンに混ぜる。パイプライン2以降の入口にも使える"
+              bar="#0369a1"
+              control={
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={deviceFull}
+                  onClick={() => addDeviceInsert("mic-in")}
+                  className="w-full"
+                >
+                  <Plus className="size-3.5" />
+                  ライブに挿入
+                </Button>
+              }
+            />
+          </li>
+          <li className="px-3 py-3 sm:px-5 sm:py-3.5">
+            <FilterRow
+              name="スピーカーへ出力"
+              rec="situational"
+              role="この段の音をスピーカーへ送る。分岐または送り切り。別デバイスも選べる"
+              bar="#075985"
+              control={
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={deviceFull}
+                  onClick={() => addDeviceInsert("speaker-out")}
                   className="w-full"
                 >
                   <Plus className="size-3.5" />
