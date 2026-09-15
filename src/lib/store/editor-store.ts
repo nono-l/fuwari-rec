@@ -41,7 +41,10 @@ import {
 } from "@/lib/audio/cables";
 import {
   extraPipelineBudget,
-  MAX_PIPELINES,
+  cpuCores,
+  cpuOverBudget,
+  cpuRefuseMessage,
+  cpuWarnNote,
   newExtraPipeline,
   type ExtraPipeline,
   type PipelineVia,
@@ -226,6 +229,47 @@ function readChain(s: {
     cableInserts: p.cableInserts ?? [],
     deviceInserts: p.deviceInserts ?? [],
   };
+}
+
+function loadAfterChainPatch(
+  s: {
+    spectrumFilters: SpectrumFilter[];
+    obsInserts: ObsInsert[];
+    aiVoice: AiVoiceInsert | null;
+    extraPipelines: ExtraPipeline[];
+    activePipelineId: "main" | string;
+  },
+  patch: Partial<ChainSlice>,
+) {
+  const p = activeExtra(s);
+  if (!p) {
+    return cpuOverBudget({
+      spectrumFilters: patch.spectrumFilters ?? s.spectrumFilters,
+      obsInserts: patch.obsInserts ?? s.obsInserts,
+      aiVoice: patch.aiVoice !== undefined ? patch.aiVoice : s.aiVoice,
+      extraPipelines: s.extraPipelines,
+    });
+  }
+  const extraPipelines = s.extraPipelines.map((x) =>
+    x.id === p.id
+      ? {
+          ...x,
+          spectrumFilters: patch.spectrumFilters ?? x.spectrumFilters,
+          obsInserts: patch.obsInserts ?? x.obsInserts,
+          aiVoice: patch.aiVoice !== undefined ? patch.aiVoice : x.aiVoice,
+        }
+      : x,
+  );
+  return cpuOverBudget({
+    spectrumFilters: s.spectrumFilters,
+    obsInserts: s.obsInserts,
+    aiVoice: s.aiVoice,
+    extraPipelines,
+  });
+}
+
+function cpuStatus(ok: string, check: { warn: boolean; load: number; budget: number }) {
+  return check.warn ? `${ok}${cpuWarnNote(check.load, check.budget)}` : ok;
 }
 
 function anyAiVoice(s: {
@@ -2825,6 +2869,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
     const filter = newSpectrumFilter(kind, hz);
     const spectrumFilters = [...chain.spectrumFilters, filter];
+    const check = loadAfterChainPatch(get(), { spectrumFilters });
+    if (check.over) {
+      set({ statusMessage: cpuRefuseMessage(check.load, check.budget) });
+      return null;
+    }
     const liveChain = [
       ...reconcileLiveChain(
         chain.liveChain,
@@ -2837,7 +2886,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       { family: "spectrum" as const, id: filter.id },
     ];
     commitChain(get, set, { spectrumFilters, liveChain }, {
-      statusMessage: `フィルター「${filter.name}」を追加`,
+      statusMessage: cpuStatus(`フィルター「${filter.name}」を追加`, check),
     });
     return filter.id;
   },
@@ -2863,9 +2912,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   toggleSpectrumFilter: (id) => {
     const chain = readChain(get());
+    const cur = chain.spectrumFilters.find((f) => f.id === id);
     const spectrumFilters = chain.spectrumFilters.map((f) =>
       f.id === id ? { ...f, enabled: !f.enabled } : f,
     );
+    if (cur && !cur.enabled) {
+      const check = loadAfterChainPatch(get(), { spectrumFilters });
+      if (check.over) {
+        set({ statusMessage: cpuRefuseMessage(check.load, check.budget) });
+        return;
+      }
+    }
     commitChain(get, set, { spectrumFilters });
   },
 
@@ -2889,6 +2946,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
     const created = newObsInsert(kind);
     const obsInserts = labelObsInserts([...chain.obsInserts, created]);
+    const check = loadAfterChainPatch(get(), { obsInserts });
+    if (check.over) {
+      set({ statusMessage: cpuRefuseMessage(check.load, check.budget) });
+      return null;
+    }
     const named = obsInserts.find((f) => f.id === created.id);
     const liveChain = [
       ...reconcileLiveChain(
@@ -2902,9 +2964,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       { family: "obs" as const, id: created.id },
     ];
     commitChain(get, set, { obsInserts, liveChain }, {
-      statusMessage: named
-        ? `「${named.name}」をライブエフェクターに挿入`
-        : "フィルターを挿入",
+      statusMessage: cpuStatus(
+        named
+          ? `「${named.name}」をライブエフェクターに挿入`
+          : "フィルターを挿入",
+        check,
+      ),
     });
     return created.id;
   },
@@ -2934,9 +2999,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   toggleObsInsert: (id) => {
     const chain = readChain(get());
+    const cur = chain.obsInserts.find((f) => f.id === id);
     const obsInserts = chain.obsInserts.map((f) =>
       f.id === id ? { ...f, enabled: !f.enabled } : f,
     );
+    if (cur && !cur.enabled) {
+      const check = loadAfterChainPatch(get(), { obsInserts });
+      if (check.over) {
+        set({ statusMessage: cpuRefuseMessage(check.load, check.budget) });
+        return;
+      }
+    }
     commitChain(get, set, { obsInserts });
   },
 
@@ -2960,6 +3033,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
     const chain = readChain(get());
     const created = newAiVoiceInsert();
+    const check = loadAfterChainPatch(get(), { aiVoice: created });
+    if (check.over) {
+      set({ statusMessage: cpuRefuseMessage(check.load, check.budget) });
+      return null;
+    }
     const liveChain = [
       ...reconcileLiveChain(
         chain.liveChain,
@@ -2972,7 +3050,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       { family: "ai" as const, id: created.id },
     ];
     commitChain(get, set, { aiVoice: created, liveChain }, {
-      statusMessage: "AIボイスをライブエフェクターに挿入（一段）",
+      statusMessage: cpuStatus("AIボイスをライブエフェクターに挿入（一段）", check),
     });
     return created.id;
   },
@@ -2999,7 +3077,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const chain = readChain(get());
     const cur = chain.aiVoice;
     if (!cur) return;
-    commitChain(get, set, { aiVoice: { ...cur, enabled: !cur.enabled } });
+    const aiVoice = { ...cur, enabled: !cur.enabled };
+    if (!cur.enabled) {
+      const check = loadAfterChainPatch(get(), { aiVoice });
+      if (check.over) {
+        set({ statusMessage: cpuRefuseMessage(check.load, check.budget) });
+        return;
+      }
+    }
+    commitChain(get, set, { aiVoice });
   },
 
   addCableInsert: (kind) => {
@@ -3132,7 +3218,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const budget = extraPipelineBudget();
     if (get().extraPipelines.length >= budget) {
       set({
-        statusMessage: `パイプラインは ${MAX_PIPELINES} 本までです`,
+        statusMessage: `パイプラインはこの端末では ${budget + 1} 本までです（${cpuCores()}コア）`,
       });
       return null;
     }
@@ -3140,6 +3226,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const cable = asCableIndex(Math.min(number - 1, MAX_CABLES));
     const created = newExtraPipeline(number, cable);
     const extraPipelines = [...get().extraPipelines, created];
+    const check = cpuOverBudget({
+      spectrumFilters: get().spectrumFilters,
+      obsInserts: get().obsInserts,
+      aiVoice: get().aiVoice,
+      extraPipelines,
+    });
+    if (check.over) {
+      set({ statusMessage: cpuRefuseMessage(check.load, check.budget) });
+      return null;
+    }
     let cableInserts = get().cableInserts;
     let liveChain = get().liveChain;
     const hasOut = cableInserts.some(
@@ -3185,7 +3281,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         pipelineVia,
         liveChain,
       }),
-      statusMessage: `${created.name}を追加。編集タブを切り替えられます（音は同時に動きます）`,
+      statusMessage: cpuStatus(
+        `${created.name}を追加。編集タブを切り替えられます（音は同時に動きます）`,
+        check,
+      ),
     });
     return created.id;
   },
@@ -3194,6 +3293,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const extraPipelines = get().extraPipelines.map((p) =>
       p.id === id ? { ...p, ...patch, id: p.id } : p,
     );
+    if (patch.enabled === true) {
+      const check = cpuOverBudget({
+        spectrumFilters: get().spectrumFilters,
+        obsInserts: get().obsInserts,
+        aiVoice: get().aiVoice,
+        extraPipelines,
+      });
+      if (check.over) {
+        set({ statusMessage: cpuRefuseMessage(check.load, check.budget) });
+        return;
+      }
+    }
     const liveChain = pushLiveFx({ ...get(), extraPipelines });
     set({ extraPipelines, liveChain });
   },
@@ -3242,8 +3353,22 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       set({ statusMessage: "このパイプラインはフィルターがいっぱいです" });
       return null;
     }
+    const check = cpuOverBudget({
+      spectrumFilters: get().spectrumFilters,
+      obsInserts: get().obsInserts,
+      aiVoice: get().aiVoice,
+      extraPipelines,
+    });
+    if (check.over) {
+      set({ statusMessage: cpuRefuseMessage(check.load, check.budget) });
+      return null;
+    }
     const liveChain = pushLiveFx({ ...get(), extraPipelines });
-    set({ extraPipelines, liveChain, statusMessage: "パイプラインにフィルターを追加" });
+    set({
+      extraPipelines,
+      liveChain,
+      statusMessage: cpuStatus("パイプラインにフィルターを追加", check),
+    });
     return added;
   },
 
@@ -3265,8 +3390,22 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       set({ statusMessage: "このパイプラインはフィルターがいっぱいです" });
       return null;
     }
+    const check = cpuOverBudget({
+      spectrumFilters: get().spectrumFilters,
+      obsInserts: get().obsInserts,
+      aiVoice: get().aiVoice,
+      extraPipelines,
+    });
+    if (check.over) {
+      set({ statusMessage: cpuRefuseMessage(check.load, check.budget) });
+      return null;
+    }
     const liveChain = pushLiveFx({ ...get(), extraPipelines });
-    set({ extraPipelines, liveChain, statusMessage: "パイプラインにフィルターを追加" });
+    set({
+      extraPipelines,
+      liveChain,
+      statusMessage: cpuStatus("パイプラインにフィルターを追加", check),
+    });
     return added;
   },
 
@@ -3293,6 +3432,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   togglePipelineItem: (pipeId, itemId) => {
+    const current = get().extraPipelines.find((p) => p.id === pipeId);
+    const turningOn = Boolean(
+      current?.spectrumFilters.find((f) => f.id === itemId && !f.enabled) ||
+        current?.obsInserts.find((f) => f.id === itemId && !f.enabled),
+    );
     const extraPipelines = get().extraPipelines.map((p) => {
       if (p.id !== pipeId) return p;
       return {
@@ -3305,6 +3449,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         ),
       };
     });
+    if (turningOn) {
+      const check = cpuOverBudget({
+        spectrumFilters: get().spectrumFilters,
+        obsInserts: get().obsInserts,
+        aiVoice: get().aiVoice,
+        extraPipelines,
+      });
+      if (check.over) {
+        set({ statusMessage: cpuRefuseMessage(check.load, check.budget) });
+        return;
+      }
+    }
     const liveChain = pushLiveFx({ ...get(), extraPipelines });
     set({ extraPipelines, liveChain });
   },

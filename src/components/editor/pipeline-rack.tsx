@@ -2,7 +2,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useEditorStore } from "@/lib/store/editor-store";
-import { extraPipelineBudget, MAX_PIPELINES } from "@/lib/audio/fx-pipeline";
+import { extraPipelineBudget, cpuCores } from "@/lib/audio/fx-pipeline";
 import { CABLE_INDEXES, type CableIndex } from "@/lib/audio/cables";
 
 export function PipelineTabs() {
@@ -13,6 +13,8 @@ export function PipelineTabs() {
   const remove = useEditorStore((s) => s.removeExtraPipeline);
   const update = useEditorStore((s) => s.updateExtraPipeline);
   const budget = extraPipelineBudget();
+  const cores = cpuCores();
+  const maxPipes = budget + 1;
   const full = extra.length >= budget;
   const current = extra.find((p) => p.id === active) ?? null;
 
@@ -56,11 +58,12 @@ export function PipelineTabs() {
           className="shrink-0 rounded-full"
         >
           <Plus className="size-3.5" />
-          {full ? `上限${MAX_PIPELINES}` : "追加"}
+          {full ? `上限${maxPipes}` : "追加"}
         </Button>
       </div>
       <p className="text-[11px] leading-relaxed text-muted-foreground">
-        タブは編集画面の切替です。パイプラインは同時に動きます。配線は仮想ケーブルで。
+        タブは編集画面の切替です。パイプラインは同時に動きます。この端末は {cores}{" "}
+        コア、同時 {maxPipes} 本まで。配線は仮想ケーブルで。
       </p>
       {current && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/30 px-2.5 py-2">
