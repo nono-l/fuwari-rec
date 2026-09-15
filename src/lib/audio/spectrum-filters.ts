@@ -8,6 +8,54 @@ export type SpectrumFilterKind =
   | "band-formant"
   | "band-pitch";
 
+export type ReverbTune = {
+  /** Tail length, seconds. */
+  decay: number;
+  /** Gap before the tail, milliseconds. */
+  predelayMs: number;
+  /** 0 = dark / damped, 1 = bright. */
+  brightness: number;
+  /** 0 = small room, 1 = hall. */
+  size: number;
+  /** High-pass on the send, Hz. */
+  lowCutHz: number;
+};
+
+export const DEFAULT_REVERB_TUNE: ReverbTune = {
+  decay: 1.2,
+  predelayMs: 18,
+  brightness: 0.62,
+  size: 0.4,
+  lowCutHz: 120,
+};
+
+export function clamp01(n: number) {
+  return Math.max(0, Math.min(1, n));
+}
+
+export function normalizeReverbTune(
+  raw?: Partial<ReverbTune> | null,
+): ReverbTune {
+  const r = raw ?? {};
+  const num = (v: unknown, fallback: number) => {
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  return {
+    decay: Math.max(0.4, Math.min(4, num(r.decay, DEFAULT_REVERB_TUNE.decay))),
+    predelayMs: Math.max(
+      0,
+      Math.min(80, num(r.predelayMs, DEFAULT_REVERB_TUNE.predelayMs)),
+    ),
+    brightness: clamp01(num(r.brightness, DEFAULT_REVERB_TUNE.brightness)),
+    size: clamp01(num(r.size, DEFAULT_REVERB_TUNE.size)),
+    lowCutHz: Math.max(
+      40,
+      Math.min(400, num(r.lowCutHz, DEFAULT_REVERB_TUNE.lowCutHz)),
+    ),
+  };
+}
+
 export type SpectrumFilter = {
   id: string;
   name: string;
@@ -17,6 +65,9 @@ export type SpectrumFilter = {
   /** Peaking EQ gain in dB. Unused (0) for other kinds. */
   gain: number;
   enabled: boolean;
+  /** When true, skip band split and process the whole spectrum. */
+  fullBand: boolean;
+  reverb: ReverbTune;
 };
 
 export const SPEC_MIN_HZ = 40;
@@ -110,7 +161,11 @@ export function amountSliderLabel(kind: SpectrumFilterKind) {
   return "バンドパスゲイン";
 }
 
-export function defaultFilterName(kind: SpectrumFilterKind, hz: number) {
+export function defaultFilterName(
+  kind: SpectrumFilterKind,
+  hz: number,
+  fullBand = false,
+) {
   const short =
     kind === "cut-above"
       ? "高域カット"
@@ -119,14 +174,23 @@ export function defaultFilterName(kind: SpectrumFilterKind, hz: number) {
         : kind === "notch"
           ? "ノッチ"
           : kind === "peak"
-            ? "帯ゲイン"
+            ? fullBand
+              ? "ゲイン"
+              : "帯ゲイン"
             : kind === "band-reverb"
-              ? "帯残響"
+              ? fullBand
+                ? "残響"
+                : "帯残響"
               : kind === "band-formant"
-                ? "帯フォルマント"
+                ? fullBand
+                  ? "フォルマント"
+                  : "帯フォルマント"
                 : kind === "band-pitch"
-                  ? "帯ピッチ"
+                  ? fullBand
+                    ? "ピッチ"
+                    : "帯ピッチ"
                   : "帯域通過";
+  if (fullBand && allowsBandToggle(kind)) return short;
   return `${short} ${formatHz(hz)}`;
 }
 
@@ -155,7 +219,17 @@ export function bandEdges(hz: number, q: number) {
   };
 }
 
-export function usesBandWidth(kind: SpectrumFilterKind) {
+export function allowsBandToggle(kind: SpectrumFilterKind) {
+  return (
+    kind === "peak" ||
+    kind === "band-reverb" ||
+    kind === "band-formant" ||
+    kind === "band-pitch"
+  );
+}
+
+export function usesBandWidth(kind: SpectrumFilterKind, fullBand = false) {
+  if (fullBand && allowsBandToggle(kind)) return false;
   return (
     kind === "notch" ||
     kind === "keep-band" ||
@@ -182,6 +256,8 @@ export function newSpectrumFilter(
     q: defaultFilterQ(kind),
     gain: defaultFilterGain(kind),
     enabled: true,
+    fullBand: false,
+    reverb: { ...DEFAULT_REVERB_TUNE },
   };
 }
 

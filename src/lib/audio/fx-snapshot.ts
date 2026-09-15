@@ -19,6 +19,7 @@ import {
   defaultFilterGain,
   defaultFilterQ,
   MAX_SPECTRUM_FILTERS,
+  normalizeReverbTune,
 } from "./spectrum-filters";
 
 export type FxSnapshot = {
@@ -130,6 +131,8 @@ function normalizeFilter(raw: Partial<SpectrumFilter>): SpectrumFilter | null {
     q: Math.max(0.3, Math.min(18, num(raw.q, defaultFilterQ(kind)))),
     gain: clampFilterGain(num(raw.gain, defaultFilterGain(kind))),
     enabled: raw.enabled !== false,
+    fullBand: raw.fullBand === true,
+    reverb: normalizeReverbTune(raw.reverb),
   };
 }
 
@@ -219,15 +222,15 @@ function profileXml(tag: string, amount: number, profile: RoomProfile | null) {
 export function snapshotToXml(snap: FxSnapshot): string {
   const m = snap.master;
   const filters = snap.filters
-    .map(
-      (f) =>
-        `      <filter id="${esc(f.id)}" name="${esc(f.name)}" kind="${f.kind}" hz="${f.hz}" q="${f.q}" gain="${f.gain ?? 0}" enabled="${f.enabled ? "true" : "false"}"/>`,
-    )
+    .map((f) => {
+      const rv = normalizeReverbTune(f.reverb);
+      return `      <filter id="${esc(f.id)}" name="${esc(f.name)}" kind="${f.kind}" hz="${f.hz}" q="${f.q}" gain="${f.gain ?? 0}" enabled="${f.enabled ? "true" : "false"}" fullBand="${f.fullBand ? "true" : "false"}" reverbDecay="${rv.decay}" reverbPredelay="${rv.predelayMs}" reverbBright="${rv.brightness}" reverbSize="${rv.size}" reverbLowCut="${rv.lowCutHz}"/>`;
+    })
     .join("\n");
   const inserts = (snap.inserts ?? [])
     .map(
       (f) =>
-        `      <insert id="${esc(f.id)}" kind="${f.kind}" name="${esc(f.name)}" enabled="${f.enabled ? "true" : "false"}" amount="${f.amount}" eqLow="${f.eqLow}" eqMid="${f.eqMid}" eqHigh="${f.eqHigh}" phase="${f.phaseInvert ? "true" : "false"}"/>`,
+        `      <insert id="${esc(f.id)}" kind="${f.kind}" name="${esc(f.name)}" enabled="${f.enabled ? "true" : "false"}" amount="${f.amount}" eqLow="${f.eqLow}" eqMid="${f.eqMid}" eqHigh="${f.eqHigh}" phase="${f.phaseInvert ? "true" : "false"}" fullBand="${f.fullBand !== false ? "true" : "false"}" hz="${f.hz ?? 1000}" q="${f.q ?? 1.4}"/>`,
     )
     .join("\n");
   const chain = (snap.liveChain ?? [])
@@ -313,6 +316,14 @@ function parsePresetEl(el: Element): FxSnapshot {
       q: num(attr(f, "q"), 0.7),
       gain: num(attr(f, "gain"), 0),
       enabled: attr(f, "enabled", "true") !== "false",
+      fullBand: attr(f, "fullBand", "false") === "true",
+      reverb: normalizeReverbTune({
+        decay: num(attr(f, "reverbDecay"), 1.2),
+        predelayMs: num(attr(f, "reverbPredelay"), 18),
+        brightness: num(attr(f, "reverbBright"), 0.62),
+        size: num(attr(f, "reverbSize"), 0.4),
+        lowCutHz: num(attr(f, "reverbLowCut"), 120),
+      }),
     }),
   );
   const insertParent = el.querySelector("inserts");
@@ -328,6 +339,9 @@ function parsePresetEl(el: Element): FxSnapshot {
           eqMid: num(attr(f, "eqMid"), 0),
           eqHigh: num(attr(f, "eqHigh"), 0),
           phaseInvert: attr(f, "phase") === "true",
+          fullBand: attr(f, "fullBand", "true") !== "false",
+          hz: num(attr(f, "hz"), 1000),
+          q: num(attr(f, "q"), 1.4),
         }),
       )
     : undefined;

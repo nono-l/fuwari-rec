@@ -12,6 +12,15 @@ import {
   type ObsInsert,
   type RecMark,
 } from "@/lib/audio/obs-filters";
+import {
+  bandEdges,
+  formatHz,
+  qFromBandWidthHz,
+  bandWidthHz,
+  clampFilterHz,
+  SPEC_MIN_HZ,
+  SPEC_MAX_HZ,
+} from "@/lib/audio/spectrum-filters";
 import { MAX_AI_VOICE } from "@/lib/audio/ai-voice";
 import { MAX_CABLE_INSERTS } from "@/lib/audio/cables";
 import { MAX_DEVICE_IO } from "@/lib/audio/device-io";
@@ -26,15 +35,19 @@ function db(n: number) {
 }
 
 export function insertSummary(ins: ObsInsert) {
-  if (ins.kind === "phase") return ins.phaseInvert ? "反転 ON" : "OFF";
+  const band =
+    ins.fullBand === false
+      ? ` · ${formatHz(ins.hz ?? 1000)}`
+      : " · 全帯域";
+  if (ins.kind === "phase") return (ins.phaseInvert ? "反転 ON" : "OFF") + band;
   if (ins.kind === "eq3") {
-    return `低 ${db(ins.eqLow)} · 中 ${db(ins.eqMid)} · 高 ${db(ins.eqHigh)}`;
+    return `低 ${db(ins.eqLow)} · 中 ${db(ins.eqMid)} · 高 ${db(ins.eqHigh)}${band}`;
   }
   if (ins.kind === "howl") {
-    return ins.amount < 0.03 ? "オフ" : `自動 · ${pct(ins.amount)}`;
+    return (ins.amount < 0.03 ? "オフ" : `自動 · ${pct(ins.amount)}`) + band;
   }
-  if (ins.kind === "gain") return pct(ins.amount);
-  return ins.amount < 0.02 ? "オフ" : pct(ins.amount);
+  if (ins.kind === "gain") return pct(ins.amount) + band;
+  return (ins.amount < 0.02 ? "オフ" : pct(ins.amount)) + band;
 }
 
 export function ObsFilterRack() {
@@ -285,8 +298,8 @@ export function InsertControl({
   insert: ObsInsert;
   onPatch: (p: Partial<ObsInsert>) => void;
 }) {
-  if (insert.kind === "phase") {
-    return (
+  const body =
+    insert.kind === "phase" ? (
       <Button
         type="button"
         size="sm"
@@ -297,10 +310,7 @@ export function InsertControl({
       >
         {insert.phaseInvert ? "反転 ON" : "OFF"}
       </Button>
-    );
-  }
-  if (insert.kind === "eq3") {
-    return (
+    ) : insert.kind === "eq3" ? (
       <div className="space-y-1.5">
         <EqMini
           label="低"
@@ -318,10 +328,7 @@ export function InsertControl({
           onChange={(v) => onPatch({ eqHigh: v })}
         />
       </div>
-    );
-  }
-  if (insert.kind === "gain") {
-    return (
+    ) : insert.kind === "gain" ? (
       <Amount
         valueLabel={pct(insert.amount)}
         min={0}
@@ -329,10 +336,7 @@ export function InsertControl({
         value={Math.round(insert.amount * 100)}
         onChange={(v) => onPatch({ amount: v / 100 })}
       />
-    );
-  }
-  if (insert.kind === "howl") {
-    return (
+    ) : insert.kind === "howl" ? (
       <div>
         <Amount
           valueLabel={insert.amount < 0.03 ? "オフ" : pct(insert.amount)}
@@ -345,16 +349,90 @@ export function InsertControl({
           持続するピークを自動で切る。効きを上げるとノッチが増えて鋭くなる
         </p>
       </div>
+    ) : (
+      <Amount
+        valueLabel={insert.amount < 0.02 ? "オフ" : pct(insert.amount)}
+        min={0}
+        max={100}
+        value={Math.round(insert.amount * 100)}
+        onChange={(v) => onPatch({ amount: v / 100 })}
+      />
     );
-  }
+
+  const full = insert.fullBand !== false;
+  const hz = insert.hz ?? 1000;
+  const q = insert.q ?? 1.4;
+  const minW = Math.max(12, hz / 18);
+  const maxW = Math.max(minW * 1.2, hz / 0.35);
+  const bw = Math.max(minW, Math.min(maxW, bandWidthHz(hz, q)));
+  const widthSlider = Math.round(
+    ((Math.log(bw) - Math.log(minW)) / Math.log(maxW / minW)) * 1000,
+  );
+
   return (
-    <Amount
-      valueLabel={insert.amount < 0.02 ? "オフ" : pct(insert.amount)}
-      min={0}
-      max={100}
-      value={Math.round(insert.amount * 100)}
-      onChange={(v) => onPatch({ amount: v / 100 })}
-    />
+    <div className="space-y-2">
+      <label className="flex items-center gap-2 text-[12px] font-medium text-foreground">
+        <input
+          type="checkbox"
+          checked={full}
+          onChange={() => onPatch({ fullBand: !full })}
+        />
+        全帯域にかける
+      </label>
+      {!full && (
+        <div className="space-y-2">
+          <div>
+            <div className="mb-1 flex justify-between text-[11px] text-muted-foreground">
+              <span>周波数</span>
+              <span className="tabular-nums text-foreground">{formatHz(hz)}</span>
+            </div>
+            <Slider
+              min={0}
+              max={1000}
+              step={1}
+              value={[
+                Math.round(
+                  (Math.log(clampFilterHz(hz) / SPEC_MIN_HZ) /
+                    Math.log(SPEC_MAX_HZ / SPEC_MIN_HZ)) *
+                    1000,
+                ),
+              ]}
+              onValueChange={([v]) => {
+                const t = Math.max(0, Math.min(1000, v ?? 0)) / 1000;
+                onPatch({
+                  hz: clampFilterHz(
+                    SPEC_MIN_HZ * Math.pow(SPEC_MAX_HZ / SPEC_MIN_HZ, t),
+                  ),
+                });
+              }}
+            />
+          </div>
+          <div>
+            <div className="mb-1 flex justify-between text-[11px] text-muted-foreground">
+              <span>範囲の広さ</span>
+              <span className="tabular-nums text-foreground">
+                {(() => {
+                  const e = bandEdges(hz, q);
+                  return `${formatHz(e.bw)}（${formatHz(e.lo)}–${formatHz(e.hi)}）`;
+                })()}
+              </span>
+            </div>
+            <Slider
+              min={0}
+              max={1000}
+              step={1}
+              value={[Math.max(0, Math.min(1000, widthSlider))]}
+              onValueChange={([v]) => {
+                const u = Math.max(0, Math.min(1000, v ?? 0)) / 1000;
+                const nextBw = minW * Math.pow(maxW / minW, u);
+                onPatch({ q: qFromBandWidthHz(hz, nextBw) });
+              }}
+            />
+          </div>
+        </div>
+      )}
+      {body}
+    </div>
   );
 }
 

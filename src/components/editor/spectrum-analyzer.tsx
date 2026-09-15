@@ -19,7 +19,10 @@ import {
   specTToHz,
   usesBandWidth,
   usesGain,
+  allowsBandToggle,
   amountSliderLabel,
+  normalizeReverbTune,
+  type ReverbTune,
   type SpectrumFilter,
   type SpectrumFilterKind,
 } from "@/lib/audio/spectrum-filters";
@@ -29,10 +32,8 @@ import { aiVoiceSummary } from "@/lib/audio/ai-voice";
 import { AiVoiceControl } from "@/components/editor/ai-voice-controls";
 import { CABLE_INDEXES, asCableIndex, cableSummary } from "@/lib/audio/cables";
 import { deviceIoSummary } from "@/lib/audio/device-io";
-import {
-  InsertControl,
-  insertSummary,
-} from "@/components/editor/obs-filter-rack";
+import { InsertControl, insertSummary } from "@/components/editor/obs-filter-rack";
+import { ReverbTuneControls } from "@/components/editor/reverb-tune";
 import { useEditorStore } from "@/lib/store/editor-store";
 import { useActivePipeline } from "@/lib/store/use-active-pipeline";
 import { Button } from "@/components/ui/button";
@@ -60,6 +61,8 @@ type Draft = {
   hz: number;
   q: number;
   gain: number;
+  fullBand: boolean;
+  reverb: ReverbTune;
 };
 
 function hzFromPointer(
@@ -160,11 +163,15 @@ export function SpectrumAnalyzer({
   const applyLive = (next: Draft) => {
     if (!next.id) return;
     updateSpectrumFilter(next.id, {
-      name: next.name.trim() || defaultFilterName(next.kind, next.hz),
+      name:
+        next.name.trim() ||
+        defaultFilterName(next.kind, next.hz, next.fullBand),
       kind: next.kind,
       hz: next.hz,
       q: next.q,
       gain: next.gain,
+      fullBand: next.fullBand,
+      reverb: normalizeReverbTune(next.reverb),
     });
   };
 
@@ -225,7 +232,16 @@ export function SpectrumAnalyzer({
       dpr: number,
       q = 1,
       gain = 0,
+      fullBand = false,
     ) => {
+      if (fullBand) {
+        ctx.save();
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.1;
+        ctx.fillRect(padL, padT, innerW, innerH);
+        ctx.restore();
+        return;
+      }
       const t = hzToSpecT(hz, sr);
       const x = padL + t * innerW;
       ctx.save();
@@ -434,6 +450,7 @@ export function SpectrumAnalyzer({
           dpr,
           f.q,
           f.gain ?? 0,
+          !!f.fullBand && allowsBandToggle(f.kind),
         );
       }
       if (d) {
@@ -453,6 +470,7 @@ export function SpectrumAnalyzer({
           dpr,
           d.q,
           d.gain,
+          !!d.fullBand && allowsBandToggle(d.kind),
         );
       } else if (hoverRef.current != null) {
         drawLine(
@@ -531,6 +549,7 @@ export function SpectrumAnalyzer({
     let best: SpectrumFilter | null = null;
     let bestPx = 14;
     for (const f of filtersRef.current) {
+      if (f.fullBand && allowsBandToggle(f.kind)) continue;
       const px =
         Math.abs(hzToSpecT(f.hz, sr) - hzToSpecT(hz, sr)) * width;
       if (px < bestPx) {
@@ -557,6 +576,8 @@ export function SpectrumAnalyzer({
       hz: clampFilterHz(hz),
       q: f?.q ?? defaultFilterQ(kind),
       gain: f?.gain ?? defaultFilterGain(kind),
+      fullBand: false,
+      reverb: normalizeReverbTune(f?.reverb),
     });
   };
 
@@ -570,6 +591,8 @@ export function SpectrumAnalyzer({
       hz: f.hz,
       q: f.q,
       gain: f.gain ?? 0,
+      fullBand: !!f.fullBand,
+      reverb: normalizeReverbTune(f.reverb),
     });
   };
 
@@ -591,11 +614,12 @@ export function SpectrumAnalyzer({
     setHoverHz(hz);
     if (!dragging.current || !draftRef.current) return;
     const d0 = draftRef.current;
+    if (d0.fullBand && allowsBandToggle(d0.kind)) return;
     const next: Draft = {
       ...d0,
       hz,
       name: createdIdRef.current
-        ? defaultFilterName(d0.kind, hz)
+        ? defaultFilterName(d0.kind, hz, d0.fullBand)
         : d0.name,
     };
     setDraft(next);
@@ -628,6 +652,8 @@ export function SpectrumAnalyzer({
         hz: s.hz,
         q: s.q,
         gain: s.gain ?? 0,
+        fullBand: !!s.fullBand,
+        reverb: normalizeReverbTune(s.reverb),
       });
     }
     closeDraft();
@@ -638,13 +664,20 @@ export function SpectrumAnalyzer({
       if (!d) return d;
       const auto =
         !d.name ||
-        d.name === defaultFilterName(d.kind, d.hz);
+        d.name === defaultFilterName(d.kind, d.hz, d.fullBand);
       const next: Draft = {
         ...d,
         kind,
         q: defaultFilterQ(kind),
         gain: defaultFilterGain(kind),
-        name: auto ? defaultFilterName(kind, d.hz) : d.name,
+        fullBand: allowsBandToggle(kind) ? d.fullBand : false,
+        name: auto
+          ? defaultFilterName(
+              kind,
+              d.hz,
+              allowsBandToggle(kind) ? d.fullBand : false,
+            )
+          : d.name,
       };
       applyLive(next);
       return next;
@@ -720,7 +753,9 @@ export function SpectrumAnalyzer({
           <div className="mb-2 text-xs font-semibold text-foreground">
             フィルターを編集（すぐ反映）
             <span className="ml-2 font-normal text-muted-foreground">
-              {formatHz(draft.hz)}
+              {draft.fullBand && allowsBandToggle(draft.kind)
+                ? "全帯域"
+                : formatHz(draft.hz)}
             </span>
           </div>
           <label className="block text-[11px] text-muted-foreground">
@@ -749,6 +784,30 @@ export function SpectrumAnalyzer({
               </button>
             ))}
           </div>
+          {allowsBandToggle(draft.kind) && (
+            <label className="mt-3 flex items-center gap-2 text-[12px] font-medium text-foreground">
+              <input
+                type="checkbox"
+                checked={draft.fullBand}
+                onChange={() => {
+                  const fullBand = !draft.fullBand;
+                  const auto =
+                    !draft.name ||
+                    draft.name ===
+                      defaultFilterName(draft.kind, draft.hz, draft.fullBand);
+                  patchDraft({
+                    fullBand,
+                    name: auto
+                      ? defaultFilterName(draft.kind, draft.hz, fullBand)
+                      : draft.name,
+                  });
+                }}
+              />
+              全帯域にかける
+            </label>
+          )}
+          {!(allowsBandToggle(draft.kind) && draft.fullBand) && (
+          <>
           <div className="mt-3">
             <div className="mb-1 flex justify-between text-[11px] text-muted-foreground">
               <span>周波数</span>
@@ -766,7 +825,7 @@ export function SpectrumAnalyzer({
                 patchDraft({
                   hz,
                   name: createdIdRef.current
-                    ? defaultFilterName(draft.kind, hz)
+                    ? defaultFilterName(draft.kind, hz, draft.fullBand)
                     : draft.name,
                 });
               }}
@@ -775,10 +834,10 @@ export function SpectrumAnalyzer({
           <div className="mt-3">
             <div className="mb-1 flex justify-between text-[11px] text-muted-foreground">
               <span>
-                {usesBandWidth(draft.kind) ? "範囲の広さ" : "鋭さ（Q）"}
+                {usesBandWidth(draft.kind, draft.fullBand) ? "範囲の広さ" : "鋭さ（Q）"}
               </span>
               <span className="tabular-nums text-foreground">
-                {usesBandWidth(draft.kind)
+                {usesBandWidth(draft.kind, draft.fullBand)
                   ? (() => {
                       const { lo, hi, bw } = bandEdges(draft.hz, draft.q);
                       return `${formatHz(bw)}（${formatHz(lo)}–${formatHz(hi)}）`;
@@ -786,7 +845,7 @@ export function SpectrumAnalyzer({
                   : draft.q.toFixed(1)}
               </span>
             </div>
-            {usesBandWidth(draft.kind) ? (
+            {usesBandWidth(draft.kind, draft.fullBand) ? (
               <Slider
                 min={0}
                 max={1000}
@@ -807,12 +866,14 @@ export function SpectrumAnalyzer({
                 }
               />
             )}
-            {usesBandWidth(draft.kind) && (
+            {usesBandWidth(draft.kind, draft.fullBand) && (
               <p className="mt-1 text-[10px] text-muted-foreground">
                 左が狭い（ピンポイント）、右が広い。点線が効く範囲です。
               </p>
             )}
           </div>
+          </>
+          )}
           {usesGain(draft.kind) && (
             <div className="mt-3">
               <div className="mb-1 flex justify-between text-[11px] text-muted-foreground">
@@ -841,7 +902,7 @@ export function SpectrumAnalyzer({
               <div className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground">
                 <span>
                   {draft.kind === "band-reverb"
-                    ? "ドライ"
+                    ? "乾いた音"
                     : draft.kind === "band-pitch"
                       ? "−12 半音"
                       : "−18 dB"}
@@ -857,13 +918,24 @@ export function SpectrumAnalyzer({
                 </button>
                 <span>
                   {draft.kind === "band-reverb"
-                    ? "ウェット"
+                    ? "残響だけ"
                     : draft.kind === "band-pitch"
                       ? "＋12 半音"
                       : "＋18 dB"}
                 </span>
               </div>
+              {draft.kind === "band-reverb" && (
+                <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                  乾いた音と残響の混ぜ。右に行くほど残響が大きくなります
+                </p>
+              )}
             </div>
+          )}
+          {draft.kind === "band-reverb" && (
+            <ReverbTuneControls
+              value={draft.reverb}
+              onChange={(reverb) => patchDraft({ reverb })}
+            />
           )}
           <div className="mt-3 flex flex-wrap gap-2">
             <Button type="button" size="sm" onClick={closeDraft}>
@@ -951,12 +1023,18 @@ export function SpectrumAnalyzer({
                       {f.name}
                     </div>
                     <div className="truncate text-[10px] text-muted-foreground">
-                      {filterKindLabel(f.kind)} · {formatHz(f.hz)}
-                      {usesBandWidth(f.kind)
+                      {filterKindLabel(f.kind)}
+                      {f.fullBand && allowsBandToggle(f.kind)
+                        ? " · 全帯域"
+                        : ` · ${formatHz(f.hz)}`}
+                      {usesBandWidth(f.kind, !!f.fullBand)
                         ? ` · 幅 ${formatHz(bandWidthHz(f.hz, f.q))}`
                         : ""}
                       {usesGain(f.kind)
                         ? ` · ${formatFilterAmount(f.kind, f.gain ?? 0)}`
+                        : ""}
+                      {f.kind === "band-reverb"
+                        ? ` · ${normalizeReverbTune(f.reverb).decay.toFixed(1)}秒`
                         : ""}
                     </div>
                   </div>

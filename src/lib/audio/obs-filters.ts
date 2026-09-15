@@ -1,5 +1,6 @@
 import type { MasterFx } from "./types";
 import { createHowlCancellerHandle } from "./howl-canceller";
+import { clampFilterHz } from "./spectrum-filters";
 
 export type RecMark = "yes" | "situational" | "special";
 
@@ -312,6 +313,10 @@ export type ObsInsert = {
   eqMid: number;
   eqHigh: number;
   phaseInvert: boolean;
+  /** Default true: process the whole spectrum. Uncheck to pick a band. */
+  fullBand: boolean;
+  hz: number;
+  q: number;
 };
 
 export function catalogMeta(kind: ObsFilterId) {
@@ -354,6 +359,9 @@ export function newObsInsert(
     eqMid: clamp(num(patch?.eqMid, 0), -12, 12),
     eqHigh: clamp(num(patch?.eqHigh, 0), -12, 12),
     phaseInvert: patch?.phaseInvert ?? kind === "phase",
+    fullBand: patch?.fullBand !== false,
+    hz: clampFilterHz(num(patch?.hz, 1000)),
+    q: clamp(num(patch?.q, 1.4), 0.3, 18),
   };
 }
 

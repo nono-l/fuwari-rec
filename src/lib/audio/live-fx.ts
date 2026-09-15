@@ -1,5 +1,6 @@
-import { applyFilterToBiquad, type SpectrumFilter } from "./spectrum-filters";
+import { applyFilterToBiquad, clampFilterGain, type SpectrumFilter } from "./spectrum-filters";
 import { createBandFxHandle, isBandFxKind } from "./band-fx";
+import { createBandScope } from "./band-scope";
 import { createAiVoiceHandle, type AiVoiceInsert } from "./ai-voice";
 import {
   createObsInsertHandle,
@@ -63,10 +64,10 @@ export function liveChainKey(items: LiveFxItem[]) {
     .filter(liveItemEnabled)
     .map((item) => {
       if (item.family === "spectrum") {
-        return `s:${item.filter.id}:${item.filter.kind}`;
+        return `s:${item.filter.id}:${item.filter.kind}:${item.filter.fullBand ? "f" : "b"}`;
       }
       if (item.family === "obs") {
-        return `o:${item.insert.id}:${item.insert.kind}`;
+        return `o:${item.insert.id}:${item.insert.kind}:${item.insert.fullBand === false ? "b" : "f"}`;
       }
       if (item.family === "ai") {
         return `a:${item.voice.id}:${Math.abs(item.voice.pitch) >= 0.05 ? "p" : "d"}`;
@@ -199,6 +200,29 @@ export function createLiveHandle(
         dispose: h.dispose,
       };
     }
+    if (item.filter.kind === "peak" && item.filter.fullBand) {
+      const g = ctx.createGain();
+      const applyPeak = (f: SpectrumFilter) => {
+        const db = clampFilterGain(f.gain ?? 0);
+        g.gain.value = Math.pow(10, db / 20);
+      };
+      applyPeak(item.filter);
+      return {
+        id: item.filter.id,
+        input: g,
+        output: g,
+        apply: (next) => {
+          if (next.family === "spectrum") applyPeak(next.filter);
+        },
+        dispose: () => {
+          try {
+            g.disconnect();
+          } catch {
+            /* noop */
+          }
+        },
+      };
+    }
     const bq = ctx.createBiquadFilter();
     applyFilterToBiquad(bq, item.filter);
     return {
@@ -270,14 +294,38 @@ export function createLiveHandle(
     };
   }
   const h = createObsInsertHandle(ctx, item.insert, workletFactory);
+  if (item.insert.fullBand !== false) {
+    return {
+      id: h.id,
+      input: h.input,
+      output: h.output,
+      apply: (next) => {
+        if (next.family === "obs") h.apply(next.insert);
+      },
+      dispose: h.dispose,
+    };
+  }
+  const scope = createBandScope(ctx);
+  scope.fxIn.connect(h.input);
+  h.output.connect(scope.fxOut);
+  scope.apply(false, item.insert.hz, item.insert.q);
   return {
     id: h.id,
-    input: h.input,
-    output: h.output,
+    input: scope.input,
+    output: scope.output,
     apply: (next) => {
-      if (next.family === "obs") h.apply(next.insert);
+      if (next.family !== "obs") return;
+      h.apply(next.insert);
+      scope.apply(
+        next.insert.fullBand !== false,
+        next.insert.hz,
+        next.insert.q,
+      );
     },
-    dispose: h.dispose,
+    dispose: () => {
+      h.dispose();
+      scope.dispose();
+    },
   };
 }
 
