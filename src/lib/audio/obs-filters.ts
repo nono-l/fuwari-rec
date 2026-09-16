@@ -390,6 +390,53 @@ export function normalizeExpanderTune(
   return clampBelowTune(r, DEFAULT_EXPANDER_TUNE);
 }
 
+export type DenoiseTune = {
+  /** Dry/wet of the cleaned path. */
+  mix: number;
+  /** How hard the HP/LP shave. */
+  attack: number;
+  /** Extra expander on quiet parts. */
+  gateLink: boolean;
+  /** Expander threshold when gateLink is on, dBFS. */
+  thresholdDb: number;
+};
+
+export const DEFAULT_DENOISE_TUNE: DenoiseTune = {
+  mix: 1,
+  attack: 0.4,
+  gateLink: false,
+  thresholdDb: -38,
+};
+
+export function deriveDenoiseFromAmount(amount: number): DenoiseTune {
+  const a = clamp(amount, 0, 1);
+  return {
+    mix: 1,
+    attack: a,
+    gateLink: false,
+    thresholdDb: -38,
+  };
+}
+
+export function normalizeDenoiseTune(
+  raw?: Partial<DenoiseTune> | null,
+  amount?: number,
+): DenoiseTune {
+  const r = raw ?? {};
+  const explicit = Number.isFinite(Number(r.attack));
+  if (!explicit) return deriveDenoiseFromAmount(amount ?? 0.4);
+  return {
+    mix: clamp(num(r.mix, DEFAULT_DENOISE_TUNE.mix), 0, 1),
+    attack: clamp(num(r.attack, DEFAULT_DENOISE_TUNE.attack), 0, 1),
+    gateLink: r.gateLink === true,
+    thresholdDb: clamp(
+      num(r.thresholdDb, DEFAULT_DENOISE_TUNE.thresholdDb),
+      -80,
+      0,
+    ),
+  };
+}
+
 export const DEFAULT_MASTER_FX: MasterFx = {
   volume: 1,
   pitchSemitones: 0,
@@ -671,6 +718,7 @@ export type ObsInsert = {
   gate: GateTune;
   upwardTune: BelowTune;
   expanderTune: BelowTune;
+  denoiseTune: DenoiseTune;
 };
 
 export function catalogMeta(kind: ObsFilterId) {
@@ -733,6 +781,11 @@ export function newObsInsert(
     expanderTune: normalizeExpanderTune(
       patch?.expanderTune ??
         (patch?.amount == null ? DEFAULT_EXPANDER_TUNE : undefined),
+      patch?.amount,
+    ),
+    denoiseTune: normalizeDenoiseTune(
+      patch?.denoiseTune ??
+        (patch?.amount == null ? DEFAULT_DENOISE_TUNE : undefined),
       patch?.amount,
     ),
   };
@@ -867,20 +920,72 @@ export function createObsInsertHandle(
   }
 
   if (ins.kind === "denoise") {
+    const input = track(ctx.createGain());
+    const dryG = track(ctx.createGain());
+    const wetG = track(ctx.createGain());
+    const output = track(ctx.createGain());
     const hp = track(ctx.createBiquadFilter());
     hp.type = "highpass";
     hp.Q.value = 0.7;
     const lp = track(ctx.createBiquadFilter());
     lp.type = "lowpass";
     lp.Q.value = 0.7;
+    const worklet = workletFactory?.() ?? null;
+    input.connect(dryG);
+    dryG.connect(output);
+    input.connect(hp);
     hp.connect(lp);
+    if (worklet) {
+      track(worklet);
+      lp.connect(worklet);
+      worklet.connect(wetG);
+    } else {
+      lp.connect(wetG);
+    }
+    wetG.connect(output);
     const apply = (next: ObsInsert) => {
-      const p = noiseParams(next.amount);
+      const d = normalizeDenoiseTune(next.denoiseTune, next.amount);
+      const p = noiseParams(d.attack);
       hp.frequency.value = p.hp;
       lp.frequency.value = p.lp;
+      dryG.gain.value = 1 - d.mix;
+      wetG.gain.value = d.mix;
+      if (!worklet) return;
+      const t = "currentTime" in ctx ? ctx.currentTime : 0;
+      const set = (name: string, value: number) => {
+        const param = worklet.parameters.get(name);
+        if (!param) return;
+        try {
+          param.setTargetAtTime(value, t, 0.03);
+        } catch {
+          param.value = value;
+        }
+      };
+      set("gate", 0);
+      set("upward", 0);
+      set("expander", 0);
+      set("gThresh", 0);
+      set("uRatio", 1);
+      if (d.gateLink) {
+        set("eThresh", Math.pow(10, d.thresholdDb / 20));
+        set("eRatio", 1.3 + d.attack * 1.7);
+        set("eAtk", 8);
+        set("eRel", 90);
+        set("eMix", 1);
+      } else {
+        set("eRatio", 1);
+        set("eMix", 1);
+      }
     };
     apply(ins);
-    return { id: ins.id, kind: ins.kind, input: hp, output: lp, apply, dispose };
+    return {
+      id: ins.id,
+      kind: ins.kind,
+      input,
+      output,
+      apply,
+      dispose,
+    };
   }
 
   if (ins.kind === "eq3") {

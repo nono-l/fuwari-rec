@@ -13,6 +13,7 @@ import {
   normalizeGateTune,
   normalizeUpwardTune,
   normalizeExpanderTune,
+  normalizeDenoiseTune,
   type ObsFilterId,
   type ObsInsert,
   type RecMark,
@@ -21,6 +22,7 @@ import { CompTuneControls } from "@/components/editor/compressor-tune";
 import { LimiterTuneControls } from "@/components/editor/limiter-tune";
 import { GateTuneControls } from "@/components/editor/gate-tune";
 import { BelowTuneControls } from "@/components/editor/below-tune";
+import { DenoiseTuneControls } from "@/components/editor/denoise-tune";
 import {
   bandEdges,
   formatHz,
@@ -74,6 +76,10 @@ export function insertSummary(ins: ObsInsert) {
   if (ins.kind === "expander") {
     const e = normalizeExpanderTune(ins.expanderTune, ins.amount);
     return `${e.thresholdDb.toFixed(0)} dB · ${e.ratio.toFixed(1)}:1${band}`;
+  }
+  if (ins.kind === "denoise") {
+    const d = normalizeDenoiseTune(ins.denoiseTune, ins.amount);
+    return `攻撃 ${pct(d.attack)}${d.gateLink ? " · 連動" : ""}${band}`;
   }
   if (ins.kind === "gain") return pct(ins.amount) + band;
   return (ins.amount < 0.02 ? "オフ" : pct(ins.amount)) + band;
@@ -405,6 +411,13 @@ export function InsertControl({
         value={normalizeExpanderTune(insert.expanderTune, insert.amount)}
         onChange={(expanderTune) =>
           onPatch({ expanderTune, amount: expanderTune.mix })
+        }
+      />
+    ) : insert.kind === "denoise" ? (
+      <DenoiseTuneControls
+        value={normalizeDenoiseTune(insert.denoiseTune, insert.amount)}
+        onChange={(denoiseTune) =>
+          onPatch({ denoiseTune, amount: denoiseTune.attack })
         }
       />
     ) : (
