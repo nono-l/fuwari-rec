@@ -107,16 +107,35 @@ export function createBandFxHandle(
     hp.Q.value = 0.7;
     const delay = ctx.createDelay(0.12);
     const conv = ctx.createConvolver();
+    const highCut = ctx.createBiquadFilter();
+    highCut.type = "lowpass";
+    highCut.Q.value = 0.7;
     const lp = ctx.createBiquadFilter();
     lp.type = "lowpass";
     lp.Q.value = 0.7;
+    const split = ctx.createChannelSplitter(2);
+    const merge = ctx.createChannelMerger(2);
+    const keepL = ctx.createGain();
+    const keepR = ctx.createGain();
+    const crossL = ctx.createGain();
+    const crossR = ctx.createGain();
     const wet = ctx.createGain();
     hp.connect(delay);
     delay.connect(conv);
-    conv.connect(lp);
-    lp.connect(wet);
+    conv.connect(highCut);
+    highCut.connect(lp);
+    lp.connect(split);
+    split.connect(keepL, 0);
+    split.connect(crossR, 0);
+    split.connect(keepR, 1);
+    split.connect(crossL, 1);
+    keepL.connect(merge, 0, 0);
+    crossL.connect(merge, 0, 0);
+    keepR.connect(merge, 0, 1);
+    crossR.connect(merge, 0, 1);
+    merge.connect(wet);
     wet.connect(output);
-    nodes.push(hp, delay, conv, lp, wet);
+    nodes.push(hp, delay, conv, highCut, lp, split, merge, keepL, keepR, crossL, crossR, wet);
     const full = () => {
       try {
         bp.disconnect();
@@ -175,8 +194,15 @@ export function createBandFxHandle(
       setParam(ctx, wet.gain, mix * 0.85);
       setParam(ctx, delay.delayTime, rv.predelayMs / 1000);
       setParam(ctx, hp.frequency, rv.lowCutHz);
+      setParam(ctx, highCut.frequency, rv.highCutHz);
       const brightHz = 1800 * Math.pow(14000 / 1800, rv.brightness);
       setParam(ctx, lp.frequency, brightHz);
+      const keep = 0.5 + 0.5 * rv.width;
+      const cross = 0.5 - 0.5 * rv.width;
+      setParam(ctx, keepL.gain, keep);
+      setParam(ctx, keepR.gain, keep);
+      setParam(ctx, crossL.gain, cross);
+      setParam(ctx, crossR.gain, cross);
     };
   } else if (filter.kind === "band-formant") {
     const notch = ctx.createBiquadFilter();

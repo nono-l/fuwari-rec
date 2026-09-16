@@ -71,17 +71,40 @@ const ROWS: {
     step: 5,
     format: (n) => formatHz(n),
   },
+  {
+    key: "highCutHz",
+    label: "ハイカット",
+    hint: "残響の刺さる高域を切る。息やシンバルの「シャー」が尾に残るとき",
+    left: "高音残す",
+    right: "切る",
+    min: 1500,
+    max: 16000,
+    step: 50,
+    format: (n) => formatHz(n),
+  },
+  {
+    key: "width",
+    label: "広がり",
+    hint: "残響の左右の幅。下げると中央に固まり、上げると部屋の壁が開く",
+    left: "中央",
+    right: "広い",
+    min: 0,
+    max: 100,
+    step: 1,
+    format: (n) => `${Math.round(n * 100)}%`,
+  },
 ];
 
 function sliderValue(key: keyof ReverbTune, n: number) {
   if (key === "decay") return Math.round(n * 100);
-  if (key === "brightness" || key === "size") return Math.round(n * 100);
+  if (key === "brightness" || key === "size" || key === "width")
+    return Math.round(n * 100);
   return Math.round(n);
 }
 
 function fromSlider(key: keyof ReverbTune, v: number) {
   if (key === "decay") return v / 100;
-  if (key === "brightness" || key === "size") return v / 100;
+  if (key === "brightness" || key === "size" || key === "width") return v / 100;
   return v;
 }
 

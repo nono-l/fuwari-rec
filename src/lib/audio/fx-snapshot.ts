@@ -326,7 +326,7 @@ function profileXml(tag: string, amount: number, profile: RoomProfile | null) {
 
 function filterXml(f: SpectrumFilter) {
   const rv = normalizeReverbTune(f.reverb);
-  return `      <filter id="${esc(f.id)}" name="${esc(f.name)}" kind="${f.kind}" hz="${f.hz}" q="${f.q}" gain="${f.gain ?? 0}" enabled="${f.enabled ? "true" : "false"}" fullBand="${f.fullBand ? "true" : "false"}" reverbDecay="${rv.decay}" reverbPredelay="${rv.predelayMs}" reverbBright="${rv.brightness}" reverbSize="${rv.size}" reverbLowCut="${rv.lowCutHz}"/>`;
+  return `      <filter id="${esc(f.id)}" name="${esc(f.name)}" kind="${f.kind}" hz="${f.hz}" q="${f.q}" gain="${f.gain ?? 0}" enabled="${f.enabled ? "true" : "false"}" fullBand="${f.fullBand ? "true" : "false"}" reverbDecay="${rv.decay}" reverbPredelay="${rv.predelayMs}" reverbBright="${rv.brightness}" reverbSize="${rv.size}" reverbLowCut="${rv.lowCutHz}" reverbHighCut="${rv.highCutHz}" reverbWidth="${rv.width}"/>`;
 }
 
 function insertXml(f: ObsInsert) {
@@ -472,6 +472,8 @@ function parseFilterEl(f: Element): SpectrumFilter | null {
       brightness: num(attr(f, "reverbBright"), 0.62),
       size: num(attr(f, "reverbSize"), 0.4),
       lowCutHz: num(attr(f, "reverbLowCut"), 120),
+      highCutHz: num(attr(f, "reverbHighCut"), 8500),
+      width: num(attr(f, "reverbWidth"), 0.72),
     }),
   });
 }

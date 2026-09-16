@@ -19,6 +19,10 @@ export type ReverbTune = {
   size: number;
   /** High-pass on the send, Hz. */
   lowCutHz: number;
+  /** Low-pass ceiling on the send, Hz. */
+  highCutHz: number;
+  /** 0 = mono tail, 1 = wide stereo. */
+  width: number;
 };
 
 export const DEFAULT_REVERB_TUNE: ReverbTune = {
@@ -27,6 +31,8 @@ export const DEFAULT_REVERB_TUNE: ReverbTune = {
   brightness: 0.62,
   size: 0.4,
   lowCutHz: 120,
+  highCutHz: 8500,
+  width: 0.72,
 };
 
 export function clamp01(n: number) {
@@ -53,6 +59,11 @@ export function normalizeReverbTune(
       40,
       Math.min(400, num(r.lowCutHz, DEFAULT_REVERB_TUNE.lowCutHz)),
     ),
+    highCutHz: Math.max(
+      1500,
+      Math.min(16000, num(r.highCutHz, DEFAULT_REVERB_TUNE.highCutHz)),
+    ),
+    width: clamp01(num(r.width, DEFAULT_REVERB_TUNE.width)),
   };
 }
 
