@@ -10,12 +10,14 @@ import {
   recLabel,
   normalizeCompTune,
   normalizeLimiterTune,
+  normalizeGateTune,
   type ObsFilterId,
   type ObsInsert,
   type RecMark,
 } from "@/lib/audio/obs-filters";
 import { CompTuneControls } from "@/components/editor/compressor-tune";
 import { LimiterTuneControls } from "@/components/editor/limiter-tune";
+import { GateTuneControls } from "@/components/editor/gate-tune";
 import {
   bandEdges,
   formatHz,
@@ -57,6 +59,10 @@ export function insertSummary(ins: ObsInsert) {
   if (ins.kind === "limiter") {
     const l = normalizeLimiterTune(ins.limiter, ins.amount);
     return `${l.ceilingDb.toFixed(1)} dB · LA ${l.lookaheadMs.toFixed(1)}ms${band}`;
+  }
+  if (ins.kind === "gate") {
+    const g = normalizeGateTune(ins.gate, ins.amount);
+    return `${g.thresholdDb.toFixed(0)} dB · フロア ${pct(g.floor)}${band}`;
   }
   if (ins.kind === "gain") return pct(ins.amount) + band;
   return (ins.amount < 0.02 ? "オフ" : pct(ins.amount)) + band;
@@ -370,6 +376,11 @@ export function InsertControl({
       <LimiterTuneControls
         value={normalizeLimiterTune(insert.limiter, insert.amount)}
         onChange={(limiter) => onPatch({ limiter, amount: limiter.mix })}
+      />
+    ) : insert.kind === "gate" ? (
+      <GateTuneControls
+        value={normalizeGateTune(insert.gate, insert.amount)}
+        onChange={(gate) => onPatch({ gate, amount: gate.mix })}
       />
     ) : (
       <Amount

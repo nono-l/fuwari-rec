@@ -7,6 +7,7 @@ import {
   normalizeObsInsert,
   normalizeCompTune,
   normalizeLimiterTune,
+  normalizeGateTune,
   type ObsInsert,
 } from "./obs-filters";
 import type { RoomProfile } from "./room-profile";
@@ -348,7 +349,8 @@ function filterXml(f: SpectrumFilter) {
 function insertXml(f: ObsInsert) {
   const c = normalizeCompTune(f.comp, f.amount);
   const l = normalizeLimiterTune(f.limiter, f.amount);
-  return `      <insert id="${esc(f.id)}" kind="${f.kind}" name="${esc(f.name)}" enabled="${f.enabled ? "true" : "false"}" amount="${f.amount}" eqLow="${f.eqLow}" eqMid="${f.eqMid}" eqHigh="${f.eqHigh}" phase="${f.phaseInvert ? "true" : "false"}" fullBand="${f.fullBand !== false ? "true" : "false"}" hz="${f.hz ?? 1000}" q="${f.q ?? 1.4}" compThresh="${c.thresholdDb}" compRatio="${c.ratio}" compAtk="${c.attackMs}" compRel="${c.releaseMs}" compKnee="${c.kneeDb}" compMakeup="${c.makeupDb}" compMix="${c.mix}" limCeil="${l.ceilingDb}" limLook="${l.lookaheadMs}" limRel="${l.releaseMs}" limMakeup="${l.makeupDb}" limMix="${l.mix}"/>`;
+  const g = normalizeGateTune(f.gate, f.amount);
+  return `      <insert id="${esc(f.id)}" kind="${f.kind}" name="${esc(f.name)}" enabled="${f.enabled ? "true" : "false"}" amount="${f.amount}" eqLow="${f.eqLow}" eqMid="${f.eqMid}" eqHigh="${f.eqHigh}" phase="${f.phaseInvert ? "true" : "false"}" fullBand="${f.fullBand !== false ? "true" : "false"}" hz="${f.hz ?? 1000}" q="${f.q ?? 1.4}" compThresh="${c.thresholdDb}" compRatio="${c.ratio}" compAtk="${c.attackMs}" compRel="${c.releaseMs}" compKnee="${c.kneeDb}" compMakeup="${c.makeupDb}" compMix="${c.mix}" limCeil="${l.ceilingDb}" limLook="${l.lookaheadMs}" limRel="${l.releaseMs}" limMakeup="${l.makeupDb}" limMix="${l.mix}" gateThresh="${g.thresholdDb}" gateAtk="${g.attackMs}" gateHold="${g.holdMs}" gateRel="${g.releaseMs}" gateFloor="${g.floor}" gateMix="${g.mix}"/>`;
 }
 
 function cableXml(c: CableInsert) {
@@ -566,6 +568,17 @@ function parseInsertEl(f: Element): ObsInsert | null {
             releaseMs: num(attr(f, "limRel"), 60),
             makeupDb: num(attr(f, "limMakeup"), 0),
             mix: num(attr(f, "limMix"), 1),
+          },
+    gate:
+      attr(f, "gateThresh") === ""
+        ? undefined
+        : {
+            thresholdDb: num(attr(f, "gateThresh"), -36),
+            attackMs: num(attr(f, "gateAtk"), 2),
+            holdMs: num(attr(f, "gateHold"), 40),
+            releaseMs: num(attr(f, "gateRel"), 80),
+            floor: num(attr(f, "gateFloor"), 0.05),
+            mix: num(attr(f, "gateMix"), 1),
           },
   });
 }

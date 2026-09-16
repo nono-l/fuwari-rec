@@ -240,6 +240,70 @@ export function normalizeLimiterTune(
   };
 }
 
+export type GateTune = {
+  /** Open above this RMS, dBFS. */
+  thresholdDb: number;
+  /** Open time, milliseconds. */
+  attackMs: number;
+  /** Stay open after falling below threshold, milliseconds. */
+  holdMs: number;
+  /** Close time, milliseconds. */
+  releaseMs: number;
+  /** Remaining gain when closed, 0–1. */
+  floor: number;
+  /** Dry/wet. 1 = gated only. */
+  mix: number;
+};
+
+export const DEFAULT_GATE_TUNE: GateTune = {
+  thresholdDb: -36,
+  attackMs: 2,
+  holdMs: 40,
+  releaseMs: 80,
+  floor: 0.05,
+  mix: 1,
+};
+
+export function deriveGateFromAmount(amount: number): GateTune {
+  const a = clamp(amount, 0, 1);
+  if (a < 0.02) {
+    return {
+      thresholdDb: 0,
+      attackMs: 5,
+      holdMs: 0,
+      releaseMs: 60,
+      floor: 1,
+      mix: 1,
+    };
+  }
+  const lin = 0.008 + a * 0.07;
+  return {
+    thresholdDb: 20 * Math.log10(Math.max(1e-6, lin)),
+    attackMs: 5,
+    holdMs: 0,
+    releaseMs: 60,
+    floor: Math.max(0.04, 1 - a * 0.92),
+    mix: 1,
+  };
+}
+
+export function normalizeGateTune(
+  raw?: Partial<GateTune> | null,
+  amount?: number,
+): GateTune {
+  const r = raw ?? {};
+  const explicit = Number.isFinite(Number(r.thresholdDb));
+  if (!explicit) return deriveGateFromAmount(amount ?? 0.35);
+  return {
+    thresholdDb: clamp(num(r.thresholdDb, DEFAULT_GATE_TUNE.thresholdDb), -80, 0),
+    attackMs: clamp(num(r.attackMs, DEFAULT_GATE_TUNE.attackMs), 0.5, 40),
+    holdMs: clamp(num(r.holdMs, DEFAULT_GATE_TUNE.holdMs), 0, 400),
+    releaseMs: clamp(num(r.releaseMs, DEFAULT_GATE_TUNE.releaseMs), 10, 800),
+    floor: clamp(num(r.floor, DEFAULT_GATE_TUNE.floor), 0, 1),
+    mix: clamp(num(r.mix, DEFAULT_GATE_TUNE.mix), 0, 1),
+  };
+}
+
 export const DEFAULT_MASTER_FX: MasterFx = {
   volume: 1,
   pitchSemitones: 0,
@@ -518,6 +582,7 @@ export type ObsInsert = {
   q: number;
   comp: CompTune;
   limiter: LimiterTune;
+  gate: GateTune;
 };
 
 export function catalogMeta(kind: ObsFilterId) {
@@ -566,6 +631,10 @@ export function newObsInsert(
     comp: normalizeCompTune(patch?.comp, patch?.amount),
     limiter: normalizeLimiterTune(
       patch?.limiter ?? (patch?.amount == null ? DEFAULT_LIMITER_TUNE : undefined),
+      patch?.amount,
+    ),
+    gate: normalizeGateTune(
+      patch?.gate ?? (patch?.amount == null ? DEFAULT_GATE_TUNE : undefined),
       patch?.amount,
     ),
   };
@@ -828,9 +897,22 @@ export function createObsInsertHandle(
           p.value = value;
         }
       };
-      set("gate", next.kind === "gate" ? next.amount : 0);
+      set("gate", next.kind === "gate" ? 1 : 0);
       set("upward", next.kind === "upward" ? next.amount : 0);
       set("expander", next.kind === "expander" ? next.amount : 0);
+      if (next.kind === "gate") {
+        const g = normalizeGateTune(next.gate, next.amount);
+        set("gThresh", Math.pow(10, g.thresholdDb / 20));
+        set("gAtk", g.attackMs);
+        set("gHold", g.holdMs);
+        set("gRel", g.releaseMs);
+        set("gFloor", g.floor);
+        set("gMix", g.mix);
+      } else {
+        set("gThresh", 0);
+        set("gFloor", 1);
+        set("gMix", 1);
+      }
     };
     apply(ins);
     return {
