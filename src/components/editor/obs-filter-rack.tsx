@@ -11,6 +11,8 @@ import {
   normalizeCompTune,
   normalizeLimiterTune,
   normalizeGateTune,
+  normalizeUpwardTune,
+  normalizeExpanderTune,
   type ObsFilterId,
   type ObsInsert,
   type RecMark,
@@ -18,6 +20,7 @@ import {
 import { CompTuneControls } from "@/components/editor/compressor-tune";
 import { LimiterTuneControls } from "@/components/editor/limiter-tune";
 import { GateTuneControls } from "@/components/editor/gate-tune";
+import { BelowTuneControls } from "@/components/editor/below-tune";
 import {
   bandEdges,
   formatHz,
@@ -63,6 +66,14 @@ export function insertSummary(ins: ObsInsert) {
   if (ins.kind === "gate") {
     const g = normalizeGateTune(ins.gate, ins.amount);
     return `${g.thresholdDb.toFixed(0)} dB · フロア ${pct(g.floor)}${band}`;
+  }
+  if (ins.kind === "upward") {
+    const u = normalizeUpwardTune(ins.upwardTune, ins.amount);
+    return `${u.thresholdDb.toFixed(0)} dB · ${u.ratio.toFixed(1)}:1${band}`;
+  }
+  if (ins.kind === "expander") {
+    const e = normalizeExpanderTune(ins.expanderTune, ins.amount);
+    return `${e.thresholdDb.toFixed(0)} dB · ${e.ratio.toFixed(1)}:1${band}`;
   }
   if (ins.kind === "gain") return pct(ins.amount) + band;
   return (ins.amount < 0.02 ? "オフ" : pct(ins.amount)) + band;
@@ -381,6 +392,20 @@ export function InsertControl({
       <GateTuneControls
         value={normalizeGateTune(insert.gate, insert.amount)}
         onChange={(gate) => onPatch({ gate, amount: gate.mix })}
+      />
+    ) : insert.kind === "upward" ? (
+      <BelowTuneControls
+        mode="upward"
+        value={normalizeUpwardTune(insert.upwardTune, insert.amount)}
+        onChange={(upwardTune) => onPatch({ upwardTune, amount: upwardTune.mix })}
+      />
+    ) : insert.kind === "expander" ? (
+      <BelowTuneControls
+        mode="expander"
+        value={normalizeExpanderTune(insert.expanderTune, insert.amount)}
+        onChange={(expanderTune) =>
+          onPatch({ expanderTune, amount: expanderTune.mix })
+        }
       />
     ) : (
       <Amount

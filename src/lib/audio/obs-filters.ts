@@ -304,6 +304,92 @@ export function normalizeGateTune(
   };
 }
 
+/** Shared shape for upward compressor and expander (both act below threshold). */
+export type BelowTune = {
+  thresholdDb: number;
+  ratio: number;
+  attackMs: number;
+  releaseMs: number;
+  mix: number;
+};
+
+export const DEFAULT_UPWARD_TUNE: BelowTune = {
+  thresholdDb: -18,
+  ratio: 2,
+  attackMs: 8,
+  releaseMs: 100,
+  mix: 1,
+};
+
+export const DEFAULT_EXPANDER_TUNE: BelowTune = {
+  thresholdDb: -40,
+  ratio: 2,
+  attackMs: 5,
+  releaseMs: 80,
+  mix: 1,
+};
+
+export function deriveUpwardFromAmount(amount: number): BelowTune {
+  const a = clamp(amount, 0, 1);
+  if (a < 0.02) {
+    return { thresholdDb: -15, ratio: 1, attackMs: 8, releaseMs: 80, mix: 1 };
+  }
+  return {
+    thresholdDb: -15,
+    ratio: 1 + a * 3,
+    attackMs: 8,
+    releaseMs: 80,
+    mix: 1,
+  };
+}
+
+export function deriveExpanderFromAmount(amount: number): BelowTune {
+  const a = clamp(amount, 0, 1);
+  if (a < 0.02) {
+    return { thresholdDb: -26, ratio: 1, attackMs: 5, releaseMs: 60, mix: 1 };
+  }
+  const lin = 0.05 + a * 0.04;
+  return {
+    thresholdDb: 20 * Math.log10(Math.max(1e-6, lin)),
+    ratio: 1 + a * 1.4,
+    attackMs: 5,
+    releaseMs: 60,
+    mix: 1,
+  };
+}
+
+function clampBelowTune(raw: Partial<BelowTune>, fallback: BelowTune): BelowTune {
+  return {
+    thresholdDb: clamp(num(raw.thresholdDb, fallback.thresholdDb), -80, 0),
+    ratio: clamp(num(raw.ratio, fallback.ratio), 1, 8),
+    attackMs: clamp(num(raw.attackMs, fallback.attackMs), 0.5, 80),
+    releaseMs: clamp(num(raw.releaseMs, fallback.releaseMs), 10, 800),
+    mix: clamp(num(raw.mix, fallback.mix), 0, 1),
+  };
+}
+
+export function normalizeUpwardTune(
+  raw?: Partial<BelowTune> | null,
+  amount?: number,
+): BelowTune {
+  const r = raw ?? {};
+  if (!Number.isFinite(Number(r.thresholdDb))) {
+    return deriveUpwardFromAmount(amount ?? 0.4);
+  }
+  return clampBelowTune(r, DEFAULT_UPWARD_TUNE);
+}
+
+export function normalizeExpanderTune(
+  raw?: Partial<BelowTune> | null,
+  amount?: number,
+): BelowTune {
+  const r = raw ?? {};
+  if (!Number.isFinite(Number(r.thresholdDb))) {
+    return deriveExpanderFromAmount(amount ?? 0.35);
+  }
+  return clampBelowTune(r, DEFAULT_EXPANDER_TUNE);
+}
+
 export const DEFAULT_MASTER_FX: MasterFx = {
   volume: 1,
   pitchSemitones: 0,
@@ -583,6 +669,8 @@ export type ObsInsert = {
   comp: CompTune;
   limiter: LimiterTune;
   gate: GateTune;
+  upwardTune: BelowTune;
+  expanderTune: BelowTune;
 };
 
 export function catalogMeta(kind: ObsFilterId) {
@@ -635,6 +723,16 @@ export function newObsInsert(
     ),
     gate: normalizeGateTune(
       patch?.gate ?? (patch?.amount == null ? DEFAULT_GATE_TUNE : undefined),
+      patch?.amount,
+    ),
+    upwardTune: normalizeUpwardTune(
+      patch?.upwardTune ??
+        (patch?.amount == null ? DEFAULT_UPWARD_TUNE : undefined),
+      patch?.amount,
+    ),
+    expanderTune: normalizeExpanderTune(
+      patch?.expanderTune ??
+        (patch?.amount == null ? DEFAULT_EXPANDER_TUNE : undefined),
       patch?.amount,
     ),
   };
@@ -898,8 +996,8 @@ export function createObsInsertHandle(
         }
       };
       set("gate", next.kind === "gate" ? 1 : 0);
-      set("upward", next.kind === "upward" ? next.amount : 0);
-      set("expander", next.kind === "expander" ? next.amount : 0);
+      set("upward", 0);
+      set("expander", 0);
       if (next.kind === "gate") {
         const g = normalizeGateTune(next.gate, next.amount);
         set("gThresh", Math.pow(10, g.thresholdDb / 20));
@@ -912,6 +1010,28 @@ export function createObsInsertHandle(
         set("gThresh", 0);
         set("gFloor", 1);
         set("gMix", 1);
+      }
+      if (next.kind === "upward") {
+        const u = normalizeUpwardTune(next.upwardTune, next.amount);
+        set("uThresh", Math.pow(10, u.thresholdDb / 20));
+        set("uRatio", u.ratio);
+        set("uAtk", u.attackMs);
+        set("uRel", u.releaseMs);
+        set("uMix", u.mix);
+      } else {
+        set("uRatio", 1);
+        set("uMix", 1);
+      }
+      if (next.kind === "expander") {
+        const e = normalizeExpanderTune(next.expanderTune, next.amount);
+        set("eThresh", Math.pow(10, e.thresholdDb / 20));
+        set("eRatio", e.ratio);
+        set("eAtk", e.attackMs);
+        set("eRel", e.releaseMs);
+        set("eMix", e.mix);
+      } else {
+        set("eRatio", 1);
+        set("eMix", 1);
       }
     };
     apply(ins);

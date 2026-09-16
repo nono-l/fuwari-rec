@@ -11,6 +11,16 @@ class ObsDynamicsProcessor extends AudioWorkletProcessor {
       { name: "gRel", defaultValue: 60, minValue: 5, maxValue: 800, automationRate: "k-rate" },
       { name: "gFloor", defaultValue: 1, minValue: 0, maxValue: 1, automationRate: "k-rate" },
       { name: "gMix", defaultValue: 1, minValue: 0, maxValue: 1, automationRate: "k-rate" },
+      { name: "uThresh", defaultValue: 0.18, minValue: 0.0001, maxValue: 1, automationRate: "k-rate" },
+      { name: "uRatio", defaultValue: 1, minValue: 1, maxValue: 8, automationRate: "k-rate" },
+      { name: "uAtk", defaultValue: 8, minValue: 0.5, maxValue: 80, automationRate: "k-rate" },
+      { name: "uRel", defaultValue: 100, minValue: 10, maxValue: 800, automationRate: "k-rate" },
+      { name: "uMix", defaultValue: 1, minValue: 0, maxValue: 1, automationRate: "k-rate" },
+      { name: "eThresh", defaultValue: 0.01, minValue: 0.0001, maxValue: 1, automationRate: "k-rate" },
+      { name: "eRatio", defaultValue: 1, minValue: 1, maxValue: 8, automationRate: "k-rate" },
+      { name: "eAtk", defaultValue: 5, minValue: 0.5, maxValue: 80, automationRate: "k-rate" },
+      { name: "eRel", defaultValue: 80, minValue: 10, maxValue: 800, automationRate: "k-rate" },
+      { name: "eMix", defaultValue: 1, minValue: 0, maxValue: 1, automationRate: "k-rate" },
     ];
   }
 
@@ -30,18 +40,38 @@ class ObsDynamicsProcessor extends AudioWorkletProcessor {
 
     const chs = Math.min(input.length, output.length);
     const n = input[0].length;
-    const gateAmt = parameters.gate.length ? parameters.gate[0] : 0;
-    const upAmt = parameters.upward.length ? parameters.upward[0] : 0;
-    const expAmt = parameters.expander.length ? parameters.expander[0] : 0;
-    const gThreshP = parameters.gThresh.length ? parameters.gThresh[0] : 0;
-    const gAtkMs = parameters.gAtk.length ? parameters.gAtk[0] : 5;
-    const gHoldMs = parameters.gHold.length ? parameters.gHold[0] : 0;
-    const gRelMs = parameters.gRel.length ? parameters.gRel[0] : 60;
-    const gFloorP = parameters.gFloor.length ? parameters.gFloor[0] : 1;
-    const gMixP = parameters.gMix.length ? parameters.gMix[0] : 1;
+    const p0 = (name, d) => {
+      const arr = parameters[name];
+      return arr && arr.length ? arr[0] : d;
+    };
+
+    const gateAmt = p0("gate", 0);
+    const upAmt = p0("upward", 0);
+    const expAmt = p0("expander", 0);
+    const gThreshP = p0("gThresh", 0);
+    const gAtkMs = p0("gAtk", 5);
+    const gHoldMs = p0("gHold", 0);
+    const gRelMs = p0("gRel", 60);
+    const gFloorP = p0("gFloor", 1);
+    const gMixP = p0("gMix", 1);
+    const uThreshP = p0("uThresh", 0.18);
+    const uRatioP = p0("uRatio", 1);
+    const uAtkMs = p0("uAtk", 8);
+    const uRelMs = p0("uRel", 100);
+    const uMixP = p0("uMix", 1);
+    const eThreshP = p0("eThresh", 0.01);
+    const eRatioP = p0("eRatio", 1);
+    const eAtkMs = p0("eAtk", 5);
+    const eRelMs = p0("eRel", 80);
+    const eMixP = p0("eMix", 1);
 
     const dedicated = gThreshP > 1e-5;
     const gateOn = dedicated || gateAmt > 0.02;
+    const upDed = uRatioP > 1.02;
+    const expDed = eRatioP > 1.02;
+    const upOn = upDed || upAmt > 0.02;
+    const expOn = expDed || expAmt > 0.02;
+
     let gateThresh;
     let gateFloor;
     let atkMs;
@@ -55,6 +85,20 @@ class ObsDynamicsProcessor extends AudioWorkletProcessor {
       relMs = gRelMs;
       holdMs = gHoldMs;
       mix = gMixP;
+    } else if (upDed) {
+      gateThresh = 0;
+      gateFloor = 1;
+      atkMs = uAtkMs;
+      relMs = uRelMs;
+      holdMs = 0;
+      mix = uMixP;
+    } else if (expDed) {
+      gateThresh = 0;
+      gateFloor = 1;
+      atkMs = eAtkMs;
+      relMs = eRelMs;
+      holdMs = 0;
+      mix = eMixP;
     } else {
       gateThresh = 0.008 + gateAmt * 0.07;
       gateFloor = Math.max(0.04, 1 - gateAmt * 0.92);
@@ -69,8 +113,8 @@ class ObsDynamicsProcessor extends AudioWorkletProcessor {
     const gAtk = 1 - Math.exp(-1 / (sampleRate * Math.max(0.0005, atkMs / 1000)));
     const gRel = 1 - Math.exp(-1 / (sampleRate * Math.max(0.005, relMs / 1000)));
     const holdN = Math.max(0, Math.round((holdMs * sampleRate) / 1000));
-    const upThresh = 0.18;
-    const expThresh = 0.05 + expAmt * 0.04;
+    const upThresh = upDed ? uThreshP : 0.18;
+    const expThresh = expDed ? eThreshP : 0.05 + expAmt * 0.04;
     const dry = 1 - mix;
 
     for (let i = 0; i < n; i++) {
@@ -94,13 +138,19 @@ class ObsDynamicsProcessor extends AudioWorkletProcessor {
           target *= gateFloor;
         }
       }
-      if (expAmt > 0.02 && this.env < expThresh) {
+      if (expOn && this.env < expThresh) {
         const x = Math.max(1e-4, this.env / expThresh);
-        target *= Math.pow(x, expAmt * 1.4);
+        const exp = expDed ? eRatioP - 1 : expAmt * 1.4;
+        target *= Math.pow(x, exp);
       }
-      if (upAmt > 0.02 && this.env < upThresh) {
-        const lack = (upThresh - this.env) / upThresh;
-        target *= 1 + upAmt * lack * 1.6;
+      if (upOn && this.env < upThresh) {
+        if (upDed) {
+          const x = Math.max(1e-4, this.env / upThresh);
+          target *= Math.pow(x, 1 / uRatioP - 1);
+        } else {
+          const lack = (upThresh - this.env) / upThresh;
+          target *= 1 + upAmt * lack * 1.6;
+        }
       }
       if (target > 6) target = 6;
       this.g += (target - this.g) * (target > this.g ? gAtk : gRel);
