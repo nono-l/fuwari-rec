@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEditorStore } from "@/lib/store/editor-store";
+import { isEmbeddedPreview } from "@/lib/audio/mic";
 import { cn } from "@/lib/utils";
 
 export function DevicePanel() {
@@ -184,6 +185,8 @@ export function DevicePanel() {
           <>
             {" "}
             デバイス名表示にはマイク許可が必要です。
+            {isEmbeddedPreview() &&
+              " プレビュー枠だと拒否されやすいので、新しいタブで開いてから「許可して一覧取得」してください。"}
           </>
         )}
         {!outputSelectSupported && (

@@ -69,6 +69,7 @@ import {
   supportsOutputSinkSelection,
   type AudioDeviceInfo,
 } from "@/lib/audio/devices";
+import { micErrorMessage } from "@/lib/audio/mic";
 import {
   centsBetween,
   detectPitch,
@@ -2168,10 +2169,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       void get().refreshAudioDevices({ requestPermission: false });
     } catch (e) {
       console.error(e);
-      const msg =
-        e instanceof Error && e.message === "INPUT_DISABLED"
-          ? "入力がオフです。入力をオンにしてから録音してください"
-          : "マイクへのアクセスが拒否されました";
+      const msg = micErrorMessage(e);
       set({
         statusMessage: msg,
         status: "idle",
@@ -2581,7 +2579,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         set({ devicesPermission: ok ? "granted" : "denied" });
         if (!ok) {
           set({
-            statusMessage: "マイク許可が必要です（設定から許可してください）",
+            statusMessage: micErrorMessage(
+              Object.assign(new Error("permission"), { name: "NotAllowedError" }),
+            ),
           });
         }
       }
@@ -2744,10 +2744,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       console.error(e);
       set({
         liveFxActive: false,
-        statusMessage:
-          e instanceof Error && e.message === "INPUT_DISABLED"
-            ? "入力がオフです"
-            : "マイクへのアクセスが拒否されました",
+        statusMessage: micErrorMessage(e),
       });
     } finally {
       set({ liveFxBusy: false });
@@ -2850,9 +2847,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         statusMessage:
           e instanceof Error && e.message === "VOICE_TOO_QUIET"
             ? "声が小さすぎました。もう少し大きく歌って覚え直してください"
-            : e instanceof Error && e.message === "INPUT_DISABLED"
-              ? "入力がオフです"
-              : "声を覚えられませんでした。マイクを許可してください",
+            : micErrorMessage(e),
       });
     } finally {
       set({ voiceCapturing: false });
@@ -3617,10 +3612,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     } catch (e) {
       console.error(e);
       set({
-        statusMessage:
-          e instanceof Error && e.message === "INPUT_DISABLED"
-            ? "入力がオフです"
-            : "部屋を覚えられませんでした。マイクを許可してください",
+        statusMessage: micErrorMessage(e),
       });
     } finally {
       set({ roomCapturing: false });
@@ -3651,10 +3643,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       console.error(e);
       set({
         rangeMeasuring: false,
-        statusMessage:
-          e instanceof Error && e.message === "INPUT_DISABLED"
-            ? "入力がオフです"
-            : "マイクへのアクセスが拒否されました",
+        statusMessage: micErrorMessage(e),
       });
     } finally {
       set({ rangeBusy: false });

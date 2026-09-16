@@ -1,3 +1,5 @@
+import { openMicStream } from "./mic";
+
 export const MAX_DEVICE_IO = 8;
 
 export type DeviceIoKind = "mic-in" | "speaker-out";
@@ -170,13 +172,7 @@ export class DeviceIoBay {
     const rec = this.mics.get(key);
     if (!rec) return;
     try {
-      const audio: MediaTrackConstraints = deviceId
-        ? { deviceId: { exact: deviceId }, echoCancellation: false }
-        : { echoCancellation: false };
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio,
-        video: false,
-      });
+      const stream = await openMicStream(deviceId || null);
       if (!this.mics.has(key)) {
         stream.getTracks().forEach((t) => t.stop());
         return;

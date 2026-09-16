@@ -1,6 +1,7 @@
 import type { MasterFx, Track } from "./types";
 import { audioBufferToWav } from "./wav-export";
 import { decodeMediaFile } from "./media-decode";
+import { openMicStream } from "./mic";
 import {
   startMidiVoice,
   type LiveVoice,
@@ -1113,30 +1114,7 @@ export class AudioEngine {
   }
 
   private async openInputStream(): Promise<MediaStream> {
-    const audioConstraints: MediaTrackConstraints = {
-      echoCancellation: false,
-      noiseSuppression: false,
-      autoGainControl: false,
-    };
-    if (this.inputDeviceId) {
-      audioConstraints.deviceId = { exact: this.inputDeviceId };
-    }
-    try {
-      return await navigator.mediaDevices.getUserMedia({
-        audio: audioConstraints,
-      });
-    } catch (err) {
-      if (this.inputDeviceId) {
-        return navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false,
-          },
-        });
-      }
-      throw err;
-    }
+    return openMicStream(this.inputDeviceId);
   }
 
   private async ensureInputStream(): Promise<MediaStream> {

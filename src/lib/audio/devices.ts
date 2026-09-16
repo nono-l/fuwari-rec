@@ -1,3 +1,5 @@
+import { openMicStream } from "./mic";
+
 export interface AudioDeviceInfo {
   deviceId: string;
   label: string;
@@ -28,10 +30,7 @@ export async function ensureMicPermission(): Promise<boolean> {
     return false;
   }
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: false,
-    });
+    const stream = await openMicStream();
     stream.getTracks().forEach((t) => t.stop());
     return true;
   } catch {
