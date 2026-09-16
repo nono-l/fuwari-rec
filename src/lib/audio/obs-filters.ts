@@ -114,6 +114,75 @@ function num(v: unknown, fallback: number) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+export type CompTune = {
+  /** dB. 0 = never ducks, more negative = ducks sooner. */
+  thresholdDb: number;
+  /** 1 = off, 20 = brick. */
+  ratio: number;
+  /** milliseconds. */
+  attackMs: number;
+  /** milliseconds. */
+  releaseMs: number;
+  /** Soft-knee width, dB. */
+  kneeDb: number;
+  /** Makeup gain after the duck, dB. */
+  makeupDb: number;
+  /** Dry/wet. 1 = compressed only. */
+  mix: number;
+};
+
+export const DEFAULT_COMP_TUNE: CompTune = {
+  thresholdDb: -19,
+  ratio: 6,
+  attackMs: 8,
+  releaseMs: 180,
+  kneeDb: 8,
+  makeupDb: 0,
+  mix: 1,
+};
+
+export function deriveCompFromAmount(amount: number): CompTune {
+  const a = clamp(amount, 0, 1);
+  if (a < 0.02) {
+    return {
+      thresholdDb: 0,
+      ratio: 1,
+      attackMs: 3,
+      releaseMs: 100,
+      kneeDb: 0,
+      makeupDb: 0,
+      mix: 1,
+    };
+  }
+  return {
+    thresholdDb: -10 - a * 22,
+    ratio: 2 + a * 10,
+    attackMs: 8,
+    releaseMs: 180,
+    kneeDb: 8,
+    makeupDb: 0,
+    mix: 1,
+  };
+}
+
+export function normalizeCompTune(
+  raw?: Partial<CompTune> | null,
+  amount?: number,
+): CompTune {
+  const r = raw ?? {};
+  const explicit = Number.isFinite(Number(r.thresholdDb));
+  if (!explicit) return deriveCompFromAmount(amount ?? 0.4);
+  return {
+    thresholdDb: clamp(num(r.thresholdDb, DEFAULT_COMP_TUNE.thresholdDb), -60, 0),
+    ratio: clamp(num(r.ratio, DEFAULT_COMP_TUNE.ratio), 1, 20),
+    attackMs: clamp(num(r.attackMs, DEFAULT_COMP_TUNE.attackMs), 0.5, 80),
+    releaseMs: clamp(num(r.releaseMs, DEFAULT_COMP_TUNE.releaseMs), 20, 1000),
+    kneeDb: clamp(num(r.kneeDb, DEFAULT_COMP_TUNE.kneeDb), 0, 40),
+    makeupDb: clamp(num(r.makeupDb, DEFAULT_COMP_TUNE.makeupDb), 0, 24),
+    mix: clamp(num(r.mix, DEFAULT_COMP_TUNE.mix), 0, 1),
+  };
+}
+
 export const DEFAULT_MASTER_FX: MasterFx = {
   volume: 1,
   pitchSemitones: 0,
@@ -166,20 +235,43 @@ export function applyCompressorParams(
   node: DynamicsCompressorNode,
   amount: number,
 ) {
-  const a = clamp(amount, 0, 1);
-  if (a < 0.02) {
-    node.threshold.value = 0;
-    node.knee.value = 0;
-    node.ratio.value = 1;
-    node.attack.value = 0.003;
-    node.release.value = 0.1;
-    return;
+  applyCompNode(node, deriveCompFromAmount(amount));
+}
+
+function applyCompNode(node: DynamicsCompressorNode, c: CompTune) {
+  node.threshold.value = c.thresholdDb;
+  node.knee.value = c.kneeDb;
+  node.ratio.value = c.ratio;
+  node.attack.value = c.attackMs / 1000;
+  node.release.value = c.releaseMs / 1000;
+}
+
+function setParam(ctx: BaseAudioContext, param: AudioParam, value: number) {
+  const t = "currentTime" in ctx ? ctx.currentTime : 0;
+  try {
+    param.setTargetAtTime(value, t, 0.02);
+  } catch {
+    param.value = value;
   }
-  node.threshold.value = -10 - a * 22;
-  node.knee.value = 8;
-  node.ratio.value = 2 + a * 10;
-  node.attack.value = 0.008;
-  node.release.value = 0.18;
+}
+
+export function applyCompTuneToGraph(
+  ctx: BaseAudioContext,
+  node: DynamicsCompressorNode,
+  makeup: GainNode,
+  dryG: GainNode,
+  wetG: GainNode,
+  ins: ObsInsert,
+) {
+  const c = normalizeCompTune(ins.comp, ins.amount);
+  setParam(ctx, node.threshold, c.thresholdDb);
+  setParam(ctx, node.knee, c.kneeDb);
+  setParam(ctx, node.ratio, c.ratio);
+  setParam(ctx, node.attack, Math.max(0.001, c.attackMs / 1000));
+  setParam(ctx, node.release, Math.max(0.02, c.releaseMs / 1000));
+  setParam(ctx, makeup.gain, Math.pow(10, c.makeupDb / 20));
+  setParam(ctx, dryG.gain, 1 - c.mix);
+  setParam(ctx, wetG.gain, c.mix);
 }
 
 export function applyLimiterParams(node: DynamicsCompressorNode, amount: number) {
@@ -317,6 +409,7 @@ export type ObsInsert = {
   fullBand: boolean;
   hz: number;
   q: number;
+  comp: CompTune;
 };
 
 export function catalogMeta(kind: ObsFilterId) {
@@ -362,6 +455,7 @@ export function newObsInsert(
     fullBand: patch?.fullBand !== false,
     hz: clampFilterHz(num(patch?.hz, 1000)),
     q: clamp(num(patch?.q, 1.4), 0.3, 18),
+    comp: normalizeCompTune(patch?.comp, patch?.amount),
   };
 }
 
@@ -528,14 +622,27 @@ export function createObsInsertHandle(
   }
 
   if (ins.kind === "compressor") {
+    const input = track(ctx.createGain());
+    const dryG = track(ctx.createGain());
+    const wetG = track(ctx.createGain());
     const node = track(ctx.createDynamicsCompressor());
-    const apply = (next: ObsInsert) => applyCompressorParams(node, next.amount);
+    const makeup = track(ctx.createGain());
+    const output = track(ctx.createGain());
+    input.connect(dryG);
+    dryG.connect(output);
+    input.connect(node);
+    node.connect(makeup);
+    makeup.connect(wetG);
+    wetG.connect(output);
+    const apply = (next: ObsInsert) => {
+      applyCompTuneToGraph(ctx, node, makeup, dryG, wetG, next);
+    };
     apply(ins);
     return {
       id: ins.id,
       kind: ins.kind,
-      input: node,
-      output: node,
+      input,
+      output,
       apply,
       dispose,
     };

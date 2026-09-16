@@ -3499,7 +3499,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         pitch: { ...f.pitch },
         formant: { ...f.formant },
       })),
-      inserts: s.obsInserts.map((f) => ({ ...f })),
+      inserts: s.obsInserts.map((f) => ({
+        ...f,
+        comp: { ...f.comp },
+      })),
       aiVoice: s.aiVoice ? { ...s.aiVoice } : null,
       liveChain: s.liveChain.map((slot) => ({ ...slot })),
       cableInserts: s.cableInserts.map((c) => ({ ...c })),
@@ -3514,7 +3517,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           pitch: { ...f.pitch },
           formant: { ...f.formant },
         })),
-        obsInserts: p.obsInserts.map((f) => ({ ...f })),
+        obsInserts: p.obsInserts.map((f) => ({
+          ...f,
+          comp: { ...f.comp },
+        })),
         cableInserts: (p.cableInserts ?? []).map((c) => ({ ...c })),
         deviceInserts: (p.deviceInserts ?? []).map((d) => ({ ...d })),
         aiVoice: p.aiVoice ? { ...p.aiVoice } : null,

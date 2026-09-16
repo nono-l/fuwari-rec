@@ -8,10 +8,12 @@ import {
   MAX_OBS_INSERTS,
   OBS_FILTER_CATALOG,
   recLabel,
+  normalizeCompTune,
   type ObsFilterId,
   type ObsInsert,
   type RecMark,
 } from "@/lib/audio/obs-filters";
+import { CompTuneControls } from "@/components/editor/compressor-tune";
 import {
   bandEdges,
   formatHz,
@@ -45,6 +47,10 @@ export function insertSummary(ins: ObsInsert) {
   }
   if (ins.kind === "howl") {
     return (ins.amount < 0.03 ? "オフ" : `自動 · ${pct(ins.amount)}`) + band;
+  }
+  if (ins.kind === "compressor") {
+    const c = normalizeCompTune(ins.comp, ins.amount);
+    return `${c.thresholdDb.toFixed(0)} dB · ${c.ratio.toFixed(1)}:1${band}`;
   }
   if (ins.kind === "gain") return pct(ins.amount) + band;
   return (ins.amount < 0.02 ? "オフ" : pct(ins.amount)) + band;
@@ -349,6 +355,11 @@ export function InsertControl({
           持続するピークを自動で切る。効きを上げるとノッチが増えて鋭くなる
         </p>
       </div>
+    ) : insert.kind === "compressor" ? (
+      <CompTuneControls
+        value={normalizeCompTune(insert.comp, insert.amount)}
+        onChange={(comp) => onPatch({ comp, amount: comp.mix })}
+      />
     ) : (
       <Amount
         valueLabel={insert.amount < 0.02 ? "オフ" : pct(insert.amount)}

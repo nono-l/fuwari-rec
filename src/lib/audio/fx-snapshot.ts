@@ -5,6 +5,7 @@ import {
   MAX_OBS_INSERTS,
   normalizeMasterFx,
   normalizeObsInsert,
+  normalizeCompTune,
   type ObsInsert,
 } from "./obs-filters";
 import type { RoomProfile } from "./room-profile";
@@ -344,7 +345,8 @@ function filterXml(f: SpectrumFilter) {
 }
 
 function insertXml(f: ObsInsert) {
-  return `      <insert id="${esc(f.id)}" kind="${f.kind}" name="${esc(f.name)}" enabled="${f.enabled ? "true" : "false"}" amount="${f.amount}" eqLow="${f.eqLow}" eqMid="${f.eqMid}" eqHigh="${f.eqHigh}" phase="${f.phaseInvert ? "true" : "false"}" fullBand="${f.fullBand !== false ? "true" : "false"}" hz="${f.hz ?? 1000}" q="${f.q ?? 1.4}"/>`;
+  const c = normalizeCompTune(f.comp, f.amount);
+  return `      <insert id="${esc(f.id)}" kind="${f.kind}" name="${esc(f.name)}" enabled="${f.enabled ? "true" : "false"}" amount="${f.amount}" eqLow="${f.eqLow}" eqMid="${f.eqMid}" eqHigh="${f.eqHigh}" phase="${f.phaseInvert ? "true" : "false"}" fullBand="${f.fullBand !== false ? "true" : "false"}" hz="${f.hz ?? 1000}" q="${f.q ?? 1.4}" compThresh="${c.thresholdDb}" compRatio="${c.ratio}" compAtk="${c.attackMs}" compRel="${c.releaseMs}" compKnee="${c.kneeDb}" compMakeup="${c.makeupDb}" compMix="${c.mix}"/>`;
 }
 
 function cableXml(c: CableInsert) {
@@ -541,6 +543,18 @@ function parseInsertEl(f: Element): ObsInsert | null {
     fullBand: attr(f, "fullBand", "true") !== "false",
     hz: num(attr(f, "hz"), 1000),
     q: num(attr(f, "q"), 1.4),
+    comp:
+      attr(f, "compThresh") === ""
+        ? undefined
+        : {
+            thresholdDb: num(attr(f, "compThresh"), -19),
+            ratio: num(attr(f, "compRatio"), 6),
+            attackMs: num(attr(f, "compAtk"), 8),
+            releaseMs: num(attr(f, "compRel"), 180),
+            kneeDb: num(attr(f, "compKnee"), 8),
+            makeupDb: num(attr(f, "compMakeup"), 0),
+            mix: num(attr(f, "compMix"), 1),
+          },
   });
 }
 
