@@ -248,6 +248,70 @@ export function normalizePitchTune(
   };
 }
 
+export type FormantTune = {
+  /** First formant, Hz. Vowel body. */
+  f1Hz: number;
+  /** Second formant, Hz. Vowel identity. */
+  f2Hz: number;
+  /** Third formant, Hz. Brightness / speaker. */
+  f3Hz: number;
+  /** Peak Q of F1. Higher = thinner. */
+  q1: number;
+  q2: number;
+  q3: number;
+  /** 0 = longer tract (male-ish), 1 = shorter tract (female-ish). */
+  gender: number;
+  /** Dry/wet of the formant-shaped signal. */
+  mix: number;
+};
+
+export const DEFAULT_FORMANT_TUNE: FormantTune = {
+  f1Hz: 700,
+  f2Hz: 1200,
+  f3Hz: 2500,
+  q1: 1.2,
+  q2: 1,
+  q3: 0.85,
+  gender: 0.5,
+  mix: 1,
+};
+
+export function normalizeFormantTune(
+  raw?: Partial<FormantTune> | null,
+): FormantTune {
+  const r = raw ?? {};
+  const num = (v: unknown, fallback: number) => {
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  const q = (v: unknown, fallback: number) =>
+    Math.max(0.4, Math.min(8, num(v, fallback)));
+  return {
+    f1Hz: Math.max(200, Math.min(1200, num(r.f1Hz, DEFAULT_FORMANT_TUNE.f1Hz))),
+    f2Hz: Math.max(500, Math.min(3200, num(r.f2Hz, DEFAULT_FORMANT_TUNE.f2Hz))),
+    f3Hz: Math.max(1400, Math.min(4500, num(r.f3Hz, DEFAULT_FORMANT_TUNE.f3Hz))),
+    q1: q(r.q1, DEFAULT_FORMANT_TUNE.q1),
+    q2: q(r.q2, DEFAULT_FORMANT_TUNE.q2),
+    q3: q(r.q3, DEFAULT_FORMANT_TUNE.q3),
+    gender: clamp01(num(r.gender, DEFAULT_FORMANT_TUNE.gender)),
+    mix: clamp01(num(r.mix, DEFAULT_FORMANT_TUNE.mix)),
+  };
+}
+
+/** Gender 0.5 keeps F1–F3 as written. Left lowers the tract, right raises it. */
+export function formantGenderScale(gender: number) {
+  return 0.72 + clamp01(gender) * 0.56;
+}
+
+export function formantScaledHz(tune: FormantTune) {
+  const scale = formantGenderScale(tune.gender);
+  return {
+    f1: clampFilterHz(tune.f1Hz * scale),
+    f2: clampFilterHz(tune.f2Hz * scale),
+    f3: clampFilterHz(tune.f3Hz * scale),
+  };
+}
+
 export type SpectrumFilter = {
   id: string;
   name: string;
@@ -263,6 +327,7 @@ export type SpectrumFilter = {
   delay: DelayTune;
   offset: OffsetTune;
   pitch: PitchTune;
+  formant: FormantTune;
 };
 
 export const SPEC_MIN_HZ = 40;
@@ -280,7 +345,7 @@ export const FILTER_KINDS: {
   { id: "keep-band", label: "この帯だけ残す", hint: "バンドパス" },
   { id: "peak", label: "この帯を上げ下げ", hint: "バンドパスゲイン ±" },
   { id: "band-reverb", label: "この帯に残響", hint: "帯域センドリバーブ" },
-  { id: "band-formant", label: "この帯をフォルマント風", hint: "F1/F2 ピーク" },
+  { id: "band-formant", label: "この帯をフォルマント風", hint: "F1/F2/F3・性別" },
   { id: "band-pitch", label: "この帯をピッチシフト", hint: "グレイン＋フォルマント" },
   { id: "band-delay", label: "この帯にディレイ", hint: "帯域エコー" },
   { id: "band-offset", label: "この帯をずらす", hint: "繰り返しなしの時間ずらし" },
@@ -486,6 +551,7 @@ export function newSpectrumFilter(
     delay: { ...DEFAULT_DELAY_TUNE },
     offset: { ...DEFAULT_OFFSET_TUNE },
     pitch: { ...DEFAULT_PITCH_TUNE },
+    formant: { ...DEFAULT_FORMANT_TUNE },
   };
 }
 

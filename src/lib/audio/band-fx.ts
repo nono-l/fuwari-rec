@@ -1,7 +1,9 @@
 import {
   clampFilterGain,
   clampFilterHz,
+  formantScaledHz,
   normalizeDelayTune,
+  normalizeFormantTune,
   normalizeOffsetTune,
   normalizePitchTune,
   normalizeReverbTune,
@@ -450,12 +452,16 @@ export function createBandFxHandle(
     f1.type = "peaking";
     const f2 = ctx.createBiquadFilter();
     f2.type = "peaking";
-    const wet = ctx.createGain();
-    wet.gain.value = 1;
-    bp.connect(f1);
+    const f3 = ctx.createBiquadFilter();
+    f3.type = "peaking";
+    const dryG = ctx.createGain();
+    const wetG = ctx.createGain();
     f1.connect(f2);
-    f2.connect(output);
-    nodes.push(notch, f1, f2, wet);
+    f2.connect(f3);
+    f3.connect(wetG);
+    dryG.connect(output);
+    wetG.connect(output);
+    nodes.push(notch, f1, f2, f3, dryG, wetG);
     let lastFull: boolean | null = null;
     const full = () => {
       try {
@@ -473,6 +479,7 @@ export function createBandFxHandle(
       } catch {
         /* noop */
       }
+      input.connect(dryG);
       input.connect(f1);
     };
     const band = () => {
@@ -486,9 +493,15 @@ export function createBandFxHandle(
       } catch {
         /* noop */
       }
+      try {
+        notch.disconnect();
+      } catch {
+        /* noop */
+      }
       input.connect(notch);
       notch.connect(output);
       input.connect(bp);
+      bp.connect(dryG);
       bp.connect(f1);
     };
     applyFn = (f) => {
@@ -498,16 +511,21 @@ export function createBandFxHandle(
         else band();
         lastFull = isFull;
       }
-      const hz = clampFilterHz(f.hz);
-      const g = clampFilterGain(f.gain);
-      const q = Math.max(0.5, Math.min(8, f.q));
       if (!isFull) tuneSplit(ctx, bp, notch, f.hz, f.q);
-      setParam(ctx, f1.frequency, isFull ? 700 : hz);
-      setParam(ctx, f1.Q, isFull ? 1.2 : q);
+      const ft = normalizeFormantTune(f.formant);
+      const hz = formantScaledHz(ft);
+      const g = clampFilterGain(f.gain);
+      setParam(ctx, f1.frequency, hz.f1);
+      setParam(ctx, f1.Q, ft.q1);
       setParam(ctx, f1.gain, g);
-      setParam(ctx, f2.frequency, isFull ? 1200 : clampFilterHz(hz * 2.2));
-      setParam(ctx, f2.Q, isFull ? 1 : Math.max(0.5, q * 0.85));
-      setParam(ctx, f2.gain, g * 0.6);
+      setParam(ctx, f2.frequency, hz.f2);
+      setParam(ctx, f2.Q, ft.q2);
+      setParam(ctx, f2.gain, g * 0.7);
+      setParam(ctx, f3.frequency, hz.f3);
+      setParam(ctx, f3.Q, ft.q3);
+      setParam(ctx, f3.gain, g * 0.45);
+      setParam(ctx, dryG.gain, 1 - ft.mix);
+      setParam(ctx, wetG.gain, ft.mix);
     };
   } else {
     const notch = ctx.createBiquadFilter();

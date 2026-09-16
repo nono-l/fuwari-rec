@@ -22,10 +22,13 @@ import {
   allowsBandToggle,
   amountSliderLabel,
   normalizeDelayTune,
+  normalizeFormantTune,
   normalizeOffsetTune,
   normalizePitchTune,
   normalizeReverbTune,
+  formantScaledHz,
   type DelayTune,
+  type FormantTune,
   type OffsetTune,
   type PitchTune,
   type ReverbTune,
@@ -43,6 +46,7 @@ import { ReverbTuneControls } from "@/components/editor/reverb-tune";
 import { DelayTuneControls } from "@/components/editor/delay-tune";
 import { OffsetTuneControls } from "@/components/editor/offset-tune";
 import { PitchTuneControls } from "@/components/editor/pitch-tune";
+import { FormantTuneControls } from "@/components/editor/formant-tune";
 import { useEditorStore } from "@/lib/store/editor-store";
 import { useActivePipeline } from "@/lib/store/use-active-pipeline";
 import { Button } from "@/components/ui/button";
@@ -77,6 +81,7 @@ type Draft = {
   delay: DelayTune;
   offset: OffsetTune;
   pitch: PitchTune;
+  formant: FormantTune;
 };
 
 function hzFromPointer(
@@ -189,6 +194,7 @@ export function SpectrumAnalyzer({
       delay: normalizeDelayTune(next.delay),
       offset: normalizeOffsetTune(next.offset),
       pitch: normalizePitchTune(next.pitch),
+      formant: normalizeFormantTune(next.formant),
     });
   };
 
@@ -600,6 +606,7 @@ export function SpectrumAnalyzer({
       delay: normalizeDelayTune(f?.delay),
       offset: normalizeOffsetTune(f?.offset),
       pitch: normalizePitchTune(f?.pitch),
+      formant: normalizeFormantTune(f?.formant),
     });
   };
 
@@ -618,6 +625,7 @@ export function SpectrumAnalyzer({
       delay: normalizeDelayTune(f.delay),
       offset: normalizeOffsetTune(f.offset),
       pitch: normalizePitchTune(f.pitch),
+      formant: normalizeFormantTune(f.formant),
     });
   };
 
@@ -682,6 +690,7 @@ export function SpectrumAnalyzer({
         delay: normalizeDelayTune(s.delay),
         offset: normalizeOffsetTune(s.offset),
         pitch: normalizePitchTune(s.pitch),
+        formant: normalizeFormantTune(s.formant),
       });
     }
     closeDraft();
@@ -975,6 +984,11 @@ export function SpectrumAnalyzer({
                   右がいちばんわかりやすいです。混ぜると元のタイミングと重なってコームが付きます
                 </p>
               )}
+              {draft.kind === "band-formant" && (
+                <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                  ピークの深さです。母音の色をどれだけ強調するか。混ぜは下の専用項目です
+                </p>
+              )}
             </div>
           )}
           {draft.kind === "band-reverb" && (
@@ -999,6 +1013,12 @@ export function SpectrumAnalyzer({
             <PitchTuneControls
               value={draft.pitch}
               onChange={(pitch) => patchDraft({ pitch })}
+            />
+          )}
+          {draft.kind === "band-formant" && (
+            <FormantTuneControls
+              value={draft.formant}
+              onChange={(formant) => patchDraft({ formant })}
             />
           )}
           <div className="mt-3 flex flex-wrap gap-2">
@@ -1105,6 +1125,9 @@ export function SpectrumAnalyzer({
                         : ""}
                       {f.kind === "band-offset"
                         ? ` · ${Math.round(normalizeOffsetTune(f.offset).timeMs)}msずらす`
+                        : ""}
+                      {f.kind === "band-formant"
+                        ? ` · ${formatHz(formantScaledHz(normalizeFormantTune(f.formant)).f1)}`
                         : ""}
                     </div>
                   </div>
