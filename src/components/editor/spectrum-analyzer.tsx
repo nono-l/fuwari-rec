@@ -19,15 +19,19 @@ import {
   specTToHz,
   usesBandWidth,
   usesGain,
+  usesSlope,
+  EQ_SLOPES,
   allowsBandToggle,
   amountSliderLabel,
   normalizeDelayTune,
+  normalizeEqSlope,
   normalizeFormantTune,
   normalizeOffsetTune,
   normalizePitchTune,
   normalizeReverbTune,
   formantScaledHz,
   type DelayTune,
+  type EqSlope,
   type FormantTune,
   type OffsetTune,
   type PitchTune,
@@ -77,6 +81,7 @@ type Draft = {
   q: number;
   gain: number;
   fullBand: boolean;
+  slope: EqSlope;
   reverb: ReverbTune;
   delay: DelayTune;
   offset: OffsetTune;
@@ -190,6 +195,7 @@ export function SpectrumAnalyzer({
       q: next.q,
       gain: next.gain,
       fullBand: next.fullBand,
+      slope: normalizeEqSlope(next.slope),
       reverb: normalizeReverbTune(next.reverb),
       delay: normalizeDelayTune(next.delay),
       offset: normalizeOffsetTune(next.offset),
@@ -602,6 +608,7 @@ export function SpectrumAnalyzer({
       q: f?.q ?? defaultFilterQ(kind),
       gain: f?.gain ?? defaultFilterGain(kind),
       fullBand: false,
+      slope: normalizeEqSlope(f?.slope),
       reverb: normalizeReverbTune(f?.reverb),
       delay: normalizeDelayTune(f?.delay),
       offset: normalizeOffsetTune(f?.offset),
@@ -621,6 +628,7 @@ export function SpectrumAnalyzer({
       q: f.q,
       gain: f.gain ?? 0,
       fullBand: !!f.fullBand,
+      slope: normalizeEqSlope(f.slope),
       reverb: normalizeReverbTune(f.reverb),
       delay: normalizeDelayTune(f.delay),
       offset: normalizeOffsetTune(f.offset),
@@ -686,6 +694,7 @@ export function SpectrumAnalyzer({
         q: s.q,
         gain: s.gain ?? 0,
         fullBand: !!s.fullBand,
+        slope: normalizeEqSlope(s.slope),
         reverb: normalizeReverbTune(s.reverb),
         delay: normalizeDelayTune(s.delay),
         offset: normalizeOffsetTune(s.offset),
@@ -708,6 +717,7 @@ export function SpectrumAnalyzer({
         q: defaultFilterQ(kind),
         gain: defaultFilterGain(kind),
         fullBand: allowsBandToggle(kind) ? d.fullBand : false,
+        slope: usesSlope(kind) ? d.slope : 12,
         name: auto
           ? defaultFilterName(
               kind,
@@ -908,7 +918,42 @@ export function SpectrumAnalyzer({
                 左が狭い（ピンポイント）、右が広い。点線が効く範囲です。
               </p>
             )}
+            {usesSlope(draft.kind) && !usesBandWidth(draft.kind) && (
+              <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                カットの角の鋭さ。上げると境目が持ち上がってから落ちます
+              </p>
+            )}
           </div>
+          {usesSlope(draft.kind) && (
+            <div className="mt-3">
+              <div className="mb-1 flex justify-between text-[11px] text-muted-foreground">
+                <span>スロープ</span>
+                <span className="tabular-nums text-foreground">
+                  {normalizeEqSlope(draft.slope)} dB/oct
+                </span>
+              </div>
+              <p className="mb-1.5 text-[10px] leading-relaxed text-muted-foreground">
+                落ちる速さ。12 はゆるい、48 は壁。ノッチは重ねて深くします
+              </p>
+              <div className="flex gap-1.5">
+                {EQ_SLOPES.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => patchDraft({ slope: s })}
+                    className={cn(
+                      "flex-1 rounded-lg border px-2 py-1.5 text-[11px] font-medium",
+                      normalizeEqSlope(draft.slope) === s
+                        ? "border-primary bg-primary/10 text-foreground"
+                        : "border-border bg-muted/40 text-muted-foreground",
+                    )}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           </>
           )}
           {usesGain(draft.kind) && (
@@ -969,9 +1014,9 @@ export function SpectrumAnalyzer({
                       : "＋18 dB"}
                 </span>
               </div>
-              {draft.kind === "band-reverb" && (
+              {draft.kind === "peak" && (
                 <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
-                  乾いた音と残響の混ぜ。右に行くほど残響が大きくなります
+                  この帯を何 dB 上げ下げするか。声の芯や耳障りな帯に使います
                 </p>
               )}
               {draft.kind === "band-delay" && (
@@ -1116,6 +1161,9 @@ export function SpectrumAnalyzer({
                         : ""}
                       {usesGain(f.kind)
                         ? ` · ${formatFilterAmount(f.kind, f.gain ?? 0)}`
+                        : ""}
+                      {usesSlope(f.kind)
+                        ? ` · ${normalizeEqSlope(f.slope)}dB`
                         : ""}
                       {f.kind === "band-reverb"
                         ? ` · ${normalizeReverbTune(f.reverb).decay.toFixed(1)}秒`

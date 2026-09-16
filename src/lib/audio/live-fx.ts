@@ -1,4 +1,10 @@
-import { applyFilterToBiquad, clampFilterGain, type SpectrumFilter } from "./spectrum-filters";
+import {
+  applyFilterToBiquad,
+  clampFilterGain,
+  createCutSlopeHandle,
+  usesSlope,
+  type SpectrumFilter,
+} from "./spectrum-filters";
 import { createBandFxHandle, isBandFxKind } from "./band-fx";
 import { createBandScope } from "./band-scope";
 import { createAiVoiceHandle, type AiVoiceInsert } from "./ai-voice";
@@ -221,6 +227,18 @@ export function createLiveHandle(
             /* noop */
           }
         },
+      };
+    }
+    if (usesSlope(item.filter.kind)) {
+      const h = createCutSlopeHandle(ctx, item.filter);
+      return {
+        id: item.filter.id,
+        input: h.input,
+        output: h.output,
+        apply: (next) => {
+          if (next.family === "spectrum") h.apply(next.filter);
+        },
+        dispose: h.dispose,
       };
     }
     const bq = ctx.createBiquadFilter();

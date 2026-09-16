@@ -25,6 +25,7 @@ import {
   defaultFilterQ,
   MAX_SPECTRUM_FILTERS,
   normalizeDelayTune,
+  normalizeEqSlope,
   normalizeFormantTune,
   normalizeOffsetTune,
   normalizePitchTune,
@@ -161,6 +162,7 @@ function normalizeFilter(raw: Partial<SpectrumFilter>): SpectrumFilter | null {
     gain: clampFilterGain(num(raw.gain, defaultFilterGain(kind))),
     enabled: raw.enabled !== false,
     fullBand: raw.fullBand === true,
+    slope: normalizeEqSlope(raw.slope),
     reverb: normalizeReverbTune(raw.reverb),
     delay: normalizeDelayTune(raw.delay),
     offset: normalizeOffsetTune(raw.offset),
@@ -345,7 +347,7 @@ function filterXml(f: SpectrumFilter) {
   const o = normalizeOffsetTune(f.offset);
   const p = normalizePitchTune(f.pitch);
   const fm = normalizeFormantTune(f.formant);
-  return `      <filter id="${esc(f.id)}" name="${esc(f.name)}" kind="${f.kind}" hz="${f.hz}" q="${f.q}" gain="${f.gain ?? 0}" enabled="${f.enabled ? "true" : "false"}" fullBand="${f.fullBand ? "true" : "false"}" reverbDecay="${rv.decay}" reverbPredelay="${rv.predelayMs}" reverbBright="${rv.brightness}" reverbSize="${rv.size}" reverbLowCut="${rv.lowCutHz}" reverbHighCut="${rv.highCutHz}" reverbWidth="${rv.width}" delayTime="${d.timeMs}" delayFb="${d.feedback}" delayPing="${d.pingpong}" delayLowCut="${d.lowCutHz}" delayHighCut="${d.highCutHz}" delaySpread="${d.spreadMs}" delayMod="${d.mod}" delayModRate="${d.modRate}" delayDrive="${d.drive}" delaySync="${d.sync ? "true" : "false"}" delayNote="${d.note}" offsetTime="${o.timeMs}" pitchCents="${p.cents}" pitchFormant="${p.formant}" pitchPreserve="${p.preserve}" pitchMix="${p.mix}" pitchGrain="${p.grain}" pitchFb="${p.feedback}" pitchDelay="${p.delayMs}" formantF1="${fm.f1Hz}" formantF2="${fm.f2Hz}" formantF3="${fm.f3Hz}" formantQ1="${fm.q1}" formantQ2="${fm.q2}" formantQ3="${fm.q3}" formantGender="${fm.gender}" formantMix="${fm.mix}"/>`;
+  return `      <filter id="${esc(f.id)}" name="${esc(f.name)}" kind="${f.kind}" hz="${f.hz}" q="${f.q}" gain="${f.gain ?? 0}" enabled="${f.enabled ? "true" : "false"}" fullBand="${f.fullBand ? "true" : "false"}" slope="${normalizeEqSlope(f.slope)}" reverbDecay="${rv.decay}" reverbPredelay="${rv.predelayMs}" reverbBright="${rv.brightness}" reverbSize="${rv.size}" reverbLowCut="${rv.lowCutHz}" reverbHighCut="${rv.highCutHz}" reverbWidth="${rv.width}" delayTime="${d.timeMs}" delayFb="${d.feedback}" delayPing="${d.pingpong}" delayLowCut="${d.lowCutHz}" delayHighCut="${d.highCutHz}" delaySpread="${d.spreadMs}" delayMod="${d.mod}" delayModRate="${d.modRate}" delayDrive="${d.drive}" delaySync="${d.sync ? "true" : "false"}" delayNote="${d.note}" offsetTime="${o.timeMs}" pitchCents="${p.cents}" pitchFormant="${p.formant}" pitchPreserve="${p.preserve}" pitchMix="${p.mix}" pitchGrain="${p.grain}" pitchFb="${p.feedback}" pitchDelay="${p.delayMs}" formantF1="${fm.f1Hz}" formantF2="${fm.f2Hz}" formantF3="${fm.f3Hz}" formantQ1="${fm.q1}" formantQ2="${fm.q2}" formantQ3="${fm.q3}" formantGender="${fm.gender}" formantMix="${fm.mix}"/>`;
 }
 
 function insertXml(f: ObsInsert) {
@@ -490,6 +492,7 @@ function parseFilterEl(f: Element): SpectrumFilter | null {
     gain: num(attr(f, "gain"), 0),
     enabled: attr(f, "enabled", "true") !== "false",
     fullBand: attr(f, "fullBand", "false") === "true",
+    slope: normalizeEqSlope(num(attr(f, "slope"), 12)),
     reverb: normalizeReverbTune({
       decay: num(attr(f, "reverbDecay"), 1.2),
       predelayMs: num(attr(f, "reverbPredelay"), 18),

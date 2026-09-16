@@ -323,12 +323,36 @@ export type SpectrumFilter = {
   enabled: boolean;
   /** When true, skip band split and process the whole spectrum. */
   fullBand: boolean;
+  /** dB/oct for cut-above, cut-below, notch. Ignored otherwise. */
+  slope: EqSlope;
   reverb: ReverbTune;
   delay: DelayTune;
   offset: OffsetTune;
   pitch: PitchTune;
   formant: FormantTune;
 };
+
+export type EqSlope = 12 | 24 | 48;
+
+export const EQ_SLOPES: EqSlope[] = [12, 24, 48];
+export const MAX_EQ_STAGES = 4;
+
+export function normalizeEqSlope(raw: unknown): EqSlope {
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (n >= 48) return 48;
+  if (n >= 24) return 24;
+  return 12;
+}
+
+export function usesSlope(kind: SpectrumFilterKind) {
+  return kind === "cut-above" || kind === "cut-below" || kind === "notch";
+}
+
+export function slopeStages(slope: EqSlope) {
+  if (slope === 48) return 4;
+  if (slope === 24) return 2;
+  return 1;
+}
 
 export const SPEC_MIN_HZ = 40;
 export const SPEC_MAX_HZ = 16000;
@@ -339,11 +363,11 @@ export const FILTER_KINDS: {
   label: string;
   hint: string;
 }[] = [
-  { id: "cut-above", label: "ここより上を消す", hint: "ローパス" },
-  { id: "cut-below", label: "ここより下を消す", hint: "ハイパス" },
-  { id: "notch", label: "この付近を消す", hint: "ノッチ" },
+  { id: "cut-above", label: "ここより上を消す", hint: "ローパス・スロープ" },
+  { id: "cut-below", label: "ここより下を消す", hint: "ハイパス・スロープ" },
+  { id: "notch", label: "この付近を消す", hint: "ノッチ・Q・スロープ" },
   { id: "keep-band", label: "この帯だけ残す", hint: "バンドパス" },
-  { id: "peak", label: "この帯を上げ下げ", hint: "バンドパスゲイン ±" },
+  { id: "peak", label: "この帯を上げ下げ", hint: "ピーク・ゲイン ±" },
   { id: "band-reverb", label: "この帯に残響", hint: "帯域センドリバーブ" },
   { id: "band-formant", label: "この帯をフォルマント風", hint: "F1/F2/F3・性別" },
   { id: "band-pitch", label: "この帯をピッチシフト", hint: "グレイン＋フォルマント" },
@@ -547,6 +571,7 @@ export function newSpectrumFilter(
     gain: defaultFilterGain(kind),
     enabled: true,
     fullBand: false,
+    slope: 12,
     reverb: { ...DEFAULT_REVERB_TUNE },
     delay: { ...DEFAULT_DELAY_TUNE },
     offset: { ...DEFAULT_OFFSET_TUNE },
@@ -588,6 +613,49 @@ export function applyFilterToBiquad(
     node.Q.value = q;
     node.gain.value = gain;
   }
+}
+
+export function createCutSlopeHandle(
+  ctx: BaseAudioContext,
+  f: SpectrumFilter,
+) {
+  const stages: BiquadFilterNode[] = [];
+  for (let i = 0; i < MAX_EQ_STAGES; i++) {
+    const node = ctx.createBiquadFilter();
+    stages.push(node);
+    if (i > 0) stages[i - 1]!.connect(node);
+  }
+  const apply = (next: SpectrumFilter) => {
+    const n = usesSlope(next.kind)
+      ? slopeStages(normalizeEqSlope(next.slope))
+      : 1;
+    for (let i = 0; i < MAX_EQ_STAGES; i++) {
+      const node = stages[i]!;
+      if (i < n) {
+        applyFilterToBiquad(node, next);
+      } else {
+        node.type = "allpass";
+        node.frequency.value = clampFilterHz(next.hz);
+        node.Q.value = 0.707;
+        node.gain.value = 0;
+      }
+    }
+  };
+  apply(f);
+  return {
+    input: stages[0]!,
+    output: stages[MAX_EQ_STAGES - 1]!,
+    apply,
+    dispose: () => {
+      for (const node of stages) {
+        try {
+          node.disconnect();
+        } catch {
+          /* noop */
+        }
+      }
+    },
+  };
 }
 
 export function specMaxHz(sampleRate: number) {
