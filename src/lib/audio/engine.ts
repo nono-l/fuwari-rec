@@ -20,6 +20,7 @@ import { type ExtraPipeline } from "./fx-pipeline";
 import roomWorkletUrl from "./worklets/room-subtract.js?url";
 import pitchWorkletUrl from "./worklets/pitch-shift.js?url";
 import dynamicsWorkletUrl from "./worklets/obs-dynamics.js?url";
+import limiterWorkletUrl from "./worklets/peak-limiter.js?url";
 import aiConvertWorkletUrl from "./worklets/ai-convert.js?url";
 
 function createImpulse(ctx: BaseAudioContext, duration = 1.8, decay = 2.2) {
@@ -521,10 +522,16 @@ export class AudioEngine {
     try {
       await this.ctx.audioWorklet.addModule(dynamicsWorkletUrl);
       this.dynWorkletReady = true;
-      this.insertRack?.rebuild();
     } catch {
       this.dynWorkletReady = false;
     }
+    try {
+      await this.ctx.audioWorklet.addModule(limiterWorkletUrl);
+    } catch {
+      /* limiter falls back to DynamicsCompressorNode */
+    }
+    this.insertRack?.rebuild();
+    for (const rack of this.extraRacks.values()) rack.rebuild();
   }
 
   private async ensureRoomWorklet() {
@@ -1450,6 +1457,11 @@ export class AudioEngine {
       workletOk = true;
     } catch {
       workletOk = false;
+    }
+    try {
+      await offline.audioWorklet.addModule(limiterWorkletUrl);
+    } catch {
+      /* limiter falls back to DynamicsCompressorNode */
     }
     try {
       await offline.audioWorklet.addModule(pitchWorkletUrl);

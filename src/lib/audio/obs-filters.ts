@@ -183,6 +183,63 @@ export function normalizeCompTune(
   };
 }
 
+export type LimiterTune = {
+  /** Peak ceiling, dB. 0 = 0 dBFS. */
+  ceilingDb: number;
+  /** Lookahead delay, milliseconds. */
+  lookaheadMs: number;
+  /** Gain-reduction release, milliseconds. */
+  releaseMs: number;
+  /** Makeup after limiting, dB. */
+  makeupDb: number;
+  /** Dry/wet. 1 = limited only. */
+  mix: number;
+};
+
+export const DEFAULT_LIMITER_TUNE: LimiterTune = {
+  ceilingDb: -3.4,
+  lookaheadMs: 2,
+  releaseMs: 60,
+  makeupDb: 0,
+  mix: 1,
+};
+
+export function deriveLimiterFromAmount(amount: number): LimiterTune {
+  const a = clamp(amount, 0, 1);
+  if (a < 0.02) {
+    return {
+      ceilingDb: 0,
+      lookaheadMs: 0,
+      releaseMs: 50,
+      makeupDb: 0,
+      mix: 1,
+    };
+  }
+  return {
+    ceilingDb: -0.4 - a * 8.5,
+    lookaheadMs: 0,
+    releaseMs: 60,
+    makeupDb: 0,
+    mix: 1,
+  };
+}
+
+export function normalizeLimiterTune(
+  raw?: Partial<LimiterTune> | null,
+  amount?: number,
+): LimiterTune {
+  const r = raw ?? {};
+  const explicit = Number.isFinite(Number(r.ceilingDb));
+  if (!explicit) return deriveLimiterFromAmount(amount ?? 0.35);
+  return {
+    ceilingDb: clamp(num(r.ceilingDb, DEFAULT_LIMITER_TUNE.ceilingDb), -12, 0),
+    lookaheadMs: clamp(num(r.lookaheadMs, DEFAULT_LIMITER_TUNE.lookaheadMs), 0, 15),
+    releaseMs: clamp(num(r.releaseMs, DEFAULT_LIMITER_TUNE.releaseMs), 10, 400),
+    makeupDb: clamp(num(r.makeupDb, DEFAULT_LIMITER_TUNE.makeupDb), 0, 24),
+    mix: clamp(num(r.mix, DEFAULT_LIMITER_TUNE.mix), 0, 1),
+  };
+}
+
 export const DEFAULT_MASTER_FX: MasterFx = {
   volume: 1,
   pitchSemitones: 0,
@@ -275,20 +332,70 @@ export function applyCompTuneToGraph(
 }
 
 export function applyLimiterParams(node: DynamicsCompressorNode, amount: number) {
-  const a = clamp(amount, 0, 1);
-  if (a < 0.02) {
-    node.threshold.value = 0;
-    node.knee.value = 0;
-    node.ratio.value = 1;
-    node.attack.value = 0.002;
-    node.release.value = 0.05;
-    return;
+  applyLimiterNode(node, deriveLimiterFromAmount(amount));
+}
+
+function applyLimiterNode(node: DynamicsCompressorNode, l: LimiterTune) {
+  node.threshold.value = l.ceilingDb;
+  node.knee.value = 0.3;
+  node.ratio.value = 20;
+  node.attack.value = 0.001;
+  node.release.value = Math.max(0.02, l.releaseMs / 1000);
+}
+
+export function applyLimiterTuneToGraph(
+  ctx: BaseAudioContext,
+  node: DynamicsCompressorNode,
+  makeup: GainNode,
+  dryG: GainNode,
+  wetG: GainNode,
+  ins: ObsInsert,
+) {
+  const l = normalizeLimiterTune(ins.limiter, ins.amount);
+  setParam(ctx, node.threshold, l.ceilingDb);
+  setParam(ctx, node.knee, 0.3);
+  setParam(ctx, node.ratio, 20);
+  setParam(ctx, node.attack, 0.001);
+  setParam(ctx, node.release, Math.max(0.02, l.releaseMs / 1000));
+  setParam(ctx, makeup.gain, Math.pow(10, l.makeupDb / 20));
+  setParam(ctx, dryG.gain, 1 - l.mix);
+  setParam(ctx, wetG.gain, l.mix);
+}
+
+function applyLimiterWorklet(
+  ctx: BaseAudioContext,
+  node: AudioWorkletNode,
+  ins: ObsInsert,
+) {
+  const l = normalizeLimiterTune(ins.limiter, ins.amount);
+  const t = "currentTime" in ctx ? ctx.currentTime : 0;
+  const set = (name: string, value: number) => {
+    const p = node.parameters.get(name);
+    if (!p) return;
+    try {
+      p.setTargetAtTime(value, t, 0.02);
+    } catch {
+      p.value = value;
+    }
+  };
+  set("ceiling", Math.pow(10, l.ceilingDb / 20));
+  set("lookahead", l.lookaheadMs);
+  set("release", l.releaseMs);
+  set("makeup", Math.pow(10, l.makeupDb / 20));
+  set("mix", l.mix);
+}
+
+function tryLimiterWorklet(ctx: BaseAudioContext): AudioWorkletNode | null {
+  if (typeof AudioWorkletNode === "undefined") return null;
+  try {
+    return new AudioWorkletNode(ctx, "peak-limiter", {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      outputChannelCount: [2],
+    });
+  } catch {
+    return null;
   }
-  node.threshold.value = -0.4 - a * 8.5;
-  node.knee.value = 0.5;
-  node.ratio.value = 14 + a * 6;
-  node.attack.value = 0.002;
-  node.release.value = 0.06;
 }
 
 export function createEq3(
@@ -410,6 +517,7 @@ export type ObsInsert = {
   hz: number;
   q: number;
   comp: CompTune;
+  limiter: LimiterTune;
 };
 
 export function catalogMeta(kind: ObsFilterId) {
@@ -456,6 +564,10 @@ export function newObsInsert(
     hz: clampFilterHz(num(patch?.hz, 1000)),
     q: clamp(num(patch?.q, 1.4), 0.3, 18),
     comp: normalizeCompTune(patch?.comp, patch?.amount),
+    limiter: normalizeLimiterTune(
+      patch?.limiter ?? (patch?.amount == null ? DEFAULT_LIMITER_TUNE : undefined),
+      patch?.amount,
+    ),
   };
 }
 
@@ -649,14 +761,41 @@ export function createObsInsertHandle(
   }
 
   if (ins.kind === "limiter") {
+    const worklet = tryLimiterWorklet(ctx);
+    if (worklet) {
+      track(worklet);
+      const apply = (next: ObsInsert) => applyLimiterWorklet(ctx, worklet, next);
+      apply(ins);
+      return {
+        id: ins.id,
+        kind: ins.kind,
+        input: worklet,
+        output: worklet,
+        apply,
+        dispose,
+      };
+    }
+    const input = track(ctx.createGain());
+    const dryG = track(ctx.createGain());
+    const wetG = track(ctx.createGain());
     const node = track(ctx.createDynamicsCompressor());
-    const apply = (next: ObsInsert) => applyLimiterParams(node, next.amount);
+    const makeup = track(ctx.createGain());
+    const output = track(ctx.createGain());
+    input.connect(dryG);
+    dryG.connect(output);
+    input.connect(node);
+    node.connect(makeup);
+    makeup.connect(wetG);
+    wetG.connect(output);
+    const apply = (next: ObsInsert) => {
+      applyLimiterTuneToGraph(ctx, node, makeup, dryG, wetG, next);
+    };
     apply(ins);
     return {
       id: ins.id,
       kind: ins.kind,
-      input: node,
-      output: node,
+      input,
+      output,
       apply,
       dispose,
     };

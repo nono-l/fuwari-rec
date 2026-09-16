@@ -3502,6 +3502,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       inserts: s.obsInserts.map((f) => ({
         ...f,
         comp: { ...f.comp },
+        limiter: { ...f.limiter },
       })),
       aiVoice: s.aiVoice ? { ...s.aiVoice } : null,
       liveChain: s.liveChain.map((slot) => ({ ...slot })),
@@ -3520,6 +3521,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         obsInserts: p.obsInserts.map((f) => ({
           ...f,
           comp: { ...f.comp },
+          limiter: { ...f.limiter },
         })),
         cableInserts: (p.cableInserts ?? []).map((c) => ({ ...c })),
         deviceInserts: (p.deviceInserts ?? []).map((d) => ({ ...d })),

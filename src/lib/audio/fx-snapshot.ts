@@ -6,6 +6,7 @@ import {
   normalizeMasterFx,
   normalizeObsInsert,
   normalizeCompTune,
+  normalizeLimiterTune,
   type ObsInsert,
 } from "./obs-filters";
 import type { RoomProfile } from "./room-profile";
@@ -346,7 +347,8 @@ function filterXml(f: SpectrumFilter) {
 
 function insertXml(f: ObsInsert) {
   const c = normalizeCompTune(f.comp, f.amount);
-  return `      <insert id="${esc(f.id)}" kind="${f.kind}" name="${esc(f.name)}" enabled="${f.enabled ? "true" : "false"}" amount="${f.amount}" eqLow="${f.eqLow}" eqMid="${f.eqMid}" eqHigh="${f.eqHigh}" phase="${f.phaseInvert ? "true" : "false"}" fullBand="${f.fullBand !== false ? "true" : "false"}" hz="${f.hz ?? 1000}" q="${f.q ?? 1.4}" compThresh="${c.thresholdDb}" compRatio="${c.ratio}" compAtk="${c.attackMs}" compRel="${c.releaseMs}" compKnee="${c.kneeDb}" compMakeup="${c.makeupDb}" compMix="${c.mix}"/>`;
+  const l = normalizeLimiterTune(f.limiter, f.amount);
+  return `      <insert id="${esc(f.id)}" kind="${f.kind}" name="${esc(f.name)}" enabled="${f.enabled ? "true" : "false"}" amount="${f.amount}" eqLow="${f.eqLow}" eqMid="${f.eqMid}" eqHigh="${f.eqHigh}" phase="${f.phaseInvert ? "true" : "false"}" fullBand="${f.fullBand !== false ? "true" : "false"}" hz="${f.hz ?? 1000}" q="${f.q ?? 1.4}" compThresh="${c.thresholdDb}" compRatio="${c.ratio}" compAtk="${c.attackMs}" compRel="${c.releaseMs}" compKnee="${c.kneeDb}" compMakeup="${c.makeupDb}" compMix="${c.mix}" limCeil="${l.ceilingDb}" limLook="${l.lookaheadMs}" limRel="${l.releaseMs}" limMakeup="${l.makeupDb}" limMix="${l.mix}"/>`;
 }
 
 function cableXml(c: CableInsert) {
@@ -554,6 +556,16 @@ function parseInsertEl(f: Element): ObsInsert | null {
             kneeDb: num(attr(f, "compKnee"), 8),
             makeupDb: num(attr(f, "compMakeup"), 0),
             mix: num(attr(f, "compMix"), 1),
+          },
+    limiter:
+      attr(f, "limCeil") === ""
+        ? undefined
+        : {
+            ceilingDb: num(attr(f, "limCeil"), -3.4),
+            lookaheadMs: num(attr(f, "limLook"), 2),
+            releaseMs: num(attr(f, "limRel"), 60),
+            makeupDb: num(attr(f, "limMakeup"), 0),
+            mix: num(attr(f, "limMix"), 1),
           },
   });
 }

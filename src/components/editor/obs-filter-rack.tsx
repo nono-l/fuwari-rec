@@ -9,11 +9,13 @@ import {
   OBS_FILTER_CATALOG,
   recLabel,
   normalizeCompTune,
+  normalizeLimiterTune,
   type ObsFilterId,
   type ObsInsert,
   type RecMark,
 } from "@/lib/audio/obs-filters";
 import { CompTuneControls } from "@/components/editor/compressor-tune";
+import { LimiterTuneControls } from "@/components/editor/limiter-tune";
 import {
   bandEdges,
   formatHz,
@@ -51,6 +53,10 @@ export function insertSummary(ins: ObsInsert) {
   if (ins.kind === "compressor") {
     const c = normalizeCompTune(ins.comp, ins.amount);
     return `${c.thresholdDb.toFixed(0)} dB · ${c.ratio.toFixed(1)}:1${band}`;
+  }
+  if (ins.kind === "limiter") {
+    const l = normalizeLimiterTune(ins.limiter, ins.amount);
+    return `${l.ceilingDb.toFixed(1)} dB · LA ${l.lookaheadMs.toFixed(1)}ms${band}`;
   }
   if (ins.kind === "gain") return pct(ins.amount) + band;
   return (ins.amount < 0.02 ? "オフ" : pct(ins.amount)) + band;
@@ -359,6 +365,11 @@ export function InsertControl({
       <CompTuneControls
         value={normalizeCompTune(insert.comp, insert.amount)}
         onChange={(comp) => onPatch({ comp, amount: comp.mix })}
+      />
+    ) : insert.kind === "limiter" ? (
+      <LimiterTuneControls
+        value={normalizeLimiterTune(insert.limiter, insert.amount)}
+        onChange={(limiter) => onPatch({ limiter, amount: limiter.mix })}
       />
     ) : (
       <Amount
