@@ -6,7 +6,8 @@ export type SpectrumFilterKind =
   | "peak"
   | "band-reverb"
   | "band-formant"
-  | "band-pitch";
+  | "band-pitch"
+  | "band-delay";
 
 export type ReverbTune = {
   /** Tail length, seconds. */
@@ -67,6 +68,50 @@ export function normalizeReverbTune(
   };
 }
 
+export type DelayTune = {
+  /** Delay time, milliseconds. */
+  timeMs: number;
+  /** Repeat amount 0–1. */
+  feedback: number;
+  /** 0 = centered repeats, 1 = L/R bounce. */
+  pingpong: number;
+  /** High-pass in the feedback loop, Hz. */
+  lowCutHz: number;
+  /** Low-pass in the feedback loop, Hz. */
+  highCutHz: number;
+};
+
+export const DEFAULT_DELAY_TUNE: DelayTune = {
+  timeMs: 280,
+  feedback: 0.32,
+  pingpong: 0.35,
+  lowCutHz: 90,
+  highCutHz: 6500,
+};
+
+export function normalizeDelayTune(
+  raw?: Partial<DelayTune> | null,
+): DelayTune {
+  const r = raw ?? {};
+  const num = (v: unknown, fallback: number) => {
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  return {
+    timeMs: Math.max(20, Math.min(1200, num(r.timeMs, DEFAULT_DELAY_TUNE.timeMs))),
+    feedback: clamp01(num(r.feedback, DEFAULT_DELAY_TUNE.feedback)),
+    pingpong: clamp01(num(r.pingpong, DEFAULT_DELAY_TUNE.pingpong)),
+    lowCutHz: Math.max(
+      40,
+      Math.min(400, num(r.lowCutHz, DEFAULT_DELAY_TUNE.lowCutHz)),
+    ),
+    highCutHz: Math.max(
+      800,
+      Math.min(16000, num(r.highCutHz, DEFAULT_DELAY_TUNE.highCutHz)),
+    ),
+  };
+}
+
 export type SpectrumFilter = {
   id: string;
   name: string;
@@ -79,6 +124,7 @@ export type SpectrumFilter = {
   /** When true, skip band split and process the whole spectrum. */
   fullBand: boolean;
   reverb: ReverbTune;
+  delay: DelayTune;
 };
 
 export const SPEC_MIN_HZ = 40;
@@ -98,6 +144,7 @@ export const FILTER_KINDS: {
   { id: "band-reverb", label: "この帯に残響", hint: "帯域センドリバーブ" },
   { id: "band-formant", label: "この帯をフォルマント風", hint: "F1/F2 ピーク" },
   { id: "band-pitch", label: "この帯をピッチシフト", hint: "簡易グレイン" },
+  { id: "band-delay", label: "この帯にディレイ", hint: "帯域エコー" },
 ];
 
 export function formatHz(hz: number) {
@@ -116,7 +163,8 @@ export function defaultFilterQ(kind: SpectrumFilterKind) {
     kind === "peak" ||
     kind === "band-reverb" ||
     kind === "band-formant" ||
-    kind === "band-pitch"
+    kind === "band-pitch" ||
+    kind === "band-delay"
   ) {
     return 1.4;
   }
@@ -126,6 +174,7 @@ export function defaultFilterQ(kind: SpectrumFilterKind) {
 export function defaultFilterGain(kind: SpectrumFilterKind) {
   if (kind === "peak" || kind === "band-formant") return 6;
   if (kind === "band-reverb") return 8;
+  if (kind === "band-delay") return 7;
   if (kind === "band-pitch") return 2;
   return 0;
 }
@@ -147,12 +196,17 @@ export function usesGain(kind: SpectrumFilterKind) {
     kind === "peak" ||
     kind === "band-reverb" ||
     kind === "band-formant" ||
-    kind === "band-pitch"
+    kind === "band-pitch" ||
+    kind === "band-delay"
   );
 }
 
 export function formatFilterAmount(kind: SpectrumFilterKind, gain: number) {
   if (kind === "band-reverb") {
+    const pct = Math.round((Math.max(0, Math.min(18, gain)) / 18) * 100);
+    return `${pct}%`;
+  }
+  if (kind === "band-delay") {
     const pct = Math.round((Math.max(0, Math.min(18, gain)) / 18) * 100);
     return `${pct}%`;
   }
@@ -167,6 +221,7 @@ export function formatFilterAmount(kind: SpectrumFilterKind, gain: number) {
 
 export function amountSliderLabel(kind: SpectrumFilterKind) {
   if (kind === "band-reverb") return "残響の量";
+  if (kind === "band-delay") return "ディレイの量";
   if (kind === "band-formant") return "フォルマントの量";
   if (kind === "band-pitch") return "シフト（半音）";
   return "バンドパスゲイン";
@@ -200,7 +255,11 @@ export function defaultFilterName(
                   ? fullBand
                     ? "ピッチ"
                     : "帯ピッチ"
-                  : "帯域通過";
+                  : kind === "band-delay"
+                    ? fullBand
+                      ? "ディレイ"
+                      : "帯ディレイ"
+                    : "帯域通過";
   if (fullBand && allowsBandToggle(kind)) return short;
   return `${short} ${formatHz(hz)}`;
 }
@@ -235,7 +294,8 @@ export function allowsBandToggle(kind: SpectrumFilterKind) {
     kind === "peak" ||
     kind === "band-reverb" ||
     kind === "band-formant" ||
-    kind === "band-pitch"
+    kind === "band-pitch" ||
+    kind === "band-delay"
   );
 }
 
@@ -247,7 +307,8 @@ export function usesBandWidth(kind: SpectrumFilterKind, fullBand = false) {
     kind === "peak" ||
     kind === "band-reverb" ||
     kind === "band-formant" ||
-    kind === "band-pitch"
+    kind === "band-pitch" ||
+    kind === "band-delay"
   );
 }
 
@@ -269,6 +330,7 @@ export function newSpectrumFilter(
     enabled: true,
     fullBand: false,
     reverb: { ...DEFAULT_REVERB_TUNE },
+    delay: { ...DEFAULT_DELAY_TUNE },
   };
 }
 
@@ -288,7 +350,8 @@ export function applyFilterToBiquad(
           : f.kind === "peak" ||
               f.kind === "band-formant" ||
               f.kind === "band-reverb" ||
-              f.kind === "band-pitch"
+              f.kind === "band-pitch" ||
+              f.kind === "band-delay"
             ? "peaking"
             : "bandpass";
   if (node.type !== type) node.type = type;

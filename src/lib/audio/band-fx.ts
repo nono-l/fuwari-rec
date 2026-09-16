@@ -1,15 +1,25 @@
 import {
   clampFilterGain,
   clampFilterHz,
+  normalizeDelayTune,
   normalizeReverbTune,
   type SpectrumFilter,
   type SpectrumFilterKind,
 } from "./spectrum-filters";
 
-export type BandFxKind = "band-reverb" | "band-formant" | "band-pitch";
+export type BandFxKind =
+  | "band-reverb"
+  | "band-formant"
+  | "band-pitch"
+  | "band-delay";
 
 export function isBandFxKind(kind: SpectrumFilterKind): kind is BandFxKind {
-  return kind === "band-reverb" || kind === "band-formant" || kind === "band-pitch";
+  return (
+    kind === "band-reverb" ||
+    kind === "band-formant" ||
+    kind === "band-pitch" ||
+    kind === "band-delay"
+  );
 }
 
 function makeReverbImpulse(
@@ -203,6 +213,95 @@ export function createBandFxHandle(
       setParam(ctx, keepR.gain, keep);
       setParam(ctx, crossL.gain, cross);
       setParam(ctx, crossR.gain, cross);
+    };
+  } else if (filter.kind === "band-delay") {
+    input.connect(output);
+    const hp = ctx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.Q.value = 0.7;
+    const delayL = ctx.createDelay(1.5);
+    const delayR = ctx.createDelay(1.5);
+    const fb = ctx.createGain();
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.Q.value = 0.7;
+    const merge = ctx.createChannelMerger(2);
+    const toL = ctx.createGain();
+    const toR = ctx.createGain();
+    const spread = ctx.createGain();
+    const wet = ctx.createGain();
+    hp.connect(delayL);
+    delayL.connect(fb);
+    fb.connect(lp);
+    lp.connect(delayL);
+    delayL.connect(delayR);
+    delayL.connect(toL);
+    delayL.connect(spread);
+    delayR.connect(toR);
+    toL.connect(merge, 0, 0);
+    spread.connect(merge, 0, 1);
+    toR.connect(merge, 0, 1);
+    merge.connect(wet);
+    wet.connect(output);
+    nodes.push(hp, delayL, delayR, fb, lp, merge, toL, toR, spread, wet);
+    const full = () => {
+      try {
+        bp.disconnect();
+      } catch {
+        /* noop */
+      }
+      try {
+        input.disconnect(hp);
+      } catch {
+        /* noop */
+      }
+      try {
+        input.disconnect(bp);
+      } catch {
+        /* noop */
+      }
+      input.connect(hp);
+    };
+    const band = () => {
+      try {
+        input.disconnect(hp);
+      } catch {
+        /* noop */
+      }
+      try {
+        input.disconnect(bp);
+      } catch {
+        /* noop */
+      }
+      try {
+        bp.disconnect();
+      } catch {
+        /* noop */
+      }
+      input.connect(bp);
+      bp.connect(hp);
+    };
+    let lastFull: boolean | null = null;
+    applyFn = (f) => {
+      const isFull = !!f.fullBand;
+      if (lastFull !== isFull) {
+        if (isFull) full();
+        else band();
+        lastFull = isFull;
+      }
+      if (!isFull) tuneSplit(ctx, bp, null, f.hz, f.q);
+      const d = normalizeDelayTune(f.delay);
+      const mix = Math.max(0, Math.min(1, clampFilterGain(f.gain) / 18));
+      const t = d.timeMs / 1000;
+      setParam(ctx, delayL.delayTime, t);
+      setParam(ctx, delayR.delayTime, t);
+      setParam(ctx, fb.gain, d.feedback * 0.92);
+      setParam(ctx, hp.frequency, d.lowCutHz);
+      setParam(ctx, lp.frequency, d.highCutHz);
+      setParam(ctx, wet.gain, mix * 0.9);
+      setParam(ctx, toL.gain, 1);
+      setParam(ctx, spread.gain, 1 - d.pingpong);
+      setParam(ctx, toR.gain, d.pingpong);
     };
   } else if (filter.kind === "band-formant") {
     const notch = ctx.createBiquadFilter();

@@ -19,6 +19,7 @@ import {
   defaultFilterGain,
   defaultFilterQ,
   MAX_SPECTRUM_FILTERS,
+  normalizeDelayTune,
   normalizeReverbTune,
 } from "./spectrum-filters";
 import {
@@ -71,6 +72,7 @@ const KINDS = new Set<SpectrumFilterKind>([
   "band-reverb",
   "band-formant",
   "band-pitch",
+  "band-delay",
 ]);
 
 const MIX_IDS = new Set<MixPresetId>([
@@ -151,6 +153,7 @@ function normalizeFilter(raw: Partial<SpectrumFilter>): SpectrumFilter | null {
     enabled: raw.enabled !== false,
     fullBand: raw.fullBand === true,
     reverb: normalizeReverbTune(raw.reverb),
+    delay: normalizeDelayTune(raw.delay),
   };
 }
 
@@ -326,7 +329,8 @@ function profileXml(tag: string, amount: number, profile: RoomProfile | null) {
 
 function filterXml(f: SpectrumFilter) {
   const rv = normalizeReverbTune(f.reverb);
-  return `      <filter id="${esc(f.id)}" name="${esc(f.name)}" kind="${f.kind}" hz="${f.hz}" q="${f.q}" gain="${f.gain ?? 0}" enabled="${f.enabled ? "true" : "false"}" fullBand="${f.fullBand ? "true" : "false"}" reverbDecay="${rv.decay}" reverbPredelay="${rv.predelayMs}" reverbBright="${rv.brightness}" reverbSize="${rv.size}" reverbLowCut="${rv.lowCutHz}" reverbHighCut="${rv.highCutHz}" reverbWidth="${rv.width}"/>`;
+  const d = normalizeDelayTune(f.delay);
+  return `      <filter id="${esc(f.id)}" name="${esc(f.name)}" kind="${f.kind}" hz="${f.hz}" q="${f.q}" gain="${f.gain ?? 0}" enabled="${f.enabled ? "true" : "false"}" fullBand="${f.fullBand ? "true" : "false"}" reverbDecay="${rv.decay}" reverbPredelay="${rv.predelayMs}" reverbBright="${rv.brightness}" reverbSize="${rv.size}" reverbLowCut="${rv.lowCutHz}" reverbHighCut="${rv.highCutHz}" reverbWidth="${rv.width}" delayTime="${d.timeMs}" delayFb="${d.feedback}" delayPing="${d.pingpong}" delayLowCut="${d.lowCutHz}" delayHighCut="${d.highCutHz}"/>`;
 }
 
 function insertXml(f: ObsInsert) {
@@ -474,6 +478,13 @@ function parseFilterEl(f: Element): SpectrumFilter | null {
       lowCutHz: num(attr(f, "reverbLowCut"), 120),
       highCutHz: num(attr(f, "reverbHighCut"), 8500),
       width: num(attr(f, "reverbWidth"), 0.72),
+    }),
+    delay: normalizeDelayTune({
+      timeMs: num(attr(f, "delayTime"), 280),
+      feedback: num(attr(f, "delayFb"), 0.32),
+      pingpong: num(attr(f, "delayPing"), 0.35),
+      lowCutHz: num(attr(f, "delayLowCut"), 90),
+      highCutHz: num(attr(f, "delayHighCut"), 6500),
     }),
   });
 }

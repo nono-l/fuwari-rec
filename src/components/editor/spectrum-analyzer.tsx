@@ -21,7 +21,9 @@ import {
   usesGain,
   allowsBandToggle,
   amountSliderLabel,
+  normalizeDelayTune,
   normalizeReverbTune,
+  type DelayTune,
   type ReverbTune,
   type SpectrumFilter,
   type SpectrumFilterKind,
@@ -34,6 +36,7 @@ import { CABLE_INDEXES, asCableIndex, cableSummary } from "@/lib/audio/cables";
 import { deviceIoSummary } from "@/lib/audio/device-io";
 import { InsertControl, insertSummary } from "@/components/editor/obs-filter-rack";
 import { ReverbTuneControls } from "@/components/editor/reverb-tune";
+import { DelayTuneControls } from "@/components/editor/delay-tune";
 import { useEditorStore } from "@/lib/store/editor-store";
 import { useActivePipeline } from "@/lib/store/use-active-pipeline";
 import { Button } from "@/components/ui/button";
@@ -52,6 +55,7 @@ const KIND_COLOR: Record<SpectrumFilterKind, string> = {
   "band-reverb": "#7c3aed",
   "band-formant": "#c2410c",
   "band-pitch": "#1d4ed8",
+  "band-delay": "#0891b2",
 };
 
 type Draft = {
@@ -63,6 +67,7 @@ type Draft = {
   gain: number;
   fullBand: boolean;
   reverb: ReverbTune;
+  delay: DelayTune;
 };
 
 function hzFromPointer(
@@ -172,6 +177,7 @@ export function SpectrumAnalyzer({
       gain: next.gain,
       fullBand: next.fullBand,
       reverb: normalizeReverbTune(next.reverb),
+      delay: normalizeDelayTune(next.delay),
     });
   };
 
@@ -259,7 +265,8 @@ export function SpectrumAnalyzer({
         shade === "peak" ||
         shade === "band-reverb" ||
         shade === "band-formant" ||
-        shade === "band-pitch"
+        shade === "band-pitch" ||
+        shade === "band-delay"
       ) {
         const { lo, hi } = bandEdges(hz, q);
         const x0 = padL + hzToSpecT(lo, sr) * innerW;
@@ -578,6 +585,7 @@ export function SpectrumAnalyzer({
       gain: f?.gain ?? defaultFilterGain(kind),
       fullBand: false,
       reverb: normalizeReverbTune(f?.reverb),
+      delay: normalizeDelayTune(f?.delay),
     });
   };
 
@@ -593,6 +601,7 @@ export function SpectrumAnalyzer({
       gain: f.gain ?? 0,
       fullBand: !!f.fullBand,
       reverb: normalizeReverbTune(f.reverb),
+      delay: normalizeDelayTune(f.delay),
     });
   };
 
@@ -654,6 +663,7 @@ export function SpectrumAnalyzer({
         gain: s.gain ?? 0,
         fullBand: !!s.fullBand,
         reverb: normalizeReverbTune(s.reverb),
+        delay: normalizeDelayTune(s.delay),
       });
     }
     closeDraft();
@@ -884,7 +894,7 @@ export function SpectrumAnalyzer({
               </div>
               <Slider
                 min={
-                  draft.kind === "band-reverb"
+                  draft.kind === "band-reverb" || draft.kind === "band-delay"
                     ? 0
                     : draft.kind === "band-pitch"
                       ? -120
@@ -901,7 +911,7 @@ export function SpectrumAnalyzer({
               />
               <div className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground">
                 <span>
-                  {draft.kind === "band-reverb"
+                  {draft.kind === "band-reverb" || draft.kind === "band-delay"
                     ? "乾いた音"
                     : draft.kind === "band-pitch"
                       ? "−12 半音"
@@ -919,6 +929,8 @@ export function SpectrumAnalyzer({
                 <span>
                   {draft.kind === "band-reverb"
                     ? "残響だけ"
+                    : draft.kind === "band-delay"
+                      ? "ディレイだけ"
                     : draft.kind === "band-pitch"
                       ? "＋12 半音"
                       : "＋18 dB"}
@@ -929,12 +941,23 @@ export function SpectrumAnalyzer({
                   乾いた音と残響の混ぜ。右に行くほど残響が大きくなります
                 </p>
               )}
+              {draft.kind === "band-delay" && (
+                <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                  乾いた音とディレイの混ぜ。右に行くほど繰り返しが大きくなります
+                </p>
+              )}
             </div>
           )}
           {draft.kind === "band-reverb" && (
             <ReverbTuneControls
               value={draft.reverb}
               onChange={(reverb) => patchDraft({ reverb })}
+            />
+          )}
+          {draft.kind === "band-delay" && (
+            <DelayTuneControls
+              value={draft.delay}
+              onChange={(delay) => patchDraft({ delay })}
             />
           )}
           <div className="mt-3 flex flex-wrap gap-2">
@@ -1035,6 +1058,9 @@ export function SpectrumAnalyzer({
                         : ""}
                       {f.kind === "band-reverb"
                         ? ` · ${normalizeReverbTune(f.reverb).decay.toFixed(1)}秒`
+                        : ""}
+                      {f.kind === "band-delay"
+                        ? ` · ${Math.round(normalizeDelayTune(f.delay).timeMs)}ms`
                         : ""}
                     </div>
                   </div>

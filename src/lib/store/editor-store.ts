@@ -3499,6 +3499,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       filters: s.spectrumFilters.map((f) => ({
         ...f,
         reverb: { ...f.reverb },
+        delay: { ...f.delay },
       })),
       inserts: s.obsInserts.map((f) => ({ ...f })),
       aiVoice: s.aiVoice ? { ...s.aiVoice } : null,
@@ -3510,6 +3511,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         spectrumFilters: p.spectrumFilters.map((f) => ({
           ...f,
           reverb: { ...f.reverb },
+          delay: { ...f.delay },
         })),
         obsInserts: p.obsInserts.map((f) => ({ ...f })),
         cableInserts: (p.cableInserts ?? []).map((c) => ({ ...c })),
