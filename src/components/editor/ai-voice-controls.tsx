@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef } from "react";
 import { Link } from "@tanstack/react-router";
 import { FolderOpen, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import {
 } from "@/lib/audio/ai-voice";
 import { aiRuntimeModeLabel } from "@/lib/audio/ai-runtime";
 import { useAiRuntimeStore } from "@/lib/store/ai-runtime-store";
+import { WebGpuToggle } from "@/components/editor/webgpu-toggle";
 
 export function AiVoiceControl({
   voice,
@@ -23,7 +24,6 @@ export function AiVoiceControl({
   onClearModel?: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const gpu = useWebGpuHint();
   const loaded = hasAiModelFile(voice.id, voice.modelName);
   const named = voice.modelName.trim();
   const mode = useAiRuntimeStore((s) => s.mode);
@@ -112,8 +112,11 @@ export function AiVoiceControl({
           </Button>
         )}
         <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground">
-          .onnx / .pth / .pt。変換はこの端末の{gpu}。未選択のときは素通りでキーだけかかります。
+          .onnx / .pth / .pt。未選択のときは素通りでキーだけかかります。
         </p>
+        <div className="mt-2">
+          <WebGpuToggle />
+        </div>
       </div>
 
       <div>
@@ -154,24 +157,4 @@ export function AiVoiceControl({
       </p>
     </div>
   );
-}
-
-function useWebGpuHint() {
-  const [label, setLabel] = useState("GPU");
-  useEffect(() => {
-    const gpu = (
-      navigator as Navigator & {
-        gpu?: { requestAdapter: () => Promise<unknown> };
-      }
-    ).gpu;
-    if (!gpu) {
-      setLabel("CPU");
-      return;
-    }
-    void gpu
-      .requestAdapter()
-      .then((a) => setLabel(a ? "WebGPU" : "CPU"))
-      .catch(() => setLabel("CPU"));
-  }, []);
-  return label;
 }
