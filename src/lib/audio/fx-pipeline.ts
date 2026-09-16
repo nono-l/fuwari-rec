@@ -51,6 +51,8 @@ export function stageCost(kind: string): number {
       return 6;
     case "band-delay":
       return 3;
+    case "band-offset":
+      return 2;
     case "ai":
       return 6;
     case "band-formant":

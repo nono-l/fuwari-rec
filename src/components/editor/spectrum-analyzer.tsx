@@ -22,8 +22,10 @@ import {
   allowsBandToggle,
   amountSliderLabel,
   normalizeDelayTune,
+  normalizeOffsetTune,
   normalizeReverbTune,
   type DelayTune,
+  type OffsetTune,
   type ReverbTune,
   type SpectrumFilter,
   type SpectrumFilterKind,
@@ -37,6 +39,7 @@ import { deviceIoSummary } from "@/lib/audio/device-io";
 import { InsertControl, insertSummary } from "@/components/editor/obs-filter-rack";
 import { ReverbTuneControls } from "@/components/editor/reverb-tune";
 import { DelayTuneControls } from "@/components/editor/delay-tune";
+import { OffsetTuneControls } from "@/components/editor/offset-tune";
 import { useEditorStore } from "@/lib/store/editor-store";
 import { useActivePipeline } from "@/lib/store/use-active-pipeline";
 import { Button } from "@/components/ui/button";
@@ -56,6 +59,7 @@ const KIND_COLOR: Record<SpectrumFilterKind, string> = {
   "band-formant": "#c2410c",
   "band-pitch": "#1d4ed8",
   "band-delay": "#0891b2",
+  "band-offset": "#4f46e5",
 };
 
 type Draft = {
@@ -68,6 +72,7 @@ type Draft = {
   fullBand: boolean;
   reverb: ReverbTune;
   delay: DelayTune;
+  offset: OffsetTune;
 };
 
 function hzFromPointer(
@@ -178,6 +183,7 @@ export function SpectrumAnalyzer({
       fullBand: next.fullBand,
       reverb: normalizeReverbTune(next.reverb),
       delay: normalizeDelayTune(next.delay),
+      offset: normalizeOffsetTune(next.offset),
     });
   };
 
@@ -266,7 +272,8 @@ export function SpectrumAnalyzer({
         shade === "band-reverb" ||
         shade === "band-formant" ||
         shade === "band-pitch" ||
-        shade === "band-delay"
+        shade === "band-delay" ||
+        shade === "band-offset"
       ) {
         const { lo, hi } = bandEdges(hz, q);
         const x0 = padL + hzToSpecT(lo, sr) * innerW;
@@ -586,6 +593,7 @@ export function SpectrumAnalyzer({
       fullBand: false,
       reverb: normalizeReverbTune(f?.reverb),
       delay: normalizeDelayTune(f?.delay),
+      offset: normalizeOffsetTune(f?.offset),
     });
   };
 
@@ -602,6 +610,7 @@ export function SpectrumAnalyzer({
       fullBand: !!f.fullBand,
       reverb: normalizeReverbTune(f.reverb),
       delay: normalizeDelayTune(f.delay),
+      offset: normalizeOffsetTune(f.offset),
     });
   };
 
@@ -664,6 +673,7 @@ export function SpectrumAnalyzer({
         fullBand: !!s.fullBand,
         reverb: normalizeReverbTune(s.reverb),
         delay: normalizeDelayTune(s.delay),
+        offset: normalizeOffsetTune(s.offset),
       });
     }
     closeDraft();
@@ -894,7 +904,9 @@ export function SpectrumAnalyzer({
               </div>
               <Slider
                 min={
-                  draft.kind === "band-reverb" || draft.kind === "band-delay"
+                  draft.kind === "band-reverb" ||
+                  draft.kind === "band-delay" ||
+                  draft.kind === "band-offset"
                     ? 0
                     : draft.kind === "band-pitch"
                       ? -120
@@ -913,9 +925,11 @@ export function SpectrumAnalyzer({
                 <span>
                   {draft.kind === "band-reverb" || draft.kind === "band-delay"
                     ? "乾いた音"
-                    : draft.kind === "band-pitch"
-                      ? "−12 半音"
-                      : "−18 dB"}
+                    : draft.kind === "band-offset"
+                      ? "元のタイミング"
+                      : draft.kind === "band-pitch"
+                        ? "−12 半音"
+                        : "−18 dB"}
                 </span>
                 <button
                   type="button"
@@ -931,6 +945,8 @@ export function SpectrumAnalyzer({
                     ? "残響だけ"
                     : draft.kind === "band-delay"
                       ? "ディレイだけ"
+                      : draft.kind === "band-offset"
+                        ? "ずらした音だけ"
                     : draft.kind === "band-pitch"
                       ? "＋12 半音"
                       : "＋18 dB"}
@@ -946,6 +962,11 @@ export function SpectrumAnalyzer({
                   乾いた音とディレイの混ぜ。右に行くほど繰り返しが大きくなります
                 </p>
               )}
+              {draft.kind === "band-offset" && (
+                <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                  右がいちばんわかりやすいです。混ぜると元のタイミングと重なってコームが付きます
+                </p>
+              )}
             </div>
           )}
           {draft.kind === "band-reverb" && (
@@ -958,6 +979,12 @@ export function SpectrumAnalyzer({
             <DelayTuneControls
               value={draft.delay}
               onChange={(delay) => patchDraft({ delay })}
+            />
+          )}
+          {draft.kind === "band-offset" && (
+            <OffsetTuneControls
+              value={draft.offset}
+              onChange={(offset) => patchDraft({ offset })}
             />
           )}
           <div className="mt-3 flex flex-wrap gap-2">
@@ -1061,6 +1088,9 @@ export function SpectrumAnalyzer({
                         : ""}
                       {f.kind === "band-delay"
                         ? ` · ${Math.round(normalizeDelayTune(f.delay).timeMs)}ms`
+                        : ""}
+                      {f.kind === "band-offset"
+                        ? ` · ${Math.round(normalizeOffsetTune(f.offset).timeMs)}msずらす`
                         : ""}
                     </div>
                   </div>

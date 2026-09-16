@@ -2,6 +2,7 @@ import {
   clampFilterGain,
   clampFilterHz,
   normalizeDelayTune,
+  normalizeOffsetTune,
   normalizeReverbTune,
   type SpectrumFilter,
   type SpectrumFilterKind,
@@ -11,14 +12,16 @@ export type BandFxKind =
   | "band-reverb"
   | "band-formant"
   | "band-pitch"
-  | "band-delay";
+  | "band-delay"
+  | "band-offset";
 
 export function isBandFxKind(kind: SpectrumFilterKind): kind is BandFxKind {
   return (
     kind === "band-reverb" ||
     kind === "band-formant" ||
     kind === "band-pitch" ||
-    kind === "band-delay"
+    kind === "band-delay" ||
+    kind === "band-offset"
   );
 }
 
@@ -302,6 +305,72 @@ export function createBandFxHandle(
       setParam(ctx, toL.gain, 1);
       setParam(ctx, spread.gain, 1 - d.pingpong);
       setParam(ctx, toR.gain, d.pingpong);
+    };
+  } else if (filter.kind === "band-offset") {
+    const notch = ctx.createBiquadFilter();
+    notch.type = "notch";
+    const delay = ctx.createDelay(1.6);
+    const dryG = ctx.createGain();
+    const wetG = ctx.createGain();
+    delay.connect(wetG);
+    dryG.connect(output);
+    wetG.connect(output);
+    nodes.push(notch, delay, dryG, wetG);
+    const full = () => {
+      try {
+        input.disconnect();
+      } catch {
+        /* noop */
+      }
+      try {
+        notch.disconnect();
+      } catch {
+        /* noop */
+      }
+      try {
+        bp.disconnect();
+      } catch {
+        /* noop */
+      }
+      input.connect(dryG);
+      input.connect(delay);
+    };
+    const band = () => {
+      try {
+        input.disconnect();
+      } catch {
+        /* noop */
+      }
+      try {
+        bp.disconnect();
+      } catch {
+        /* noop */
+      }
+      try {
+        notch.disconnect();
+      } catch {
+        /* noop */
+      }
+      input.connect(notch);
+      notch.connect(output);
+      input.connect(bp);
+      bp.connect(dryG);
+      bp.connect(delay);
+    };
+    let lastFull: boolean | null = null;
+    applyFn = (f) => {
+      const isFull = !!f.fullBand;
+      if (lastFull !== isFull) {
+        if (isFull) full();
+        else band();
+        lastFull = isFull;
+      }
+      if (!isFull) tuneSplit(ctx, bp, notch, f.hz, f.q);
+      const o = normalizeOffsetTune(f.offset);
+      const mix = Math.max(0, Math.min(1, clampFilterGain(f.gain) / 18));
+      setParam(ctx, delay.delayTime, o.timeMs / 1000);
+      setParam(ctx, dryG.gain, 1 - mix);
+      setParam(ctx, wetG.gain, mix);
     };
   } else if (filter.kind === "band-formant") {
     const notch = ctx.createBiquadFilter();

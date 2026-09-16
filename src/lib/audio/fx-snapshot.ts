@@ -20,6 +20,7 @@ import {
   defaultFilterQ,
   MAX_SPECTRUM_FILTERS,
   normalizeDelayTune,
+  normalizeOffsetTune,
   normalizeReverbTune,
 } from "./spectrum-filters";
 import {
@@ -73,6 +74,7 @@ const KINDS = new Set<SpectrumFilterKind>([
   "band-formant",
   "band-pitch",
   "band-delay",
+  "band-offset",
 ]);
 
 const MIX_IDS = new Set<MixPresetId>([
@@ -154,6 +156,7 @@ function normalizeFilter(raw: Partial<SpectrumFilter>): SpectrumFilter | null {
     fullBand: raw.fullBand === true,
     reverb: normalizeReverbTune(raw.reverb),
     delay: normalizeDelayTune(raw.delay),
+    offset: normalizeOffsetTune(raw.offset),
   };
 }
 
@@ -330,7 +333,8 @@ function profileXml(tag: string, amount: number, profile: RoomProfile | null) {
 function filterXml(f: SpectrumFilter) {
   const rv = normalizeReverbTune(f.reverb);
   const d = normalizeDelayTune(f.delay);
-  return `      <filter id="${esc(f.id)}" name="${esc(f.name)}" kind="${f.kind}" hz="${f.hz}" q="${f.q}" gain="${f.gain ?? 0}" enabled="${f.enabled ? "true" : "false"}" fullBand="${f.fullBand ? "true" : "false"}" reverbDecay="${rv.decay}" reverbPredelay="${rv.predelayMs}" reverbBright="${rv.brightness}" reverbSize="${rv.size}" reverbLowCut="${rv.lowCutHz}" reverbHighCut="${rv.highCutHz}" reverbWidth="${rv.width}" delayTime="${d.timeMs}" delayFb="${d.feedback}" delayPing="${d.pingpong}" delayLowCut="${d.lowCutHz}" delayHighCut="${d.highCutHz}"/>`;
+  const o = normalizeOffsetTune(f.offset);
+  return `      <filter id="${esc(f.id)}" name="${esc(f.name)}" kind="${f.kind}" hz="${f.hz}" q="${f.q}" gain="${f.gain ?? 0}" enabled="${f.enabled ? "true" : "false"}" fullBand="${f.fullBand ? "true" : "false"}" reverbDecay="${rv.decay}" reverbPredelay="${rv.predelayMs}" reverbBright="${rv.brightness}" reverbSize="${rv.size}" reverbLowCut="${rv.lowCutHz}" reverbHighCut="${rv.highCutHz}" reverbWidth="${rv.width}" delayTime="${d.timeMs}" delayFb="${d.feedback}" delayPing="${d.pingpong}" delayLowCut="${d.lowCutHz}" delayHighCut="${d.highCutHz}" offsetTime="${o.timeMs}"/>`;
 }
 
 function insertXml(f: ObsInsert) {
@@ -485,6 +489,9 @@ function parseFilterEl(f: Element): SpectrumFilter | null {
       pingpong: num(attr(f, "delayPing"), 0.35),
       lowCutHz: num(attr(f, "delayLowCut"), 90),
       highCutHz: num(attr(f, "delayHighCut"), 6500),
+    }),
+    offset: normalizeOffsetTune({
+      timeMs: num(attr(f, "offsetTime"), 80),
     }),
   });
 }

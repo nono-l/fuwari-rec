@@ -7,7 +7,8 @@ export type SpectrumFilterKind =
   | "band-reverb"
   | "band-formant"
   | "band-pitch"
-  | "band-delay";
+  | "band-delay"
+  | "band-offset";
 
 export type ReverbTune = {
   /** Tail length, seconds. */
@@ -112,6 +113,28 @@ export function normalizeDelayTune(
   };
 }
 
+export type OffsetTune = {
+  /** Constant output lag, milliseconds. No repeats. */
+  timeMs: number;
+};
+
+export const DEFAULT_OFFSET_TUNE: OffsetTune = {
+  timeMs: 80,
+};
+
+export function normalizeOffsetTune(
+  raw?: Partial<OffsetTune> | null,
+): OffsetTune {
+  const r = raw ?? {};
+  const n = typeof r.timeMs === "number" ? r.timeMs : Number(r.timeMs);
+  return {
+    timeMs: Math.max(
+      5,
+      Math.min(1500, Number.isFinite(n) ? n : DEFAULT_OFFSET_TUNE.timeMs),
+    ),
+  };
+}
+
 export type SpectrumFilter = {
   id: string;
   name: string;
@@ -125,6 +148,7 @@ export type SpectrumFilter = {
   fullBand: boolean;
   reverb: ReverbTune;
   delay: DelayTune;
+  offset: OffsetTune;
 };
 
 export const SPEC_MIN_HZ = 40;
@@ -145,6 +169,7 @@ export const FILTER_KINDS: {
   { id: "band-formant", label: "この帯をフォルマント風", hint: "F1/F2 ピーク" },
   { id: "band-pitch", label: "この帯をピッチシフト", hint: "簡易グレイン" },
   { id: "band-delay", label: "この帯にディレイ", hint: "帯域エコー" },
+  { id: "band-offset", label: "この帯をずらす", hint: "繰り返しなしの時間ずらし" },
 ];
 
 export function formatHz(hz: number) {
@@ -164,7 +189,8 @@ export function defaultFilterQ(kind: SpectrumFilterKind) {
     kind === "band-reverb" ||
     kind === "band-formant" ||
     kind === "band-pitch" ||
-    kind === "band-delay"
+    kind === "band-delay" ||
+    kind === "band-offset"
   ) {
     return 1.4;
   }
@@ -175,6 +201,7 @@ export function defaultFilterGain(kind: SpectrumFilterKind) {
   if (kind === "peak" || kind === "band-formant") return 6;
   if (kind === "band-reverb") return 8;
   if (kind === "band-delay") return 7;
+  if (kind === "band-offset") return 18;
   if (kind === "band-pitch") return 2;
   return 0;
 }
@@ -197,7 +224,8 @@ export function usesGain(kind: SpectrumFilterKind) {
     kind === "band-reverb" ||
     kind === "band-formant" ||
     kind === "band-pitch" ||
-    kind === "band-delay"
+    kind === "band-delay" ||
+    kind === "band-offset"
   );
 }
 
@@ -207,6 +235,10 @@ export function formatFilterAmount(kind: SpectrumFilterKind, gain: number) {
     return `${pct}%`;
   }
   if (kind === "band-delay") {
+    const pct = Math.round((Math.max(0, Math.min(18, gain)) / 18) * 100);
+    return `${pct}%`;
+  }
+  if (kind === "band-offset") {
     const pct = Math.round((Math.max(0, Math.min(18, gain)) / 18) * 100);
     return `${pct}%`;
   }
@@ -222,6 +254,7 @@ export function formatFilterAmount(kind: SpectrumFilterKind, gain: number) {
 export function amountSliderLabel(kind: SpectrumFilterKind) {
   if (kind === "band-reverb") return "残響の量";
   if (kind === "band-delay") return "ディレイの量";
+  if (kind === "band-offset") return "ずらした音の割合";
   if (kind === "band-formant") return "フォルマントの量";
   if (kind === "band-pitch") return "シフト（半音）";
   return "バンドパスゲイン";
@@ -259,7 +292,11 @@ export function defaultFilterName(
                     ? fullBand
                       ? "ディレイ"
                       : "帯ディレイ"
-                    : "帯域通過";
+                    : kind === "band-offset"
+                      ? fullBand
+                        ? "オフセット"
+                        : "帯オフセット"
+                      : "帯域通過";
   if (fullBand && allowsBandToggle(kind)) return short;
   return `${short} ${formatHz(hz)}`;
 }
@@ -295,7 +332,8 @@ export function allowsBandToggle(kind: SpectrumFilterKind) {
     kind === "band-reverb" ||
     kind === "band-formant" ||
     kind === "band-pitch" ||
-    kind === "band-delay"
+    kind === "band-delay" ||
+    kind === "band-offset"
   );
 }
 
@@ -308,7 +346,8 @@ export function usesBandWidth(kind: SpectrumFilterKind, fullBand = false) {
     kind === "band-reverb" ||
     kind === "band-formant" ||
     kind === "band-pitch" ||
-    kind === "band-delay"
+    kind === "band-delay" ||
+    kind === "band-offset"
   );
 }
 
@@ -331,6 +370,7 @@ export function newSpectrumFilter(
     fullBand: false,
     reverb: { ...DEFAULT_REVERB_TUNE },
     delay: { ...DEFAULT_DELAY_TUNE },
+    offset: { ...DEFAULT_OFFSET_TUNE },
   };
 }
 
@@ -351,7 +391,8 @@ export function applyFilterToBiquad(
               f.kind === "band-formant" ||
               f.kind === "band-reverb" ||
               f.kind === "band-pitch" ||
-              f.kind === "band-delay"
+              f.kind === "band-delay" ||
+              f.kind === "band-offset"
             ? "peaking"
             : "bandpass";
   if (node.type !== type) node.type = type;
