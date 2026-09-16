@@ -15,6 +15,7 @@ import {
   normalizeExpanderTune,
   normalizeDenoiseTune,
   normalizeHowlTune,
+  normalizeEq3Tune,
   type ObsFilterId,
   type ObsInsert,
   type RecMark,
@@ -25,6 +26,7 @@ import { GateTuneControls } from "@/components/editor/gate-tune";
 import { BelowTuneControls } from "@/components/editor/below-tune";
 import { DenoiseTuneControls } from "@/components/editor/denoise-tune";
 import { HowlTuneControls } from "@/components/editor/howl-tune";
+import { Eq3TuneControls } from "@/components/editor/eq3-tune";
 import {
   bandEdges,
   formatHz,
@@ -54,7 +56,8 @@ export function insertSummary(ins: ObsInsert) {
       : " · 全帯域";
   if (ins.kind === "phase") return (ins.phaseInvert ? "反転 ON" : "OFF") + band;
   if (ins.kind === "eq3") {
-    return `低 ${db(ins.eqLow)} · 中 ${db(ins.eqMid)} · 高 ${db(ins.eqHigh)}${band}`;
+    const e = normalizeEq3Tune(ins.eq3Tune, ins);
+    return `低 ${db(e.lowGain)} · 中 ${db(e.midGain)} · 高 ${db(e.highGain)}${band}`;
   }
   if (ins.kind === "howl") {
     const h = normalizeHowlTune(ins.howlTune, ins.amount);
@@ -351,23 +354,17 @@ export function InsertControl({
         {insert.phaseInvert ? "反転 ON" : "OFF"}
       </Button>
     ) : insert.kind === "eq3" ? (
-      <div className="space-y-1.5">
-        <EqMini
-          label="低"
-          value={insert.eqLow}
-          onChange={(v) => onPatch({ eqLow: v })}
-        />
-        <EqMini
-          label="中"
-          value={insert.eqMid}
-          onChange={(v) => onPatch({ eqMid: v })}
-        />
-        <EqMini
-          label="高"
-          value={insert.eqHigh}
-          onChange={(v) => onPatch({ eqHigh: v })}
-        />
-      </div>
+      <Eq3TuneControls
+        value={normalizeEq3Tune(insert.eq3Tune, insert)}
+        onChange={(eq3Tune) =>
+          onPatch({
+            eq3Tune,
+            eqLow: eq3Tune.lowGain,
+            eqMid: eq3Tune.midGain,
+            eqHigh: eq3Tune.highGain,
+          })
+        }
+      />
     ) : insert.kind === "gain" ? (
       <Amount
         valueLabel={pct(insert.amount)}
@@ -531,33 +528,6 @@ function Amount({
         value={[value]}
         onValueChange={([v]) => onChange(v ?? 0)}
       />
-    </div>
-  );
-}
-
-function EqMini({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="w-4 shrink-0 text-[10px] text-muted-foreground">{label}</span>
-      <Slider
-        min={-12}
-        max={12}
-        step={0.5}
-        value={[value]}
-        onValueChange={([v]) => onChange(v ?? 0)}
-        className="flex-1"
-      />
-      <span className="w-12 shrink-0 text-right text-[10px] tabular-nums text-foreground">
-        {db(value)}
-      </span>
     </div>
   );
 }

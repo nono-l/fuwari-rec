@@ -476,6 +476,53 @@ export function normalizeHowlTune(
   };
 }
 
+export type Eq3Tune = {
+  lowHz: number;
+  lowQ: number;
+  lowGain: number;
+  midHz: number;
+  midQ: number;
+  midGain: number;
+  highHz: number;
+  highQ: number;
+  highGain: number;
+};
+
+export const DEFAULT_EQ3_TUNE: Eq3Tune = {
+  lowHz: 200,
+  lowQ: 0.7,
+  lowGain: 0,
+  midHz: 1000,
+  midQ: 0.8,
+  midGain: 0,
+  highHz: 5000,
+  highQ: 0.7,
+  highGain: 0,
+};
+
+export function normalizeEq3Tune(
+  raw?: Partial<Eq3Tune> | null,
+  gains?: { eqLow?: number; eqMid?: number; eqHigh?: number },
+): Eq3Tune {
+  const r = raw ?? {};
+  const g = gains ?? {};
+  return {
+    lowHz: clamp(num(r.lowHz, DEFAULT_EQ3_TUNE.lowHz), 40, 800),
+    lowQ: clamp(num(r.lowQ, DEFAULT_EQ3_TUNE.lowQ), 0.3, 8),
+    lowGain: clamp(num(r.lowGain, g.eqLow ?? DEFAULT_EQ3_TUNE.lowGain), -12, 12),
+    midHz: clamp(num(r.midHz, DEFAULT_EQ3_TUNE.midHz), 200, 4000),
+    midQ: clamp(num(r.midQ, DEFAULT_EQ3_TUNE.midQ), 0.3, 8),
+    midGain: clamp(num(r.midGain, g.eqMid ?? DEFAULT_EQ3_TUNE.midGain), -12, 12),
+    highHz: clamp(num(r.highHz, DEFAULT_EQ3_TUNE.highHz), 1500, 16000),
+    highQ: clamp(num(r.highQ, DEFAULT_EQ3_TUNE.highQ), 0.3, 8),
+    highGain: clamp(
+      num(r.highGain, g.eqHigh ?? DEFAULT_EQ3_TUNE.highGain),
+      -12,
+      12,
+    ),
+  };
+}
+
 export const DEFAULT_MASTER_FX: MasterFx = {
   volume: 1,
   pitchSemitones: 0,
@@ -634,25 +681,28 @@ function tryLimiterWorklet(ctx: BaseAudioContext): AudioWorkletNode | null {
   }
 }
 
-export function createEq3(
-  ctx: BaseAudioContext,
-  fx: { eqLow?: number; eqMid?: number; eqHigh?: number },
-) {
+export function createEq3(ctx: BaseAudioContext, fx: Partial<ObsInsert> | Eq3Tune) {
+  const t = normalizeEq3Tune(
+    "lowHz" in fx ? (fx as Eq3Tune) : (fx as Partial<ObsInsert>).eq3Tune,
+    fx as { eqLow?: number; eqMid?: number; eqHigh?: number },
+  );
   const lo = ctx.createBiquadFilter();
   lo.type = "lowshelf";
-  lo.frequency.value = 200;
-  lo.gain.value = fx.eqLow ?? 0;
+  lo.frequency.value = t.lowHz;
+  lo.Q.value = t.lowQ;
+  lo.gain.value = t.lowGain;
 
   const mid = ctx.createBiquadFilter();
   mid.type = "peaking";
-  mid.frequency.value = 1000;
-  mid.Q.value = 0.8;
-  mid.gain.value = fx.eqMid ?? 0;
+  mid.frequency.value = t.midHz;
+  mid.Q.value = t.midQ;
+  mid.gain.value = t.midGain;
 
   const hi = ctx.createBiquadFilter();
   hi.type = "highshelf";
-  hi.frequency.value = 5000;
-  hi.gain.value = fx.eqHigh ?? 0;
+  hi.frequency.value = t.highHz;
+  hi.Q.value = t.highQ;
+  hi.gain.value = t.highGain;
 
   lo.connect(mid);
   mid.connect(hi);
@@ -661,11 +711,29 @@ export function createEq3(
 
 export function applyEq3(
   nodes: { lo: BiquadFilterNode; mid: BiquadFilterNode; hi: BiquadFilterNode },
-  fx: { eqLow?: number; eqMid?: number; eqHigh?: number },
+  fx: Partial<ObsInsert> | Eq3Tune,
 ) {
-  nodes.lo.gain.value = fx.eqLow ?? 0;
-  nodes.mid.gain.value = fx.eqMid ?? 0;
-  nodes.hi.gain.value = fx.eqHigh ?? 0;
+  const t = normalizeEq3Tune(
+    "lowHz" in fx ? (fx as Eq3Tune) : (fx as Partial<ObsInsert>).eq3Tune,
+    fx as { eqLow?: number; eqMid?: number; eqHigh?: number },
+  );
+  const now = (n: BiquadFilterNode) =>
+    "currentTime" in n.context ? n.context.currentTime : 0;
+  const set = (node: BiquadFilterNode, hz: number, q: number, gain: number) => {
+    const t0 = now(node);
+    try {
+      node.frequency.setTargetAtTime(hz, t0, 0.02);
+      node.Q.setTargetAtTime(q, t0, 0.02);
+      node.gain.setTargetAtTime(gain, t0, 0.02);
+    } catch {
+      node.frequency.value = hz;
+      node.Q.value = q;
+      node.gain.value = gain;
+    }
+  };
+  set(nodes.lo, t.lowHz, t.lowQ, t.lowGain);
+  set(nodes.mid, t.midHz, t.midQ, t.midGain);
+  set(nodes.hi, t.highHz, t.highQ, t.highGain);
 }
 
 /** Offline envelope: gate + expander + upward compressor. */
@@ -759,6 +827,7 @@ export type ObsInsert = {
   expanderTune: BelowTune;
   denoiseTune: DenoiseTune;
   howlTune: HowlTune;
+  eq3Tune: Eq3Tune;
 };
 
 export function catalogMeta(kind: ObsFilterId) {
@@ -787,6 +856,11 @@ export function newObsInsert(
   patch?: Partial<ObsInsert>,
 ): ObsInsert {
   const meta = catalogMeta(kind);
+  const eq3Tune = normalizeEq3Tune(patch?.eq3Tune, {
+    eqLow: patch?.eqLow,
+    eqMid: patch?.eqMid,
+    eqHigh: patch?.eqHigh,
+  });
   return {
     id: patch?.id || newInsertId(),
     kind,
@@ -797,9 +871,9 @@ export function newObsInsert(
       0,
       kind === "gain" ? 1.5 : 1,
     ),
-    eqLow: clamp(num(patch?.eqLow, 0), -12, 12),
-    eqMid: clamp(num(patch?.eqMid, 0), -12, 12),
-    eqHigh: clamp(num(patch?.eqHigh, 0), -12, 12),
+    eqLow: eq3Tune.lowGain,
+    eqMid: eq3Tune.midGain,
+    eqHigh: eq3Tune.highGain,
     phaseInvert: patch?.phaseInvert ?? kind === "phase",
     fullBand: patch?.fullBand !== false,
     hz: clampFilterHz(num(patch?.hz, 1000)),
@@ -833,6 +907,7 @@ export function newObsInsert(
         (patch?.amount == null ? DEFAULT_HOWL_TUNE : undefined),
       patch?.amount,
     ),
+    eq3Tune,
   };
 }
 
