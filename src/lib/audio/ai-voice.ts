@@ -1,3 +1,5 @@
+import { getAiConvertRuntime } from "./ai-convert-runtime";
+
 /** AI voice is a single live-FX stage. Signal arrives here, then continues down the rack. */
 export const MAX_AI_VOICE = 1;
 
@@ -71,19 +73,6 @@ export function aiVoiceSummary(v: AiVoiceInsert) {
   return `${name}${size ? ` ${size}` : ""} · ${key}${mix}`;
 }
 
-function tryPitchNode(ctx: BaseAudioContext): AudioWorkletNode | null {
-  if (typeof AudioWorkletNode === "undefined") return null;
-  try {
-    return new AudioWorkletNode(ctx, "pitch-shift", {
-      numberOfInputs: 1,
-      numberOfOutputs: 1,
-      outputChannelCount: [2],
-    });
-  } catch {
-    return null;
-  }
-}
-
 export type AiVoiceHandle = {
   id: string;
   input: AudioNode;
@@ -93,8 +82,9 @@ export type AiVoiceHandle = {
 };
 
 /**
- * One-stage AI voice insert. Until a conversion model is loaded this is
- * dry-through, with optional key shift using the existing grain pitch worklet.
+ * One-stage AI voice insert.
+ * No model → dry + optional key.
+ * .onnx → hop to onnxruntime-web (WebGPU / WASM). .pth is training-only.
  */
 export function createAiVoiceHandle(
   ctx: BaseAudioContext,
@@ -102,14 +92,26 @@ export function createAiVoiceHandle(
 ): AiVoiceHandle {
   const input = ctx.createGain();
   const output = ctx.createGain();
+  const dry = ctx.createGain();
+  const wet = ctx.createGain();
+  const dryDelay = ctx.createDelay(0.5);
   input.gain.value = 1;
   output.gain.value = 1;
-  let pitch: AudioWorkletNode | null = null;
-  let keyed = false;
+  input.connect(dryDelay);
+  dryDelay.connect(dry);
+  dry.connect(output);
+  wet.connect(output);
 
-  const disconnectGraph = () => {
+  let pitch: AudioWorkletNode | null = null;
+  let convert: AudioWorkletNode | null = null;
+  let keyed = false;
+  let modelKey = "";
+  const live = isRealtime(ctx);
+  const runtime = live ? getAiConvertRuntime() : null;
+
+  const disconnectWet = () => {
     try {
-      input.disconnect();
+      input.disconnect(pitch ?? convert ?? wet);
     } catch {
       /* noop */
     }
@@ -120,24 +122,62 @@ export function createAiVoiceHandle(
         /* noop */
       }
     }
+    if (convert) {
+      try {
+        convert.disconnect();
+      } catch {
+        /* noop */
+      }
+    }
+    try {
+      input.disconnect(wet);
+    } catch {
+      /* noop */
+    }
+  };
+
+  const wantPitch = (v: AiVoiceInsert) => Math.abs(v.pitch) >= 0.05;
+  const wantConvert = (v: AiVoiceInsert) =>
+    live && !!v.modelName.trim() && v.modelBytes > 0;
+
+  const mixGains = (v: AiVoiceInsert) => {
+    const m = Math.max(0, Math.min(1, v.mix));
+    dry.gain.value = 1 - m;
+    wet.gain.value = m <= 0.001 ? 0 : m;
   };
 
   const wire = (v: AiVoiceInsert) => {
-    disconnectGraph();
-    const want = Math.abs(v.pitch) >= 0.05;
-    if (want && !pitch) pitch = tryPitchNode(ctx);
-    if (want && pitch) {
+    disconnectWet();
+    mixGains(v);
+    const shift = wantPitch(v);
+    if (shift && !pitch) pitch = tryWorklet(ctx, "pitch-shift");
+    if (wantConvert(v) && !convert) convert = tryWorklet(ctx, "ai-convert");
+    if (shift && pitch) {
       pitch.port.postMessage({
         type: "rate",
         value: Math.pow(2, clampPitch(v.pitch) / 12),
       });
-      input.connect(pitch);
-      pitch.connect(output);
-      keyed = true;
-    } else {
-      input.connect(output);
-      keyed = false;
     }
+    let head: AudioNode = input;
+    if (shift && pitch) {
+      head.connect(pitch);
+      head = pitch;
+    }
+    if (convert) {
+      head.connect(convert);
+      convert.connect(wet);
+      runtime?.bind(convert, v.id, v.modelName, getAiModelFile(v.id) ?? null);
+      runtime?.setPitch(v.pitch);
+      const onnx = /\.onnx$/i.test(v.modelName);
+      runtime?.setBypass(convert, !onnx);
+      dryDelay.delayTime.value = onnx ? 4096 / ctx.sampleRate : 0;
+      void runtime?.ensure(v.id, v.modelName, getAiModelFile(v.id) ?? null);
+    } else {
+      head.connect(wet);
+      dryDelay.delayTime.value = 0;
+    }
+    keyed = shift;
+    modelKey = `${v.id}:${v.modelName}:${v.modelBytes}`;
   };
 
   wire(voice);
@@ -147,12 +187,15 @@ export function createAiVoiceHandle(
     input,
     output,
     apply: (next) => {
-      const want = Math.abs(next.pitch) >= 0.05;
-      if (want !== keyed) {
+      mixGains(next);
+      runtime?.setPitch(next.pitch);
+      const nextKey = `${next.id}:${next.modelName}:${next.modelBytes}`;
+      const shift = wantPitch(next);
+      if (nextKey !== modelKey || shift !== keyed || (!!convert) !== wantConvert(next)) {
         wire(next);
         return;
       }
-      if (want && pitch) {
+      if (shift && pitch) {
         pitch.port.postMessage({
           type: "rate",
           value: Math.pow(2, clampPitch(next.pitch) / 12),
@@ -160,7 +203,45 @@ export function createAiVoiceHandle(
       }
     },
     dispose: () => {
-      disconnectGraph();
+      disconnectWet();
+      try {
+        dry.disconnect();
+      } catch {
+        /* noop */
+      }
+      try {
+        wet.disconnect();
+      } catch {
+        /* noop */
+      }
+      try {
+        input.disconnect();
+      } catch {
+        /* noop */
+      }
+      try {
+        output.disconnect();
+      } catch {
+        /* noop */
+      }
     },
   };
 }
+
+function isRealtime(ctx: BaseAudioContext) {
+  return !("startRendering" in ctx);
+}
+
+function tryWorklet(ctx: BaseAudioContext, name: string): AudioWorkletNode | null {
+  if (typeof AudioWorkletNode === "undefined") return null;
+  try {
+    return new AudioWorkletNode(ctx, name, {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      outputChannelCount: [2],
+    });
+  } catch {
+    return null;
+  }
+}
+

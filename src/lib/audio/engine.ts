@@ -19,6 +19,7 @@ import { type ExtraPipeline } from "./fx-pipeline";
 import roomWorkletUrl from "./worklets/room-subtract.js?url";
 import pitchWorkletUrl from "./worklets/pitch-shift.js?url";
 import dynamicsWorkletUrl from "./worklets/obs-dynamics.js?url";
+import aiConvertWorkletUrl from "./worklets/ai-convert.js?url";
 
 function createImpulse(ctx: BaseAudioContext, duration = 1.8, decay = 2.2) {
   const rate = ctx.sampleRate;
@@ -75,6 +76,7 @@ export class AudioEngine {
   private voiceAmount = 0;
   private livePitchNode: AudioWorkletNode | null = null;
   private livePitchReady = false;
+  private aiConvertReady = false;
   private livePitchSemitones = 0;
   private livePitchInserted = false;
   private liveChainWired = false;
@@ -218,8 +220,14 @@ export class AudioEngine {
         (i.family === "spectrum" && i.filter.kind === "band-pitch") ||
         (i.family === "ai" && Math.abs(i.voice.pitch) >= 0.05),
     );
-    if (needsPitch && !this.livePitchReady) {
-      void this.ensurePitchWorklet().then(() => {
+    const needsAi = items.some(
+      (i) => i.family === "ai" && i.voice.enabled && i.voice.modelBytes > 0,
+    );
+    if ((needsPitch && !this.livePitchReady) || (needsAi && !this.aiConvertReady)) {
+      void Promise.all([
+        needsPitch ? this.ensurePitchWorklet() : Promise.resolve(),
+        needsAi ? this.ensureAiConvertWorklet() : Promise.resolve(),
+      ]).then(() => {
         this.insertRack?.setLiveFx(items);
       });
       return;
@@ -237,6 +245,13 @@ export class AudioEngine {
     );
     if (needsPitch && !this.livePitchReady) {
       void this.ensurePitchWorklet().then(() => this.rebuildExtraPipelines());
+      return;
+    }
+    const needsAi = pipelines.some(
+      (p) => p.aiVoice && p.aiVoice.enabled && p.aiVoice.modelBytes > 0,
+    );
+    if (needsAi && !this.aiConvertReady) {
+      void this.ensureAiConvertWorklet().then(() => this.rebuildExtraPipelines());
       return;
     }
     this.rebuildExtraPipelines();
@@ -600,6 +615,17 @@ export class AudioEngine {
       this.livePitchReady = true;
     } catch {
       this.livePitchReady = false;
+    }
+  }
+
+  private async ensureAiConvertWorklet() {
+    if (this.aiConvertReady || !this.ctx) return;
+    if (typeof AudioWorkletNode === "undefined") return;
+    try {
+      await this.ctx.audioWorklet.addModule(aiConvertWorkletUrl);
+      this.aiConvertReady = true;
+    } catch {
+      this.aiConvertReady = false;
     }
   }
 

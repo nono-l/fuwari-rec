@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useSyncExternalStore } from "react";
 import { Link } from "@tanstack/react-router";
 import { FolderOpen, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import {
   setAiModelFile,
   type AiVoiceInsert,
 } from "@/lib/audio/ai-voice";
+import { getAiConvertRuntime } from "@/lib/audio/ai-convert-runtime";
 import { aiRuntimeModeLabel } from "@/lib/audio/ai-runtime";
 import { useAiRuntimeStore } from "@/lib/store/ai-runtime-store";
 import { WebGpuToggle } from "@/components/editor/webgpu-toggle";
@@ -27,6 +28,11 @@ export function AiVoiceControl({
   const loaded = hasAiModelFile(voice.id, voice.modelName);
   const named = voice.modelName.trim();
   const mode = useAiRuntimeStore((s) => s.mode);
+  const convert = useSyncExternalStore(
+    (cb) => getAiConvertRuntime().subscribe(cb),
+    () => getAiConvertRuntime().getState(),
+    () => getAiConvertRuntime().getState(),
+  );
 
   const pick = (file: File | null) => {
     if (!file) return;
@@ -113,6 +119,7 @@ export function AiVoiceControl({
         )}
         <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground">
           .onnx / .pth / .pt。未選択のときは素通りでキーだけかかります。
+          {convert.detail ? ` ${convert.detail}` : ""}
         </p>
         <div className="mt-2">
           <WebGpuToggle />

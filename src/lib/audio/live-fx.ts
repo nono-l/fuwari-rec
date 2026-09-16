@@ -70,7 +70,7 @@ export function liveChainKey(items: LiveFxItem[]) {
         return `o:${item.insert.id}:${item.insert.kind}:${item.insert.fullBand === false ? "b" : "f"}`;
       }
       if (item.family === "ai") {
-        return `a:${item.voice.id}:${Math.abs(item.voice.pitch) >= 0.05 ? "p" : "d"}`;
+        return `a:${item.voice.id}:${Math.abs(item.voice.pitch) >= 0.05 ? "p" : "d"}:${item.voice.modelName}:${Math.round(item.voice.mix * 20)}`;
       }
       if (item.family === "cable") {
         return `c:${item.cable.id}:${item.cable.kind}:${item.cable.cable}:${item.cable.mode}`;
