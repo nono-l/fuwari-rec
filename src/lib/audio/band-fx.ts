@@ -44,6 +44,29 @@ function makeReverbImpulse(
   return buf;
 }
 
+function driveCurve(amount: number) {
+  const n = 1024;
+  const curve = new Float32Array(n);
+  const k = Math.max(0, amount) * 18;
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * 2 - 1;
+    curve[i] = k < 0.02 ? x : ((1 + k) * x) / (1 + k * Math.abs(x));
+  }
+  return curve;
+}
+
+function tryLfo(ctx: BaseAudioContext) {
+  try {
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.value = 0.65;
+    osc.start(0);
+    return osc;
+  } catch {
+    return null;
+  }
+}
+
 function setParam(ctx: BaseAudioContext, param: AudioParam, value: number) {
   const t = ctx.currentTime;
   try {
@@ -222,31 +245,67 @@ export function createBandFxHandle(
     const hp = ctx.createBiquadFilter();
     hp.type = "highpass";
     hp.Q.value = 0.7;
-    const delayL = ctx.createDelay(1.5);
-    const delayR = ctx.createDelay(1.5);
-    const fb = ctx.createGain();
-    const lp = ctx.createBiquadFilter();
-    lp.type = "lowpass";
-    lp.Q.value = 0.7;
+    const delayL = ctx.createDelay(2);
+    const delayR = ctx.createDelay(2);
+    const shaperL = ctx.createWaveShaper();
+    const shaperR = ctx.createWaveShaper();
+    shaperL.curve = driveCurve(0);
+    shaperR.curve = driveCurve(0);
+    const lpL = ctx.createBiquadFilter();
+    const lpR = ctx.createBiquadFilter();
+    lpL.type = "lowpass";
+    lpR.type = "lowpass";
+    lpL.Q.value = 0.7;
+    lpR.Q.value = 0.7;
+    const selfL = ctx.createGain();
+    const selfR = ctx.createGain();
+    const crossL = ctx.createGain();
+    const crossR = ctx.createGain();
     const merge = ctx.createChannelMerger(2);
-    const toL = ctx.createGain();
-    const toR = ctx.createGain();
-    const spread = ctx.createGain();
     const wet = ctx.createGain();
+    const lfo = tryLfo(ctx);
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = 0;
     hp.connect(delayL);
-    delayL.connect(fb);
-    fb.connect(lp);
-    lp.connect(delayL);
-    delayL.connect(delayR);
-    delayL.connect(toL);
-    delayL.connect(spread);
-    delayR.connect(toR);
-    toL.connect(merge, 0, 0);
-    spread.connect(merge, 0, 1);
-    toR.connect(merge, 0, 1);
+    hp.connect(delayR);
+    delayL.connect(shaperL);
+    delayR.connect(shaperR);
+    shaperL.connect(lpL);
+    shaperR.connect(lpR);
+    lpL.connect(selfL);
+    lpR.connect(selfR);
+    lpL.connect(crossR);
+    lpR.connect(crossL);
+    selfL.connect(delayL);
+    selfR.connect(delayR);
+    crossR.connect(delayR);
+    crossL.connect(delayL);
+    delayL.connect(merge, 0, 0);
+    delayR.connect(merge, 0, 1);
     merge.connect(wet);
     wet.connect(output);
-    nodes.push(hp, delayL, delayR, fb, lp, merge, toL, toR, spread, wet);
+    if (lfo) {
+      lfo.connect(lfoGain);
+      lfoGain.connect(delayL.delayTime);
+      lfoGain.connect(delayR.delayTime);
+    }
+    nodes.push(
+      hp,
+      delayL,
+      delayR,
+      shaperL,
+      shaperR,
+      lpL,
+      lpR,
+      selfL,
+      selfR,
+      crossL,
+      crossR,
+      merge,
+      wet,
+      lfoGain,
+    );
+    if (lfo) nodes.push(lfo);
     const full = () => {
       try {
         bp.disconnect();
@@ -285,6 +344,7 @@ export function createBandFxHandle(
       bp.connect(hp);
     };
     let lastFull: boolean | null = null;
+    let lastDrive = -1;
     applyFn = (f) => {
       const isFull = !!f.fullBand;
       if (lastFull !== isFull) {
@@ -295,16 +355,26 @@ export function createBandFxHandle(
       if (!isFull) tuneSplit(ctx, bp, null, f.hz, f.q);
       const d = normalizeDelayTune(f.delay);
       const mix = Math.max(0, Math.min(1, clampFilterGain(f.gain) / 18));
-      const t = d.timeMs / 1000;
-      setParam(ctx, delayL.delayTime, t);
-      setParam(ctx, delayR.delayTime, t);
-      setParam(ctx, fb.gain, d.feedback * 0.92);
+      const tL = d.timeMs / 1000;
+      const tR = Math.min(1.95, tL + d.spreadMs / 1000);
+      setParam(ctx, delayL.delayTime, tL);
+      setParam(ctx, delayR.delayTime, tR);
+      const fb = d.feedback * 0.92;
+      setParam(ctx, selfL.gain, fb * (1 - d.pingpong));
+      setParam(ctx, selfR.gain, fb * (1 - d.pingpong));
+      setParam(ctx, crossL.gain, fb * d.pingpong);
+      setParam(ctx, crossR.gain, fb * d.pingpong);
       setParam(ctx, hp.frequency, d.lowCutHz);
-      setParam(ctx, lp.frequency, d.highCutHz);
+      setParam(ctx, lpL.frequency, d.highCutHz);
+      setParam(ctx, lpR.frequency, d.highCutHz);
       setParam(ctx, wet.gain, mix * 0.9);
-      setParam(ctx, toL.gain, 1);
-      setParam(ctx, spread.gain, 1 - d.pingpong);
-      setParam(ctx, toR.gain, d.pingpong);
+      if (lfo) setParam(ctx, lfo.frequency, d.modRate);
+      setParam(ctx, lfoGain.gain, d.mod * 0.006);
+      if (lastDrive !== d.drive) {
+        shaperL.curve = driveCurve(d.drive);
+        shaperR.curve = driveCurve(d.drive);
+        lastDrive = d.drive;
+      }
     };
   } else if (filter.kind === "band-offset") {
     const notch = ctx.createBiquadFilter();

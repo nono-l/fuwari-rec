@@ -69,17 +69,49 @@ export function normalizeReverbTune(
   };
 }
 
+export type DelayNoteId =
+  | "1/4"
+  | "1/4d"
+  | "1/8"
+  | "1/8d"
+  | "1/8t"
+  | "1/16";
+
+export const DELAY_NOTES: {
+  id: DelayNoteId;
+  label: string;
+  beats: number;
+}[] = [
+  { id: "1/4", label: "4分", beats: 1 },
+  { id: "1/4d", label: "4分付点", beats: 1.5 },
+  { id: "1/8", label: "8分", beats: 0.5 },
+  { id: "1/8d", label: "8分付点", beats: 0.75 },
+  { id: "1/8t", label: "8分3連", beats: 1 / 3 },
+  { id: "1/16", label: "16分", beats: 0.25 },
+];
+
 export type DelayTune = {
-  /** Delay time, milliseconds. */
+  /** Delay time, milliseconds (used when sync is off). */
   timeMs: number;
   /** Repeat amount 0–1. */
   feedback: number;
-  /** 0 = centered repeats, 1 = L/R bounce. */
+  /** 0 = independent L/R, 1 = L→R bounce. */
   pingpong: number;
   /** High-pass in the feedback loop, Hz. */
   lowCutHz: number;
   /** Low-pass in the feedback loop, Hz. */
   highCutHz: number;
+  /** Extra delay on the right, milliseconds. */
+  spreadMs: number;
+  /** Tape-style time wobble, 0–1. */
+  mod: number;
+  /** LFO rate in Hz. */
+  modRate: number;
+  /** Saturation in the repeats, 0–1. */
+  drive: number;
+  /** Lock time to session BPM. */
+  sync: boolean;
+  note: DelayNoteId;
 };
 
 export const DEFAULT_DELAY_TUNE: DelayTune = {
@@ -88,18 +120,39 @@ export const DEFAULT_DELAY_TUNE: DelayTune = {
   pingpong: 0.35,
   lowCutHz: 90,
   highCutHz: 6500,
+  spreadMs: 12,
+  mod: 0.08,
+  modRate: 0.65,
+  drive: 0,
+  sync: false,
+  note: "1/8",
 };
 
+export function delayTimeFromBpm(
+  bpm: number,
+  note: DelayNoteId,
+  fallbackMs: number,
+) {
+  const beats = DELAY_NOTES.find((n) => n.id === note)?.beats ?? 0.5;
+  const q = bpm > 20 && bpm < 400 ? bpm : 0;
+  if (!q) return fallbackMs;
+  return Math.max(20, Math.min(1800, (60000 / q) * beats));
+}
+
 export function normalizeDelayTune(
-  raw?: Partial<DelayTune> | null,
+  raw?: (Partial<Omit<DelayTune, "note">> & { note?: string }) | null,
 ): DelayTune {
   const r = raw ?? {};
   const num = (v: unknown, fallback: number) => {
     const n = typeof v === "number" ? v : Number(v);
     return Number.isFinite(n) ? n : fallback;
   };
+  const noteRaw = String(r.note ?? DEFAULT_DELAY_TUNE.note);
+  const note = (DELAY_NOTES.some((n) => n.id === noteRaw)
+    ? noteRaw
+    : DEFAULT_DELAY_TUNE.note) as DelayNoteId;
   return {
-    timeMs: Math.max(20, Math.min(1200, num(r.timeMs, DEFAULT_DELAY_TUNE.timeMs))),
+    timeMs: Math.max(20, Math.min(1800, num(r.timeMs, DEFAULT_DELAY_TUNE.timeMs))),
     feedback: clamp01(num(r.feedback, DEFAULT_DELAY_TUNE.feedback)),
     pingpong: clamp01(num(r.pingpong, DEFAULT_DELAY_TUNE.pingpong)),
     lowCutHz: Math.max(
@@ -110,6 +163,12 @@ export function normalizeDelayTune(
       800,
       Math.min(16000, num(r.highCutHz, DEFAULT_DELAY_TUNE.highCutHz)),
     ),
+    spreadMs: Math.max(0, Math.min(80, num(r.spreadMs, DEFAULT_DELAY_TUNE.spreadMs))),
+    mod: clamp01(num(r.mod, DEFAULT_DELAY_TUNE.mod)),
+    modRate: Math.max(0.1, Math.min(8, num(r.modRate, DEFAULT_DELAY_TUNE.modRate))),
+    drive: clamp01(num(r.drive, DEFAULT_DELAY_TUNE.drive)),
+    sync: r.sync === true,
+    note,
   };
 }
 

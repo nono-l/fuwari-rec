@@ -334,7 +334,7 @@ function filterXml(f: SpectrumFilter) {
   const rv = normalizeReverbTune(f.reverb);
   const d = normalizeDelayTune(f.delay);
   const o = normalizeOffsetTune(f.offset);
-  return `      <filter id="${esc(f.id)}" name="${esc(f.name)}" kind="${f.kind}" hz="${f.hz}" q="${f.q}" gain="${f.gain ?? 0}" enabled="${f.enabled ? "true" : "false"}" fullBand="${f.fullBand ? "true" : "false"}" reverbDecay="${rv.decay}" reverbPredelay="${rv.predelayMs}" reverbBright="${rv.brightness}" reverbSize="${rv.size}" reverbLowCut="${rv.lowCutHz}" reverbHighCut="${rv.highCutHz}" reverbWidth="${rv.width}" delayTime="${d.timeMs}" delayFb="${d.feedback}" delayPing="${d.pingpong}" delayLowCut="${d.lowCutHz}" delayHighCut="${d.highCutHz}" offsetTime="${o.timeMs}"/>`;
+  return `      <filter id="${esc(f.id)}" name="${esc(f.name)}" kind="${f.kind}" hz="${f.hz}" q="${f.q}" gain="${f.gain ?? 0}" enabled="${f.enabled ? "true" : "false"}" fullBand="${f.fullBand ? "true" : "false"}" reverbDecay="${rv.decay}" reverbPredelay="${rv.predelayMs}" reverbBright="${rv.brightness}" reverbSize="${rv.size}" reverbLowCut="${rv.lowCutHz}" reverbHighCut="${rv.highCutHz}" reverbWidth="${rv.width}" delayTime="${d.timeMs}" delayFb="${d.feedback}" delayPing="${d.pingpong}" delayLowCut="${d.lowCutHz}" delayHighCut="${d.highCutHz}" delaySpread="${d.spreadMs}" delayMod="${d.mod}" delayModRate="${d.modRate}" delayDrive="${d.drive}" delaySync="${d.sync ? "true" : "false"}" delayNote="${d.note}" offsetTime="${o.timeMs}"/>`;
 }
 
 function insertXml(f: ObsInsert) {
@@ -489,6 +489,12 @@ function parseFilterEl(f: Element): SpectrumFilter | null {
       pingpong: num(attr(f, "delayPing"), 0.35),
       lowCutHz: num(attr(f, "delayLowCut"), 90),
       highCutHz: num(attr(f, "delayHighCut"), 6500),
+      spreadMs: num(attr(f, "delaySpread"), 12),
+      mod: num(attr(f, "delayMod"), 0.08),
+      modRate: num(attr(f, "delayModRate"), 0.65),
+      drive: num(attr(f, "delayDrive"), 0),
+      sync: attr(f, "delaySync") === "true",
+      note: attr(f, "delayNote"),
     }),
     offset: normalizeOffsetTune({
       timeMs: num(attr(f, "offsetTime"), 80),
