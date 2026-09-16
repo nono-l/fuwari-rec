@@ -10,6 +10,7 @@ import {
 } from "@/lib/audio/ai-runtime";
 import { formatModelSize } from "@/lib/audio/ai-voice";
 import { useAiRuntimeStore } from "@/lib/store/ai-runtime-store";
+import { WebGpuToggle } from "@/components/editor/webgpu-toggle";
 
 export function AiRuntimePanel() {
   const hydrate = useAiRuntimeStore((s) => s.hydrate);
@@ -58,6 +59,7 @@ export function AiRuntimePanel() {
           {!hydrated && (
             <p className="text-xs text-muted-foreground">読み込み中…</p>
           )}
+          <WebGpuToggle />
           <ul className="space-y-3">
             {AI_RUNTIME_SLOTS.map((def) => (
               <li key={def.id}>
