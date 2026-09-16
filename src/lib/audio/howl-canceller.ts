@@ -1,4 +1,8 @@
-import type { ObsInsert, ObsInsertHandle } from "./obs-filters";
+import type {
+  HowlTune,
+  ObsInsert,
+  ObsInsertHandle,
+} from "./obs-filters";
 
 const NOTCH_MAX = 6;
 const PARK_HZ = 18;
@@ -17,13 +21,33 @@ function isOffline(ctx: BaseAudioContext) {
   );
 }
 
-function notchCount(amount: number) {
-  const a = clamp(amount, 0, 1);
-  return Math.round(2 + a * 4);
+function notchCount(depth: number) {
+  return Math.round(2 + clamp(depth, 0, 1) * 4);
 }
 
-function notchQ(amount: number) {
-  return 14 + clamp(amount, 0, 1) * 26;
+function notchQ(depth: number) {
+  return 14 + clamp(depth, 0, 1) * 26;
+}
+
+function lockFrames(speed: number) {
+  return Math.round(16 - clamp(speed, 0, 1) * 12);
+}
+
+function holdFrames(hold: number) {
+  return Math.round(40 + clamp(hold, 0, 1) * 140);
+}
+
+function asTune(ins: { amount: number; howlTune?: HowlTune }): HowlTune {
+  const r = ins.howlTune;
+  if (!r || !Number.isFinite(Number(r.depth))) {
+    const a = clamp(ins.amount, 0, 1);
+    return { speed: 0.35 + a * 0.3, depth: a, hold: 0.5 };
+  }
+  return {
+    speed: clamp(r.speed, 0, 1),
+    depth: clamp(r.depth, 0, 1),
+    hold: clamp(r.hold, 0, 1),
+  };
 }
 
 type Slot = {
@@ -39,7 +63,7 @@ type Slot = {
  */
 export function createHowlCancellerHandle(
   ctx: BaseAudioContext,
-  ins: { id: string; kind: ObsInsert["kind"]; amount: number },
+  ins: { id: string; kind: ObsInsert["kind"]; amount: number; howlTune?: HowlTune },
 ): ObsInsertHandle {
   const input = ctx.createGain();
   input.gain.value = 1;
@@ -63,7 +87,7 @@ export function createHowlCancellerHandle(
     live: false,
   }));
 
-  let amount = clamp(ins.amount, 0, 1);
+  let tune = asTune(ins);
   let raf = 0;
   let disposed = false;
   let analyser: AnalyserNode | null = null;
@@ -88,13 +112,14 @@ export function createHowlCancellerHandle(
     slot.live = true;
     slot.miss = 0;
     const t = "currentTime" in ctx ? ctx.currentTime : 0;
-    n.frequency.setTargetAtTime(hz, t, 0.06);
-    n.Q.setTargetAtTime(notchQ(amount), t, 0.08);
+    const tau = 0.12 - tune.speed * 0.08;
+    n.frequency.setTargetAtTime(hz, t, tau);
+    n.Q.setTargetAtTime(notchQ(tune.depth), t, 0.08);
   };
 
   const scan = () => {
     if (disposed || !analyser || !bins) return;
-    if (amount < 0.03) {
+    if (tune.depth < 0.03) {
       for (let i = 0; i < slots.length; i++) {
         if (slots[i]!.live) park(i);
       }
@@ -110,9 +135,11 @@ export function createHowlCancellerHandle(
     if (slice.length < 8) return;
     const sorted = slice.slice().sort((a, b) => a - b);
     const median = sorted[Math.floor(sorted.length / 2)] ?? -80;
-    const needRise = 9 + (1 - amount) * 10;
-    const floor = -58 + (1 - amount) * 14;
-    const allowed = notchCount(amount);
+    const needRise = 9 + (1 - tune.depth) * 10;
+    const floor = -58 + (1 - tune.depth) * 14;
+    const allowed = notchCount(tune.depth);
+    const needLock = lockFrames(tune.speed);
+    const needHold = holdFrames(tune.hold);
 
     const peaks: { hz: number; mag: number }[] = [];
     for (let i = lo + 2; i <= hi - 2; i++) {
@@ -151,7 +178,7 @@ export function createHowlCancellerHandle(
         const s = slots[best]!;
         s.pending += 1;
         s.miss = 0;
-        if (s.live || s.pending >= 10) steer(best, peak.hz);
+        if (s.live || s.pending >= needLock) steer(best, peak.hz);
         continue;
       }
       let free = slots.findIndex(
@@ -168,7 +195,7 @@ export function createHowlCancellerHandle(
         s.hz = peak.hz;
         s.pending += 1;
         s.miss = 0;
-        if (s.pending >= 10) steer(free, peak.hz);
+        if (s.pending >= needLock) steer(free, peak.hz);
       }
     }
 
@@ -184,7 +211,7 @@ export function createHowlCancellerHandle(
         s.pending = 0;
         s.hz = PARK_HZ;
       }
-      if (s.live && s.miss > 90) park(i);
+      if (s.live && s.miss > needHold) park(i);
     }
   };
 
@@ -206,9 +233,9 @@ export function createHowlCancellerHandle(
   }
 
   const apply = (next: ObsInsert) => {
-    amount = clamp(next.amount, 0, 1);
+    tune = asTune(next);
     const t = "currentTime" in ctx ? ctx.currentTime : 0;
-    const q = notchQ(amount);
+    const q = notchQ(tune.depth);
     for (let i = 0; i < slots.length; i++) {
       if (slots[i]!.live) notches[i]!.Q.setTargetAtTime(q, t, 0.08);
     }

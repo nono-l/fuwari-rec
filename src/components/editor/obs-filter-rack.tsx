@@ -14,6 +14,7 @@ import {
   normalizeUpwardTune,
   normalizeExpanderTune,
   normalizeDenoiseTune,
+  normalizeHowlTune,
   type ObsFilterId,
   type ObsInsert,
   type RecMark,
@@ -23,6 +24,7 @@ import { LimiterTuneControls } from "@/components/editor/limiter-tune";
 import { GateTuneControls } from "@/components/editor/gate-tune";
 import { BelowTuneControls } from "@/components/editor/below-tune";
 import { DenoiseTuneControls } from "@/components/editor/denoise-tune";
+import { HowlTuneControls } from "@/components/editor/howl-tune";
 import {
   bandEdges,
   formatHz,
@@ -55,7 +57,10 @@ export function insertSummary(ins: ObsInsert) {
     return `低 ${db(ins.eqLow)} · 中 ${db(ins.eqMid)} · 高 ${db(ins.eqHigh)}${band}`;
   }
   if (ins.kind === "howl") {
-    return (ins.amount < 0.03 ? "オフ" : `自動 · ${pct(ins.amount)}`) + band;
+    const h = normalizeHowlTune(ins.howlTune, ins.amount);
+    return h.depth < 0.03
+      ? `オフ${band}`
+      : `深さ ${pct(h.depth)} · 速さ ${pct(h.speed)}${band}`;
   }
   if (ins.kind === "compressor") {
     const c = normalizeCompTune(ins.comp, ins.amount);
@@ -372,18 +377,12 @@ export function InsertControl({
         onChange={(v) => onPatch({ amount: v / 100 })}
       />
     ) : insert.kind === "howl" ? (
-      <div>
-        <Amount
-          valueLabel={insert.amount < 0.03 ? "オフ" : pct(insert.amount)}
-          min={0}
-          max={100}
-          value={Math.round(insert.amount * 100)}
-          onChange={(v) => onPatch({ amount: v / 100 })}
-        />
-        <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
-          持続するピークを自動で切る。効きを上げるとノッチが増えて鋭くなる
-        </p>
-      </div>
+      <HowlTuneControls
+        value={normalizeHowlTune(insert.howlTune, insert.amount)}
+        onChange={(howlTune) =>
+          onPatch({ howlTune, amount: howlTune.depth })
+        }
+      />
     ) : insert.kind === "compressor" ? (
       <CompTuneControls
         value={normalizeCompTune(insert.comp, insert.amount)}

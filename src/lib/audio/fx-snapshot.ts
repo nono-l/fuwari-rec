@@ -11,6 +11,7 @@ import {
   normalizeUpwardTune,
   normalizeExpanderTune,
   normalizeDenoiseTune,
+  normalizeHowlTune,
   type ObsInsert,
 } from "./obs-filters";
 import type { RoomProfile } from "./room-profile";
@@ -358,7 +359,8 @@ function insertXml(f: ObsInsert) {
   const u = normalizeUpwardTune(f.upwardTune, f.amount);
   const e = normalizeExpanderTune(f.expanderTune, f.amount);
   const n = normalizeDenoiseTune(f.denoiseTune, f.amount);
-  return `      <insert id="${esc(f.id)}" kind="${f.kind}" name="${esc(f.name)}" enabled="${f.enabled ? "true" : "false"}" amount="${f.amount}" eqLow="${f.eqLow}" eqMid="${f.eqMid}" eqHigh="${f.eqHigh}" phase="${f.phaseInvert ? "true" : "false"}" fullBand="${f.fullBand !== false ? "true" : "false"}" hz="${f.hz ?? 1000}" q="${f.q ?? 1.4}" compThresh="${c.thresholdDb}" compRatio="${c.ratio}" compAtk="${c.attackMs}" compRel="${c.releaseMs}" compKnee="${c.kneeDb}" compMakeup="${c.makeupDb}" compMix="${c.mix}" limCeil="${l.ceilingDb}" limLook="${l.lookaheadMs}" limRel="${l.releaseMs}" limMakeup="${l.makeupDb}" limMix="${l.mix}" gateThresh="${g.thresholdDb}" gateAtk="${g.attackMs}" gateHold="${g.holdMs}" gateRel="${g.releaseMs}" gateFloor="${g.floor}" gateMix="${g.mix}" upThresh="${u.thresholdDb}" upRatio="${u.ratio}" upAtk="${u.attackMs}" upRel="${u.releaseMs}" upMix="${u.mix}" expThresh="${e.thresholdDb}" expRatio="${e.ratio}" expAtk="${e.attackMs}" expRel="${e.releaseMs}" expMix="${e.mix}" denoiseMix="${n.mix}" denoiseAtk="${n.attack}" denoiseGate="${n.gateLink ? "true" : "false"}" denoiseThresh="${n.thresholdDb}"/>`;
+  const h = normalizeHowlTune(f.howlTune, f.amount);
+  return `      <insert id="${esc(f.id)}" kind="${f.kind}" name="${esc(f.name)}" enabled="${f.enabled ? "true" : "false"}" amount="${f.amount}" eqLow="${f.eqLow}" eqMid="${f.eqMid}" eqHigh="${f.eqHigh}" phase="${f.phaseInvert ? "true" : "false"}" fullBand="${f.fullBand !== false ? "true" : "false"}" hz="${f.hz ?? 1000}" q="${f.q ?? 1.4}" compThresh="${c.thresholdDb}" compRatio="${c.ratio}" compAtk="${c.attackMs}" compRel="${c.releaseMs}" compKnee="${c.kneeDb}" compMakeup="${c.makeupDb}" compMix="${c.mix}" limCeil="${l.ceilingDb}" limLook="${l.lookaheadMs}" limRel="${l.releaseMs}" limMakeup="${l.makeupDb}" limMix="${l.mix}" gateThresh="${g.thresholdDb}" gateAtk="${g.attackMs}" gateHold="${g.holdMs}" gateRel="${g.releaseMs}" gateFloor="${g.floor}" gateMix="${g.mix}" upThresh="${u.thresholdDb}" upRatio="${u.ratio}" upAtk="${u.attackMs}" upRel="${u.releaseMs}" upMix="${u.mix}" expThresh="${e.thresholdDb}" expRatio="${e.ratio}" expAtk="${e.attackMs}" expRel="${e.releaseMs}" expMix="${e.mix}" denoiseMix="${n.mix}" denoiseAtk="${n.attack}" denoiseGate="${n.gateLink ? "true" : "false"}" denoiseThresh="${n.thresholdDb}" howlSpeed="${h.speed}" howlDepth="${h.depth}" howlHold="${h.hold}"/>`;
 }
 
 function cableXml(c: CableInsert) {
@@ -617,6 +619,14 @@ function parseInsertEl(f: Element): ObsInsert | null {
             attack: num(attr(f, "denoiseAtk"), 0.4),
             gateLink: attr(f, "denoiseGate") === "true",
             thresholdDb: num(attr(f, "denoiseThresh"), -38),
+          },
+    howlTune:
+      attr(f, "howlDepth") === ""
+        ? undefined
+        : {
+            speed: num(attr(f, "howlSpeed"), 0.5),
+            depth: num(attr(f, "howlDepth"), 0.55),
+            hold: num(attr(f, "howlHold"), 0.45),
           },
   });
 }

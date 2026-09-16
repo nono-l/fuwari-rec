@@ -437,6 +437,45 @@ export function normalizeDenoiseTune(
   };
 }
 
+export type HowlTune = {
+  /** How quickly a peak is locked as feedback. */
+  speed: number;
+  /** Notch count, Q, and detection strictness. */
+  depth: number;
+  /** How long a locked notch stays after the peak fades. */
+  hold: number;
+};
+
+export const DEFAULT_HOWL_TUNE: HowlTune = {
+  speed: 0.5,
+  depth: 0.55,
+  hold: 0.45,
+};
+
+export function deriveHowlFromAmount(amount: number): HowlTune {
+  const a = clamp(amount, 0, 1);
+  return {
+    speed: 0.35 + a * 0.3,
+    depth: a,
+    hold: 0.5,
+  };
+}
+
+export function normalizeHowlTune(
+  raw?: Partial<HowlTune> | null,
+  amount?: number,
+): HowlTune {
+  const r = raw ?? {};
+  if (!Number.isFinite(Number(r.depth))) {
+    return deriveHowlFromAmount(amount ?? 0.55);
+  }
+  return {
+    speed: clamp(num(r.speed, DEFAULT_HOWL_TUNE.speed), 0, 1),
+    depth: clamp(num(r.depth, DEFAULT_HOWL_TUNE.depth), 0, 1),
+    hold: clamp(num(r.hold, DEFAULT_HOWL_TUNE.hold), 0, 1),
+  };
+}
+
 export const DEFAULT_MASTER_FX: MasterFx = {
   volume: 1,
   pitchSemitones: 0,
@@ -719,6 +758,7 @@ export type ObsInsert = {
   upwardTune: BelowTune;
   expanderTune: BelowTune;
   denoiseTune: DenoiseTune;
+  howlTune: HowlTune;
 };
 
 export function catalogMeta(kind: ObsFilterId) {
@@ -786,6 +826,11 @@ export function newObsInsert(
     denoiseTune: normalizeDenoiseTune(
       patch?.denoiseTune ??
         (patch?.amount == null ? DEFAULT_DENOISE_TUNE : undefined),
+      patch?.amount,
+    ),
+    howlTune: normalizeHowlTune(
+      patch?.howlTune ??
+        (patch?.amount == null ? DEFAULT_HOWL_TUNE : undefined),
       patch?.amount,
     ),
   };
