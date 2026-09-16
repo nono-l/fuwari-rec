@@ -21,6 +21,7 @@ import {
   MAX_SPECTRUM_FILTERS,
   normalizeDelayTune,
   normalizeOffsetTune,
+  normalizePitchTune,
   normalizeReverbTune,
 } from "./spectrum-filters";
 import {
@@ -157,6 +158,7 @@ function normalizeFilter(raw: Partial<SpectrumFilter>): SpectrumFilter | null {
     reverb: normalizeReverbTune(raw.reverb),
     delay: normalizeDelayTune(raw.delay),
     offset: normalizeOffsetTune(raw.offset),
+    pitch: normalizePitchTune(raw.pitch),
   };
 }
 
@@ -334,7 +336,8 @@ function filterXml(f: SpectrumFilter) {
   const rv = normalizeReverbTune(f.reverb);
   const d = normalizeDelayTune(f.delay);
   const o = normalizeOffsetTune(f.offset);
-  return `      <filter id="${esc(f.id)}" name="${esc(f.name)}" kind="${f.kind}" hz="${f.hz}" q="${f.q}" gain="${f.gain ?? 0}" enabled="${f.enabled ? "true" : "false"}" fullBand="${f.fullBand ? "true" : "false"}" reverbDecay="${rv.decay}" reverbPredelay="${rv.predelayMs}" reverbBright="${rv.brightness}" reverbSize="${rv.size}" reverbLowCut="${rv.lowCutHz}" reverbHighCut="${rv.highCutHz}" reverbWidth="${rv.width}" delayTime="${d.timeMs}" delayFb="${d.feedback}" delayPing="${d.pingpong}" delayLowCut="${d.lowCutHz}" delayHighCut="${d.highCutHz}" delaySpread="${d.spreadMs}" delayMod="${d.mod}" delayModRate="${d.modRate}" delayDrive="${d.drive}" delaySync="${d.sync ? "true" : "false"}" delayNote="${d.note}" offsetTime="${o.timeMs}"/>`;
+  const p = normalizePitchTune(f.pitch);
+  return `      <filter id="${esc(f.id)}" name="${esc(f.name)}" kind="${f.kind}" hz="${f.hz}" q="${f.q}" gain="${f.gain ?? 0}" enabled="${f.enabled ? "true" : "false"}" fullBand="${f.fullBand ? "true" : "false"}" reverbDecay="${rv.decay}" reverbPredelay="${rv.predelayMs}" reverbBright="${rv.brightness}" reverbSize="${rv.size}" reverbLowCut="${rv.lowCutHz}" reverbHighCut="${rv.highCutHz}" reverbWidth="${rv.width}" delayTime="${d.timeMs}" delayFb="${d.feedback}" delayPing="${d.pingpong}" delayLowCut="${d.lowCutHz}" delayHighCut="${d.highCutHz}" delaySpread="${d.spreadMs}" delayMod="${d.mod}" delayModRate="${d.modRate}" delayDrive="${d.drive}" delaySync="${d.sync ? "true" : "false"}" delayNote="${d.note}" offsetTime="${o.timeMs}" pitchCents="${p.cents}" pitchFormant="${p.formant}" pitchPreserve="${p.preserve}" pitchMix="${p.mix}" pitchGrain="${p.grain}" pitchFb="${p.feedback}" pitchDelay="${p.delayMs}"/>`;
 }
 
 function insertXml(f: ObsInsert) {
@@ -498,6 +501,15 @@ function parseFilterEl(f: Element): SpectrumFilter | null {
     }),
     offset: normalizeOffsetTune({
       timeMs: num(attr(f, "offsetTime"), 80),
+    }),
+    pitch: normalizePitchTune({
+      cents: num(attr(f, "pitchCents"), 0),
+      formant: num(attr(f, "pitchFormant"), 0),
+      preserve: num(attr(f, "pitchPreserve"), 0.55),
+      mix: num(attr(f, "pitchMix"), 1),
+      grain: num(attr(f, "pitchGrain"), 1024),
+      feedback: num(attr(f, "pitchFb"), 0),
+      delayMs: num(attr(f, "pitchDelay"), 28),
     }),
   });
 }

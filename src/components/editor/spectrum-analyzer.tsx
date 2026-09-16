@@ -23,9 +23,11 @@ import {
   amountSliderLabel,
   normalizeDelayTune,
   normalizeOffsetTune,
+  normalizePitchTune,
   normalizeReverbTune,
   type DelayTune,
   type OffsetTune,
+  type PitchTune,
   type ReverbTune,
   type SpectrumFilter,
   type SpectrumFilterKind,
@@ -40,6 +42,7 @@ import { InsertControl, insertSummary } from "@/components/editor/obs-filter-rac
 import { ReverbTuneControls } from "@/components/editor/reverb-tune";
 import { DelayTuneControls } from "@/components/editor/delay-tune";
 import { OffsetTuneControls } from "@/components/editor/offset-tune";
+import { PitchTuneControls } from "@/components/editor/pitch-tune";
 import { useEditorStore } from "@/lib/store/editor-store";
 import { useActivePipeline } from "@/lib/store/use-active-pipeline";
 import { Button } from "@/components/ui/button";
@@ -73,6 +76,7 @@ type Draft = {
   reverb: ReverbTune;
   delay: DelayTune;
   offset: OffsetTune;
+  pitch: PitchTune;
 };
 
 function hzFromPointer(
@@ -184,6 +188,7 @@ export function SpectrumAnalyzer({
       reverb: normalizeReverbTune(next.reverb),
       delay: normalizeDelayTune(next.delay),
       offset: normalizeOffsetTune(next.offset),
+      pitch: normalizePitchTune(next.pitch),
     });
   };
 
@@ -594,6 +599,7 @@ export function SpectrumAnalyzer({
       reverb: normalizeReverbTune(f?.reverb),
       delay: normalizeDelayTune(f?.delay),
       offset: normalizeOffsetTune(f?.offset),
+      pitch: normalizePitchTune(f?.pitch),
     });
   };
 
@@ -611,6 +617,7 @@ export function SpectrumAnalyzer({
       reverb: normalizeReverbTune(f.reverb),
       delay: normalizeDelayTune(f.delay),
       offset: normalizeOffsetTune(f.offset),
+      pitch: normalizePitchTune(f.pitch),
     });
   };
 
@@ -674,6 +681,7 @@ export function SpectrumAnalyzer({
         reverb: normalizeReverbTune(s.reverb),
         delay: normalizeDelayTune(s.delay),
         offset: normalizeOffsetTune(s.offset),
+        pitch: normalizePitchTune(s.pitch),
       });
     }
     closeDraft();
@@ -985,6 +993,12 @@ export function SpectrumAnalyzer({
             <OffsetTuneControls
               value={draft.offset}
               onChange={(offset) => patchDraft({ offset })}
+            />
+          )}
+          {draft.kind === "band-pitch" && (
+            <PitchTuneControls
+              value={draft.pitch}
+              onChange={(pitch) => patchDraft({ pitch })}
             />
           )}
           <div className="mt-3 flex flex-wrap gap-2">

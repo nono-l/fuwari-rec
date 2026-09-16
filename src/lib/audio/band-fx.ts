@@ -3,6 +3,7 @@ import {
   clampFilterHz,
   normalizeDelayTune,
   normalizeOffsetTune,
+  normalizePitchTune,
   normalizeReverbTune,
   type SpectrumFilter,
   type SpectrumFilterKind,
@@ -512,9 +513,38 @@ export function createBandFxHandle(
     const notch = ctx.createBiquadFilter();
     notch.type = "notch";
     pitch = tryPitchNode(ctx);
+    const dryG = ctx.createGain();
+    const wetG = ctx.createGain();
+    const f1 = ctx.createBiquadFilter();
+    const f2 = ctx.createBiquadFilter();
+    f1.type = "peaking";
+    f2.type = "peaking";
+    const fbDelay = ctx.createDelay(0.25);
+    const fbG = ctx.createGain();
+    fbG.gain.value = 0;
+    dryG.connect(output);
+    if (pitch) {
+      pitch.connect(f1);
+      f1.connect(f2);
+      f2.connect(wetG);
+      wetG.connect(fbDelay);
+      fbDelay.connect(fbG);
+      fbG.connect(pitch);
+    } else {
+      f1.connect(f2);
+      f2.connect(wetG);
+    }
+    wetG.connect(output);
     if (pitch) nodes.push(pitch);
-    nodes.push(notch);
+    nodes.push(notch, dryG, wetG, f1, f2, fbDelay, fbG);
     let lastFull: boolean | null = null;
+    const hookPitch = (from: AudioNode) => {
+      if (pitch) {
+        from.connect(pitch);
+      } else {
+        from.connect(f1);
+      }
+    };
     const full = () => {
       try {
         input.disconnect();
@@ -537,11 +567,11 @@ export function createBandFxHandle(
         } catch {
           /* noop */
         }
-        input.connect(pitch);
-        pitch.connect(output);
-      } else {
-        input.connect(output);
+        pitch.connect(f1);
+        fbG.connect(pitch);
       }
+      input.connect(dryG);
+      hookPitch(input);
     };
     const band = () => {
       try {
@@ -560,16 +590,14 @@ export function createBandFxHandle(
         } catch {
           /* noop */
         }
+        pitch.connect(f1);
+        fbG.connect(pitch);
       }
       input.connect(notch);
       notch.connect(output);
       input.connect(bp);
-      if (pitch) {
-        bp.connect(pitch);
-        pitch.connect(output);
-      } else {
-        bp.connect(output);
-      }
+      bp.connect(dryG);
+      hookPitch(bp);
     };
     applyFn = (f) => {
       const isFull = !!f.fullBand;
@@ -579,12 +607,28 @@ export function createBandFxHandle(
         lastFull = isFull;
       }
       if (!isFull) tuneSplit(ctx, bp, notch, f.hz, f.q);
-      const semi = Math.max(-12, Math.min(12, f.gain));
+      const p = normalizePitchTune(f.pitch);
+      const semi = Math.max(-12, Math.min(12, f.gain)) + p.cents / 100;
+      const mix = p.mix;
+      setParam(ctx, dryG.gain, 1 - mix);
+      setParam(ctx, wetG.gain, mix);
+      setParam(ctx, fbG.gain, p.feedback * 0.72);
+      setParam(ctx, fbDelay.delayTime, p.delayMs / 1000);
+      const form = p.formant - semi * p.preserve;
+      const scale = Math.pow(2, form / 12);
+      const amt = Math.min(10, Math.abs(form) * 0.55 + p.preserve * 3.2);
+      setParam(ctx, f1.frequency, clampFilterHz(700 * scale));
+      setParam(ctx, f1.Q, 1.15);
+      setParam(ctx, f1.gain, amt);
+      setParam(ctx, f2.frequency, clampFilterHz(1200 * scale));
+      setParam(ctx, f2.Q, 0.95);
+      setParam(ctx, f2.gain, amt * 0.65);
       if (pitch) {
         pitch.port.postMessage({
           type: "rate",
           value: Math.pow(2, semi / 12),
         });
+        pitch.port.postMessage({ type: "grain", value: p.grain });
       }
     };
   }

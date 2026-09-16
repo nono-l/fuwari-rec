@@ -194,6 +194,60 @@ export function normalizeOffsetTune(
   };
 }
 
+export type PitchTune = {
+  /** Fine tune, cents. */
+  cents: number;
+  /** Extra formant shift, semitones. */
+  formant: number;
+  /** 0 = chipmunk, 1 = keep vocal tract. */
+  preserve: number;
+  /** Dry/wet of the shifted signal. */
+  mix: number;
+  /** Grain window samples. */
+  grain: number;
+  /** Harmonizer feedback 0–1. */
+  feedback: number;
+  /** Feedback delay, milliseconds. */
+  delayMs: number;
+};
+
+export const DEFAULT_PITCH_TUNE: PitchTune = {
+  cents: 0,
+  formant: 0,
+  preserve: 0.55,
+  mix: 1,
+  grain: 1024,
+  feedback: 0,
+  delayMs: 28,
+};
+
+export function normalizePitchTune(
+  raw?: Partial<PitchTune> | null,
+): PitchTune {
+  const r = raw ?? {};
+  const num = (v: unknown, fallback: number) => {
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  const grainRaw = Math.round(num(r.grain, DEFAULT_PITCH_TUNE.grain));
+  const grain = grainRaw >= 1536 ? 2048 : grainRaw >= 768 ? 1024 : 512;
+  return {
+    cents: Math.max(-50, Math.min(50, num(r.cents, DEFAULT_PITCH_TUNE.cents))),
+    formant: Math.max(
+      -12,
+      Math.min(12, num(r.formant, DEFAULT_PITCH_TUNE.formant)),
+    ),
+    preserve: clamp01(num(r.preserve, DEFAULT_PITCH_TUNE.preserve)),
+    mix: clamp01(num(r.mix, DEFAULT_PITCH_TUNE.mix)),
+    grain,
+    feedback: clamp01(num(r.feedback, DEFAULT_PITCH_TUNE.feedback)),
+    delayMs: Math.max(
+      0,
+      Math.min(200, num(r.delayMs, DEFAULT_PITCH_TUNE.delayMs)),
+    ),
+  };
+}
+
 export type SpectrumFilter = {
   id: string;
   name: string;
@@ -208,6 +262,7 @@ export type SpectrumFilter = {
   reverb: ReverbTune;
   delay: DelayTune;
   offset: OffsetTune;
+  pitch: PitchTune;
 };
 
 export const SPEC_MIN_HZ = 40;
@@ -226,7 +281,7 @@ export const FILTER_KINDS: {
   { id: "peak", label: "この帯を上げ下げ", hint: "バンドパスゲイン ±" },
   { id: "band-reverb", label: "この帯に残響", hint: "帯域センドリバーブ" },
   { id: "band-formant", label: "この帯をフォルマント風", hint: "F1/F2 ピーク" },
-  { id: "band-pitch", label: "この帯をピッチシフト", hint: "簡易グレイン" },
+  { id: "band-pitch", label: "この帯をピッチシフト", hint: "グレイン＋フォルマント" },
   { id: "band-delay", label: "この帯にディレイ", hint: "帯域エコー" },
   { id: "band-offset", label: "この帯をずらす", hint: "繰り返しなしの時間ずらし" },
 ];
@@ -430,6 +485,7 @@ export function newSpectrumFilter(
     reverb: { ...DEFAULT_REVERB_TUNE },
     delay: { ...DEFAULT_DELAY_TUNE },
     offset: { ...DEFAULT_OFFSET_TUNE },
+    pitch: { ...DEFAULT_PITCH_TUNE },
   };
 }
 

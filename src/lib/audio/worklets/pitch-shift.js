@@ -1,7 +1,6 @@
 /* AudioWorklet: overlap-add grain pitch shifter for live mic. */
 const SIZE = 8192;
 const MASK = SIZE - 1;
-const GRAIN = 1024;
 
 class PitchShiftProcessor extends AudioWorkletProcessor {
   constructor() {
@@ -11,11 +10,16 @@ class PitchShiftProcessor extends AudioWorkletProcessor {
     this.r = 0;
     this.rate = 1;
     this.filled = 0;
+    this.grain = 1024;
     this.port.onmessage = (ev) => {
       const msg = ev.data || {};
       if (msg.type === "rate") {
         const v = Number(msg.value);
         this.rate = Number.isFinite(v) ? Math.max(0.5, Math.min(2, v)) : 1;
+      }
+      if (msg.type === "grain") {
+        const g = Math.round(Number(msg.value));
+        this.grain = g >= 1536 ? 2048 : g >= 768 ? 1024 : 512;
       }
     };
   }
@@ -44,19 +48,20 @@ class PitchShiftProcessor extends AudioWorkletProcessor {
     let w = this.w;
     let r = this.r;
     const rate = this.rate;
+    const grain = this.grain;
 
     for (let i = 0; i < n; i++) {
       buf[w] = src[i];
       w = (w + 1) & MASK;
       this.filled = Math.min(SIZE, this.filled + 1);
 
-      if (this.filled < GRAIN + 4) {
+      if (this.filled < grain + 4) {
         dest[i] = src[i];
         r += 1;
         continue;
       }
 
-      const r2 = r + GRAIN / 2;
+      const r2 = r + grain / 2;
       const i1 = r | 0;
       const i2 = r2 | 0;
       const f1 = r - i1;
@@ -67,7 +72,7 @@ class PitchShiftProcessor extends AudioWorkletProcessor {
       const b2 = buf[(i2 + 1) & MASK];
       const s1 = a1 + (b1 - a1) * f1;
       const s2 = a2 + (b2 - a2) * f2;
-      const ph = (r % GRAIN) / GRAIN;
+      const ph = ((r % grain) + grain) % grain / grain;
       const xf = 0.5 - 0.5 * Math.cos(2 * Math.PI * ph);
       dest[i] = s1 * (1 - xf) + s2 * xf;
       r += rate;
