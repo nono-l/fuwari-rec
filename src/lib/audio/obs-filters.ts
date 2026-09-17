@@ -418,6 +418,27 @@ export function deriveDenoiseFromAmount(amount: number): DenoiseTune {
   };
 }
 
+export type NoisePrint = {
+  rmsDb: number;
+  hiss: number;
+  capturedAt: number;
+};
+
+export function denoiseFromNoisePrint(
+  print: NoisePrint,
+  prev?: Partial<DenoiseTune>,
+): DenoiseTune {
+  const rms = clamp(print.rmsDb, -80, 0);
+  const hiss = clamp(print.hiss, 0, 1);
+  const loud = clamp((rms + 62) / 36, 0, 1);
+  return {
+    mix: clamp(num(prev?.mix, 1), 0, 1),
+    attack: clamp(0.16 + loud * 0.42 + hiss * 0.28, 0.12, 0.88),
+    gateLink: rms > -54,
+    thresholdDb: clamp(rms + 12, -72, -20),
+  };
+}
+
 export function normalizeDenoiseTune(
   raw?: Partial<DenoiseTune> | null,
   amount?: number,

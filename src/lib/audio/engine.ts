@@ -811,6 +811,79 @@ export class AudioEngine {
     return profile;
   }
 
+  async captureNoisePrint(
+    durationSec = 3,
+    onProgress?: (p: number) => void,
+  ): Promise<{ rmsDb: number; hiss: number; capturedAt: number }> {
+    if (!this.inputEnabled) throw new Error("INPUT_DISABLED");
+    const ctx = this.getContext();
+    const stream = await this.ensureInputStream();
+    const src = ctx.createMediaStreamSource(stream);
+    const an = ctx.createAnalyser();
+    an.fftSize = 2048;
+    an.smoothingTimeConstant = 0;
+    src.connect(an);
+    const time = new Float32Array(an.fftSize);
+    const freq = new Float32Array(an.frequencyBinCount);
+    const rmsList: number[] = [];
+    const hissList: number[] = [];
+    const nyquist = ctx.sampleRate / 2;
+    const binHz = nyquist / Math.max(1, an.frequencyBinCount);
+    const hissFrom = Math.max(1, Math.floor(4000 / binHz));
+    const started = performance.now();
+    const total = durationSec * 1000;
+
+    await new Promise<void>((resolve) => {
+      const tick = () => {
+        an.getFloatTimeDomainData(time);
+        let sq = 0;
+        for (let i = 0; i < time.length; i++) {
+          const s = time[i] ?? 0;
+          sq += s * s;
+        }
+        const rms = Math.sqrt(sq / time.length);
+        rmsList.push(rms);
+        an.getFloatFrequencyData(freq);
+        let all = 0;
+        let high = 0;
+        for (let i = 1; i < freq.length; i++) {
+          const mag = 10 ** ((freq[i] ?? -100) / 20);
+          all += mag;
+          if (i >= hissFrom) high += mag;
+        }
+        hissList.push(all > 1e-9 ? high / all : 0);
+        const elapsed = performance.now() - started;
+        onProgress?.(Math.min(1, elapsed / total));
+        if (elapsed < total) requestAnimationFrame(tick);
+        else resolve();
+      };
+      tick();
+    });
+
+    try {
+      src.disconnect();
+    } catch {
+      /* noop */
+    }
+    this.maybeReleaseInputStream();
+
+    if (rmsList.length < 8) throw new Error("NOISE_PRINT_FAILED");
+    const sorted = [...rmsList].sort((a, b) => a - b);
+    const quietIdx = Math.floor((sorted.length - 1) * 0.2);
+    const floorRms = sorted[quietIdx] ?? sorted[0] ?? 0.0001;
+    const rmsDb = 20 * Math.log10(Math.max(1e-6, floorRms));
+    if (rmsDb > -22) throw new Error("NOISE_PRINT_TOO_LOUD");
+    const quietHiss = hissList
+      .map((h, i) => ({ h, r: rmsList[i] ?? 1 }))
+      .filter((x) => 20 * Math.log10(Math.max(1e-6, x.r)) <= rmsDb + 8)
+      .map((x) => x.h);
+    const hiss =
+      quietHiss.length > 0
+        ? quietHiss.reduce((a, b) => a + b, 0) / quietHiss.length
+        : 0.2;
+    return { rmsDb, hiss, capturedAt: Date.now() };
+  }
+
   async captureVoiceProfile(
     durationSec = 3.2,
     onProgress?: (p: number) => void,

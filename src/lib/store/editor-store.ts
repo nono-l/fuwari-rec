@@ -13,6 +13,7 @@ import {
   labelObsInserts,
   newObsInsert,
   normalizeMasterFx,
+  denoiseFromNoisePrint,
   type ObsFilterId,
   type ObsInsert,
 } from "@/lib/audio/obs-filters";
@@ -629,6 +630,8 @@ export interface EditorState {
   roomAmount: number;
   roomCapturing: boolean;
   roomCaptureProgress: number;
+  noisePrintLearning: boolean;
+  noisePrintProgress: number;
 
   voiceProfile: RoomProfile | null;
   voiceAmount: number;
@@ -760,6 +763,7 @@ export interface EditorState {
   captureRoomProfile: () => Promise<void>;
   clearRoomProfile: () => void;
   setRoomAmount: (n: number) => void;
+  learnNoisePrint: (insertId: string) => Promise<void>;
   captureVoiceProfile: () => Promise<void>;
   clearVoiceProfile: () => void;
   setVoiceAmount: (n: number) => void;
@@ -1094,6 +1098,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   roomAmount: 0,
   roomCapturing: false,
   roomCaptureProgress: 0,
+  noisePrintLearning: false,
+  noisePrintProgress: 0,
 
   voiceProfile: null,
   voiceAmount: 0,
@@ -3905,6 +3911,66 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       });
     } finally {
       set({ roomCapturing: false });
+    }
+  },
+
+  learnNoisePrint: async (insertId) => {
+    if (get().noisePrintLearning) return;
+    if (!get().inputEnabled) {
+      set({
+        statusMessage: "入力がオフです。入力をオンにしてから無言で覚えてください",
+      });
+      return;
+    }
+    const chain = readChain(get());
+    const target = chain.obsInserts.find((f) => f.id === insertId);
+    if (!target || target.kind !== "denoise") {
+      set({ statusMessage: "ノイズ抑制の段が見つかりません" });
+      return;
+    }
+    set({
+      noisePrintLearning: true,
+      noisePrintProgress: 0,
+      statusMessage: "無言で3秒 — ファンや空調だけ鳴らしてください",
+    });
+    try {
+      const engine = getAudioEngine();
+      engine.setInputDeviceId(get().inputDeviceId);
+      const print = await engine.captureNoisePrint(3, (p) => {
+        set({ noisePrintProgress: p });
+      });
+      const latest = readChain(get());
+      const cur = latest.obsInserts.find((f) => f.id === insertId);
+      if (!cur || cur.kind !== "denoise") {
+        set({ statusMessage: "ノイズ抑制の段が見つかりません" });
+        return;
+      }
+      const denoiseTune = denoiseFromNoisePrint(print, cur.denoiseTune);
+      const obsInserts = labelObsInserts(
+        latest.obsInserts.map((f) =>
+          f.id === insertId
+            ? { ...f, denoiseTune, amount: denoiseTune.attack }
+            : f,
+        ),
+      );
+      commitChain(get, set, { obsInserts });
+      const db = print.rmsDb.toFixed(0);
+      set({
+        noisePrintProgress: 1,
+        statusMessage: denoiseTune.gateLink
+          ? `部屋を覚えました（床 ${db} dB）。ゲート連動を入れ、攻撃性を合わせました`
+          : `部屋を覚えました（床 ${db} dB）。静かなのでゲート連動はオフです`,
+      });
+    } catch (e) {
+      console.error(e);
+      set({
+        statusMessage:
+          e instanceof Error && e.message === "NOISE_PRINT_TOO_LOUD"
+            ? "声が入っています。黙ったままもう一度3秒ください"
+            : micErrorMessage(e),
+      });
+    } finally {
+      set({ noisePrintLearning: false });
     }
   },
 

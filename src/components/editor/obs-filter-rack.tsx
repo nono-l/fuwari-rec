@@ -439,6 +439,7 @@ export function InsertControl({
       />
     ) : insert.kind === "denoise" ? (
       <DenoiseTuneControls
+        insertId={insert.id}
         value={normalizeDenoiseTune(insert.denoiseTune, insert.amount)}
         onChange={(denoiseTune) =>
           onPatch({ denoiseTune, amount: denoiseTune.attack })

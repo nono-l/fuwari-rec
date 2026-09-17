@@ -3,20 +3,45 @@ import {
   DEFAULT_DENOISE_TUNE,
   type DenoiseTune,
 } from "@/lib/audio/obs-filters";
+import { useEditorStore } from "@/lib/store/editor-store";
 
 function pct(n: number) {
   return `${Math.round(n * 100)}%`;
 }
 
 export function DenoiseTuneControls({
+  insertId,
   value,
   onChange,
 }: {
+  insertId?: string;
   value: DenoiseTune;
   onChange: (next: DenoiseTune) => void;
 }) {
+  const learn = useEditorStore((s) => s.learnNoisePrint);
+  const learning = useEditorStore((s) => s.noisePrintLearning);
+  const progress = useEditorStore((s) => s.noisePrintProgress);
+  const inputEnabled = useEditorStore((s) => s.inputEnabled);
+
   return (
     <div className="mt-1 space-y-3 rounded-lg border border-border/80 bg-muted/30 px-3 py-2.5">
+      {insertId ? (
+        <div>
+          <button
+            type="button"
+            disabled={learning || !inputEnabled}
+            className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-[12px] font-medium text-foreground disabled:opacity-50"
+            onClick={() => void learn(insertId)}
+          >
+            {learning
+              ? `無言で記憶中 ${Math.round(progress * 100)}%`
+              : "無言3秒で部屋を覚える"}
+          </button>
+          <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+            黙ったままファンや空調だけ鳴らすと、攻撃性とゲート連動の初期値が部屋に合います
+          </p>
+        </div>
+      ) : null}
       <div>
         <div className="mb-0.5 flex justify-between text-[11px] text-muted-foreground">
           <span>量</span>
