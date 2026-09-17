@@ -18,6 +18,7 @@ export type AiConvertState = {
   status: AiConvertStatus;
   detail: string;
   provider: "" | "webgpu" | "wasm";
+  lastInferMs: number;
 };
 
 type Listener = (s: AiConvertState) => void;
@@ -26,6 +27,7 @@ const init: AiConvertState = {
   status: "off",
   detail: "モデル未選択。素通り＋キーで動きます",
   provider: "",
+  lastInferMs: 0,
 };
 
 class AiConvertRuntime {
@@ -152,6 +154,7 @@ class AiConvertRuntime {
     if (this.state.status === "ready") {
       this.set({ status: "running", detail: `変換中（${this.state.provider}）` });
     }
+    const t0 = performance.now();
     try {
       const out = await convertPcm({
         pcm: samples,
@@ -163,6 +166,7 @@ class AiConvertRuntime {
       });
       const pcm = out && out.length ? matchLength(out, samples.length) : samples;
       node.port.postMessage({ type: "out", samples: pcm }, [pcm.buffer]);
+      this.set({ lastInferMs: performance.now() - t0 });
     } catch (e) {
       console.error(e);
       node.port.postMessage({ type: "out", samples }, [samples.buffer]);

@@ -464,6 +464,18 @@ export class AudioEngine {
     };
   }
 
+  getDeviceLatencyMs() {
+    const ctx = this.ctx;
+    if (!ctx) return 0;
+    const base = Number(ctx.baseLatency) || 0;
+    const out = Number((ctx as AudioContext & { outputLatency?: number }).outputLatency) || 0;
+    return (base + out) * 1000;
+  }
+
+  getSampleRate() {
+    return this.ctx?.sampleRate || 48000;
+  }
+
   setOutputSafety(enabled: boolean, ceilingDb = this.outputCeilingDb) {
     this.outputSafe = enabled;
     this.outputCeilingDb = Math.max(-12, Math.min(-0.1, ceilingDb));

@@ -14,6 +14,7 @@ import { FxLibraryPanel } from "@/components/editor/fx-library-panel";
 import { ObsFilterRack } from "@/components/editor/obs-filter-rack";
 import { PipelineTabs } from "@/components/editor/pipeline-rack";
 import { SceneBar } from "@/components/editor/scene-bar";
+import { LatencyMeter } from "@/components/editor/latency-meter";
 import {
   AudioLines,
   Power,
@@ -275,6 +276,7 @@ export function EffectsPanel({
               </div>
             )}
           </div>
+          <LatencyMeter />
           <PipelineTabs />
           <SceneBar />
           <SpectrumAnalyzer compact={!isPage} />

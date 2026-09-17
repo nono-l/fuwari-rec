@@ -635,6 +635,7 @@ export interface EditorState {
   lufsTarget: LufsTargetId;
   outputSafe: boolean;
   outputCeilingDb: number;
+  deviceLatencyMs: number;
 
   roomProfile: RoomProfile | null;
   roomAmount: number;
@@ -922,6 +923,7 @@ function startLiveMeterPoll(
         lufsMomentary: -70,
         lufsShort: -70,
         truePeakDb: -70,
+        deviceLatencyMs: 0,
       });
       stopLiveMeter();
       return;
@@ -934,6 +936,7 @@ function startLiveMeterPoll(
         lufsMomentary: loud.momentary,
         lufsShort: loud.shortTerm,
         truePeakDb: loud.truePeakDb,
+        deviceLatencyMs: eng.getDeviceLatencyMs(),
       });
     } catch {
       /* noop */
@@ -1124,6 +1127,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   lufsTarget: "stream",
   outputSafe: true,
   outputCeilingDb: DEFAULT_OUTPUT_CEILING_DB,
+  deviceLatencyMs: 0,
 
   roomProfile: null,
   roomAmount: 0,
