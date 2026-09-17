@@ -403,6 +403,7 @@ export function InsertControl({
       />
     ) : insert.kind === "howl" ? (
       <HowlTuneControls
+        insertId={insert.id}
         value={normalizeHowlTune(insert.howlTune, insert.amount)}
         onChange={(howlTune) =>
           onPatch({ howlTune, amount: howlTune.depth })

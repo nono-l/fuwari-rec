@@ -3,6 +3,7 @@ import type {
   ObsInsert,
   ObsInsertHandle,
 } from "./obs-filters";
+import { clearHowl, publishHowl } from "./howl-report";
 
 const NOTCH_MAX = 6;
 const PARK_HZ = 18;
@@ -123,6 +124,7 @@ export function createHowlCancellerHandle(
       for (let i = 0; i < slots.length; i++) {
         if (slots[i]!.live) park(i);
       }
+      publishHowl(ins.id, { locked: [], rising: [] });
       return;
     }
     analyser.getFloatFrequencyData(bins as unknown as Float32Array<ArrayBuffer>);
@@ -213,6 +215,11 @@ export function createHowlCancellerHandle(
       }
       if (s.live && s.miss > needHold) park(i);
     }
+    const locked = slots.filter((s) => s.live && s.hz > MIN_HZ).map((s) => s.hz);
+    const rising = slots
+      .filter((s) => !s.live && s.pending > 0 && s.hz > MIN_HZ)
+      .map((s) => s.hz);
+    publishHowl(ins.id, { locked, rising });
   };
 
   const tick = () => {
@@ -250,6 +257,7 @@ export function createHowlCancellerHandle(
     apply,
     dispose: () => {
       disposed = true;
+      clearHowl(ins.id);
       if (raf) cancelAnimationFrame(raf);
       raf = 0;
       const graph = [input, ...notches, analyser];

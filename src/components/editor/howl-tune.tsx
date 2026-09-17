@@ -1,8 +1,15 @@
+import { useEffect, useState } from "react";
 import { Slider } from "@/components/ui/slider";
 import {
   DEFAULT_HOWL_TUNE,
   type HowlTune,
 } from "@/lib/audio/obs-filters";
+import {
+  formatHowlHz,
+  readHowl,
+  subscribeHowl,
+  type HowlLive,
+} from "@/lib/audio/howl-report";
 
 const ROWS: {
   key: keyof HowlTune;
@@ -35,14 +42,47 @@ const ROWS: {
 ];
 
 export function HowlTuneControls({
+  insertId,
   value,
   onChange,
 }: {
+  insertId?: string;
   value: HowlTune;
   onChange: (next: HowlTune) => void;
 }) {
+  const [live, setLive] = useState<HowlLive>({ locked: [], rising: [] });
+  useEffect(() => {
+    if (!insertId) return;
+    const pull = () => setLive(readHowl(insertId));
+    pull();
+    return subscribeHowl(pull);
+  }, [insertId]);
+
   return (
     <div className="mt-1 space-y-3 rounded-lg border border-border/80 bg-muted/30 px-3 py-2.5">
+      {insertId ? (
+        <div
+          className={
+            live.locked.length
+              ? "rounded-md border border-danger/40 bg-danger/10 px-2 py-1.5"
+              : "rounded-md border border-border/70 bg-background px-2 py-1.5"
+          }
+        >
+          <p className="text-[10px] text-muted-foreground">いま切っている音</p>
+          {live.locked.length ? (
+            <p className="text-[12px] font-semibold tabular-nums text-danger">
+              {live.locked.map(formatHowlHz).join(" · ")}
+            </p>
+          ) : (
+            <p className="text-[12px] text-muted-foreground">鳴きなし</p>
+          )}
+          {live.rising.length > 0 && (
+            <p className="mt-0.5 text-[10px] tabular-nums text-foreground">
+              鳴きかけ {live.rising.map(formatHowlHz).join(" · ")}
+            </p>
+          )}
+        </div>
+      ) : null}
       {ROWS.map((row) => (
         <div key={row.key}>
           <div className="mb-0.5 flex justify-between text-[11px] text-muted-foreground">
