@@ -47,6 +47,7 @@ import {
 } from "./device-io";
 import {
   MAX_PIPELINES,
+  normalizeDuckTune,
   type ExtraPipeline,
 } from "./fx-pipeline";
 
@@ -278,6 +279,7 @@ function normalizeExtraPipeline(
     deviceInserts: devices,
     aiVoice,
     liveChain,
+    duck: normalizeDuckTune(raw.duck),
   };
 }
 
@@ -390,7 +392,7 @@ function pipelineXml(p: ExtraPipeline) {
   const inserts = p.obsInserts.map(insertXml).join("\n") || "      <!-- none -->";
   const cables = p.cableInserts.map(cableXml).join("\n") || "      <!-- none -->";
   const devices = p.deviceInserts.map(deviceXml).join("\n") || "      <!-- none -->";
-  return `    <pipeline id="${esc(p.id)}" name="${esc(p.name)}" enabled="${p.enabled ? "true" : "false"}" number="${p.number}" inputCable="${p.inputCable}" outputCable="${p.outputCable}">
+  return `    <pipeline id="${esc(p.id)}" name="${esc(p.name)}" enabled="${p.enabled ? "true" : "false"}" number="${p.number}" inputCable="${p.inputCable}" outputCable="${p.outputCable}" duck="${p.duck?.enabled ? "true" : "false"}" duckThresh="${p.duck?.thresholdDb ?? -32}" duckDepth="${p.duck?.depth ?? 0.7}" duckAtk="${p.duck?.attackMs ?? 12}" duckRel="${p.duck?.releaseMs ?? 180}">
     <filters>
 ${filters}
     </filters>
@@ -723,6 +725,13 @@ function parsePipelineEl(el: Element, index: number): ExtraPipeline | null {
       number: num(attr(el, "number"), index + 2),
       inputCable: asCableIndex(num(attr(el, "inputCable"), 1)),
       outputCable: asCableIndex(num(attr(el, "outputCable"), 1)),
+      duck: {
+        enabled: attr(el, "duck") === "true",
+        thresholdDb: num(attr(el, "duckThresh"), -32),
+        depth: num(attr(el, "duckDepth"), 0.7),
+        attackMs: num(attr(el, "duckAtk"), 12),
+        releaseMs: num(attr(el, "duckRel"), 180),
+      },
       spectrumFilters: kids(el.querySelector(":scope > filters"), ":scope > filter", parseFilterEl),
       obsInserts: kids(el.querySelector(":scope > inserts"), ":scope > insert", parseInsertEl),
       cableInserts: kids(el.querySelector(":scope > cables"), ":scope > cable", parseCableEl),

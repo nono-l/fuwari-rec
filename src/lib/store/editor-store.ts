@@ -57,6 +57,8 @@ import {
   cpuRefuseMessage,
   cpuWarnNote,
   newExtraPipeline,
+  normalizeDuckTune,
+  DEFAULT_DUCK_TUNE,
   type ExtraPipeline,
   type PipelineVia,
 } from "@/lib/audio/fx-pipeline";
@@ -3183,6 +3185,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         enabled: p.enabled,
         hold: cloneProcessHold(p),
         liveChain: p.liveChain.map((slot) => ({ ...slot })),
+        duck: { ...p.duck },
       })),
     };
     const label = id === "talk" ? "トーク" : id === "song" ? "歌" : "待機";
@@ -3223,6 +3226,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           p.deviceInserts ?? [],
         ),
         fxSoloId: null,
+        duck: hit.duck ?? p.duck,
       };
     });
     const spectrumFilters = cap.main.spectrumFilters;
@@ -3541,9 +3545,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   updateExtraPipeline: (id, patch) => {
-    const extraPipelines = get().extraPipelines.map((p) =>
-      p.id === id ? { ...p, ...patch, id: p.id } : p,
-    );
+    const extraPipelines = get().extraPipelines.map((p) => {
+      if (p.id !== id) return p;
+      const duck = patch.duck
+        ? normalizeDuckTune({ ...p.duck, ...patch.duck })
+        : (p.duck ?? DEFAULT_DUCK_TUNE);
+      return { ...p, ...patch, id: p.id, duck };
+    });
     if (patch.enabled === true) {
       const check = cpuOverBudget({
         spectrumFilters: get().spectrumFilters,

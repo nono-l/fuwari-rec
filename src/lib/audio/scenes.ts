@@ -1,7 +1,7 @@
 import { buildStarterChain } from "./starter-chains";
 import { labelObsInserts, newObsInsert } from "./obs-filters";
-import type { ProcessHold } from "./live-fx";
-import type { LiveSlot } from "./live-fx";
+import type { ProcessHold, LiveSlot } from "./live-fx";
+import type { DuckTune } from "./fx-pipeline";
 
 export type SceneId = "talk" | "song" | "wait";
 
@@ -38,6 +38,7 @@ export type SceneExtraCapture = {
   enabled: boolean;
   hold: ProcessHold;
   liveChain: LiveSlot[];
+  duck: DuckTune;
 };
 
 export type SceneCapture = {

@@ -16,12 +16,13 @@ import { assembleLiveFx, applyFxSolo, type LiveFxItem } from "./live-fx";
 import { InsertRack } from "./insert-rack";
 import { CablePatchbay } from "./cables";
 import { DeviceIoBay } from "./device-io";
-import { type ExtraPipeline } from "./fx-pipeline";
+import { type DuckTune, type ExtraPipeline } from "./fx-pipeline";
 import roomWorkletUrl from "./worklets/room-subtract.js?url";
 import pitchWorkletUrl from "./worklets/pitch-shift.js?url";
 import dynamicsWorkletUrl from "./worklets/obs-dynamics.js?url";
 import limiterWorkletUrl from "./worklets/peak-limiter.js?url";
 import aiConvertWorkletUrl from "./worklets/ai-convert.js?url";
+import duckWorkletUrl from "./worklets/sidechain-duck.js?url";
 
 function createImpulse(ctx: BaseAudioContext, duration = 1.8, decay = 2.2) {
   const rate = ctx.sampleRate;
@@ -49,6 +50,19 @@ type AudioContextWithSink = AudioContext & {
   sinkId?: string;
 };
 
+function applyDuckParams(node: AudioWorkletNode, d: DuckTune) {
+  const set = (name: string, value: number) => {
+    const p = node.parameters.get(name);
+    if (!p) return;
+    p.value = value;
+  };
+  set("on", d.enabled ? 1 : 0);
+  set("thresh", Math.pow(10, d.thresholdDb / 20));
+  set("depth", d.depth);
+  set("atk", d.attackMs);
+  set("rel", d.releaseMs);
+}
+
 /**
  * Client-side Web Audio engine.
  * Master FX bus is a live effector: mic and tracks share the same chain.
@@ -64,9 +78,11 @@ export class AudioEngine {
   private mainListen: GainNode | null = null;
   private extraRacks = new Map<string, InsertRack>();
   private extraWrites: AudioNode[] = [];
+  private extraDuckNodes: AudioNode[] = [];
   private extraAnalysers = new Map<string, AnalyserNode>();
   private extraPipelines: ExtraPipeline[] = [];
   private dynWorkletReady = false;
+  private duckWorkletReady = false;
   private lastFx: MasterFx | null = null;
   private roomPre: GainNode | null = null;
   private roomPost: GainNode | null = null;
@@ -256,6 +272,11 @@ export class AudioEngine {
       void this.ensureAiConvertWorklet().then(() => this.rebuildExtraPipelines());
       return;
     }
+    const needsDuck = pipelines.some((p) => p.duck?.enabled);
+    if (needsDuck && !this.duckWorkletReady) {
+      void this.ensureDuckWorklet().then(() => this.rebuildExtraPipelines());
+      return;
+    }
     this.rebuildExtraPipelines();
   }
 
@@ -284,6 +305,14 @@ export class AudioEngine {
       }
     }
     this.extraWrites = [];
+    for (const n of this.extraDuckNodes) {
+      try {
+        n.disconnect();
+      } catch {
+        /* noop */
+      }
+    }
+    this.extraDuckNodes = [];
     for (const a of this.extraAnalysers.values()) {
       try {
         a.disconnect();
@@ -321,14 +350,49 @@ export class AudioEngine {
         ),
       );
       bay.send(p.inputCable).connect(rack.input);
-      if (p.enabled) {
-        rack.output.connect(bay.ret(p.outputCable));
-      }
       const an = this.makeSpecAnalyser(ctx);
-      rack.output.connect(an);
+      const ducked = this.makeDuckNode(p.duck);
+      if (ducked && p.enabled) {
+        rack.output.connect(ducked);
+        this.mainListen.connect(ducked, 0, 1);
+        ducked.connect(bay.ret(p.outputCable));
+        ducked.connect(an);
+        this.extraDuckNodes.push(ducked);
+      } else {
+        if (p.enabled) {
+          rack.output.connect(bay.ret(p.outputCable));
+        }
+        rack.output.connect(an);
+      }
       this.extraAnalysers.set(p.id, an);
       this.extraRacks.set(p.id, rack);
       this.extraWrites.push(rack.input);
+    }
+  }
+
+  private makeDuckNode(tune?: DuckTune | null): AudioWorkletNode | null {
+    if (!this.ctx || !this.duckWorkletReady || !tune?.enabled) return null;
+    try {
+      const node = new AudioWorkletNode(this.ctx, "sidechain-duck", {
+        numberOfInputs: 2,
+        numberOfOutputs: 1,
+        outputChannelCount: [2],
+      });
+      applyDuckParams(node, tune);
+      return node;
+    } catch {
+      return null;
+    }
+  }
+
+  private async ensureDuckWorklet() {
+    if (this.duckWorkletReady || !this.ctx) return;
+    if (typeof AudioWorkletNode === "undefined") return;
+    try {
+      await this.ctx.audioWorklet.addModule(duckWorkletUrl);
+      this.duckWorkletReady = true;
+    } catch {
+      this.duckWorkletReady = false;
     }
   }
 
@@ -1471,6 +1535,13 @@ export class AudioEngine {
     } catch {
       /* band pitch falls back to dry band */
     }
+    let duckOk = false;
+    try {
+      await offline.audioWorklet.addModule(duckWorkletUrl);
+      duckOk = true;
+    } catch {
+      duckOk = false;
+    }
 
     const bus = offline.createGain();
 
@@ -1510,6 +1581,7 @@ export class AudioEngine {
     mainRack.setLiveFx(liveFx);
 
     const extraRacks: InsertRack[] = [];
+    const extraDuck: AudioNode[] = [];
     for (const p of extraPipelines) {
       const rack = new InsertRack(offline);
       rack.setWorkletFactory(workletFactory ?? (() => null));
@@ -1528,7 +1600,24 @@ export class AudioEngine {
         ),
       );
       cables.send(p.inputCable).connect(rack.input);
-      if (p.enabled) rack.output.connect(cables.ret(p.outputCable));
+      if (p.enabled && duckOk && p.duck?.enabled) {
+        try {
+          const duck = new AudioWorkletNode(offline, "sidechain-duck", {
+            numberOfInputs: 2,
+            numberOfOutputs: 1,
+            outputChannelCount: [2],
+          });
+          applyDuckParams(duck, p.duck);
+          rack.output.connect(duck);
+          mainRack.output.connect(duck, 0, 1);
+          duck.connect(cables.ret(p.outputCable));
+          extraDuck.push(duck);
+        } catch {
+          rack.output.connect(cables.ret(p.outputCable));
+        }
+      } else if (p.enabled) {
+        rack.output.connect(cables.ret(p.outputCable));
+      }
       extraRacks.push(rack);
     }
 

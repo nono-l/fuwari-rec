@@ -9,6 +9,39 @@ import { asCableIndex, type CableIndex } from "./cables";
 /** @deprecated Audio always runs in parallel; kept for saved state. */
 export type PipelineVia = "main" | "2" | "3" | "both";
 
+export type DuckTune = {
+  enabled: boolean;
+  /** Voice level that starts ducking, dBFS. */
+  thresholdDb: number;
+  /** 0–1 how far BGM drops when the voice is well over. */
+  depth: number;
+  attackMs: number;
+  releaseMs: number;
+};
+
+export const DEFAULT_DUCK_TUNE: DuckTune = {
+  enabled: false,
+  thresholdDb: -32,
+  depth: 0.7,
+  attackMs: 12,
+  releaseMs: 180,
+};
+
+export function normalizeDuckTune(raw?: Partial<DuckTune> | null): DuckTune {
+  const r = raw ?? {};
+  const n = (v: unknown, d: number) => {
+    const x = Number(v);
+    return Number.isFinite(x) ? x : d;
+  };
+  return {
+    enabled: r.enabled === true,
+    thresholdDb: Math.max(-80, Math.min(0, n(r.thresholdDb, DEFAULT_DUCK_TUNE.thresholdDb))),
+    depth: Math.max(0, Math.min(1, n(r.depth, DEFAULT_DUCK_TUNE.depth))),
+    attackMs: Math.max(1, Math.min(200, n(r.attackMs, DEFAULT_DUCK_TUNE.attackMs))),
+    releaseMs: Math.max(20, Math.min(2000, n(r.releaseMs, DEFAULT_DUCK_TUNE.releaseMs))),
+  };
+}
+
 export type ExtraPipeline = {
   id: string;
   name: string;
@@ -24,6 +57,7 @@ export type ExtraPipeline = {
   liveChain: LiveSlot[];
   fxSoloId?: string | null;
   abHold?: ProcessHold | null;
+  duck: DuckTune;
 };
 
 export const MAX_PIPELINES = 7;
@@ -102,6 +136,7 @@ export function sessionLoad(s: CpuLoadSlice): number {
   for (const p of s.extraPipelines ?? []) {
     if (!p.enabled) continue;
     n += PIPELINE_OVERHEAD + chainLoad(p);
+    if (p.duck?.enabled) n += 2;
   }
   return n;
 }
@@ -150,5 +185,6 @@ export function newExtraPipeline(number: number, cable: CableIndex): ExtraPipeli
     liveChain: [],
     fxSoloId: null,
     abHold: null,
+    duck: { ...DEFAULT_DUCK_TUNE },
   };
 }

@@ -1,8 +1,14 @@
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import { useEditorStore } from "@/lib/store/editor-store";
-import { extraPipelineBudget, cpuCores } from "@/lib/audio/fx-pipeline";
+import {
+  extraPipelineBudget,
+  cpuCores,
+  DEFAULT_DUCK_TUNE,
+  normalizeDuckTune,
+} from "@/lib/audio/fx-pipeline";
 import { CABLE_INDEXES, type CableIndex } from "@/lib/audio/cables";
 
 export function PipelineTabs() {
@@ -123,6 +129,129 @@ export function PipelineTabs() {
           </Button>
         </div>
       )}
+      {current && <DuckControls pipeId={current.id} duck={current.duck} />}
+    </div>
+  );
+}
+
+function DuckControls({
+  pipeId,
+  duck,
+}: {
+  pipeId: string;
+  duck: ReturnType<typeof normalizeDuckTune> | undefined;
+}) {
+  const update = useEditorStore((s) => s.updateExtraPipeline);
+  const value = normalizeDuckTune(duck);
+  const patch = (partial: Partial<typeof value>) =>
+    update(pipeId, { duck: { ...value, ...partial } });
+
+  return (
+    <div className="rounded-xl border border-border bg-muted/20 px-2.5 py-2">
+      <label className="flex items-start gap-2 text-[12px] font-medium text-foreground">
+        <input
+          type="checkbox"
+          className="mt-0.5"
+          checked={value.enabled}
+          onChange={() => patch({ enabled: !value.enabled })}
+        />
+        <span>
+          パイプライン1の声でダック
+          <span className="mt-0.5 block text-[10px] font-normal leading-relaxed text-muted-foreground">
+            このパイプラインの音（BGMなど）を、パイプライン1で話しているあいだ沈める
+          </span>
+        </span>
+      </label>
+      {value.enabled && (
+        <div className="mt-2 space-y-2">
+          <DuckRow
+            label="スレッショルド"
+            hint="この大きさ以上の声で沈み始める"
+            valueLabel={`${value.thresholdDb.toFixed(0)} dB`}
+            min={-60}
+            max={-6}
+            step={1}
+            value={value.thresholdDb}
+            onChange={(n) => patch({ thresholdDb: n })}
+          />
+          <DuckRow
+            label="深さ"
+            hint="声が出ているときの沈め方。上げすぎるとBGMが消える"
+            valueLabel={`${Math.round(value.depth * 100)}%`}
+            min={0}
+            max={100}
+            step={1}
+            value={Math.round(value.depth * 100)}
+            onChange={(n) => patch({ depth: n / 100 })}
+          />
+          <DuckRow
+            label="アタック"
+            hint="声が乗ってから沈むまでの速さ"
+            valueLabel={`${Math.round(value.attackMs)} ms`}
+            min={1}
+            max={80}
+            step={1}
+            value={value.attackMs}
+            onChange={(n) => patch({ attackMs: n })}
+          />
+          <DuckRow
+            label="リリース"
+            hint="話し終わってからBGMが戻る速さ"
+            valueLabel={`${Math.round(value.releaseMs)} ms`}
+            min={40}
+            max={800}
+            step={5}
+            value={value.releaseMs}
+            onChange={(n) => patch({ releaseMs: n })}
+          />
+          <button
+            type="button"
+            className="text-[10px] text-primary hover:underline"
+            onClick={() => patch({ ...DEFAULT_DUCK_TUNE, enabled: true })}
+          >
+            ダックの初期値に戻す
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DuckRow({
+  label,
+  hint,
+  valueLabel,
+  min,
+  max,
+  step,
+  value,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  valueLabel: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  onChange: (n: number) => void;
+}) {
+  return (
+    <div>
+      <div className="mb-0.5 flex justify-between text-[11px] text-muted-foreground">
+        <span>{label}</span>
+        <span className="tabular-nums text-foreground">{valueLabel}</span>
+      </div>
+      <p className="mb-1 text-[10px] leading-relaxed text-muted-foreground">
+        {hint}
+      </p>
+      <Slider
+        min={min}
+        max={max}
+        step={step}
+        value={[value]}
+        onValueChange={([n]) => onChange(n ?? min)}
+      />
     </div>
   );
 }
