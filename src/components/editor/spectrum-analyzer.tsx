@@ -23,6 +23,7 @@ import {
   EQ_SLOPES,
   allowsBandToggle,
   amountSliderLabel,
+  normalizeDeessTune,
   normalizeDelayTune,
   normalizeEqSlope,
   normalizeFormantTune,
@@ -30,6 +31,7 @@ import {
   normalizePitchTune,
   normalizeReverbTune,
   formantScaledHz,
+  type DeessTune,
   type DelayTune,
   type EqSlope,
   type FormantTune,
@@ -49,6 +51,7 @@ import { InsertControl, insertSummary } from "@/components/editor/obs-filter-rac
 import { ReverbTuneControls } from "@/components/editor/reverb-tune";
 import { DelayTuneControls } from "@/components/editor/delay-tune";
 import { OffsetTuneControls } from "@/components/editor/offset-tune";
+import { DeessTuneControls } from "@/components/editor/deess-tune";
 import { PitchTuneControls } from "@/components/editor/pitch-tune";
 import { FormantTuneControls } from "@/components/editor/formant-tune";
 import { useEditorStore } from "@/lib/store/editor-store";
@@ -71,6 +74,7 @@ const KIND_COLOR: Record<SpectrumFilterKind, string> = {
   "band-pitch": "#1d4ed8",
   "band-delay": "#0891b2",
   "band-offset": "#4f46e5",
+  "band-deess": "#a21caf",
 };
 
 type Draft = {
@@ -87,6 +91,7 @@ type Draft = {
   offset: OffsetTune;
   pitch: PitchTune;
   formant: FormantTune;
+  deess: DeessTune;
 };
 
 function hzFromPointer(
@@ -206,6 +211,7 @@ export function SpectrumAnalyzer({
       offset: normalizeOffsetTune(next.offset),
       pitch: normalizePitchTune(next.pitch),
       formant: normalizeFormantTune(next.formant),
+      deess: normalizeDeessTune(next.deess),
     });
   };
 
@@ -295,7 +301,8 @@ export function SpectrumAnalyzer({
         shade === "band-formant" ||
         shade === "band-pitch" ||
         shade === "band-delay" ||
-        shade === "band-offset"
+        shade === "band-offset" ||
+        shade === "band-deess"
       ) {
         const { lo, hi } = bandEdges(hz, q);
         const x0 = padL + hzToSpecT(lo, sr) * innerW;
@@ -619,6 +626,7 @@ export function SpectrumAnalyzer({
       offset: normalizeOffsetTune(f?.offset),
       pitch: normalizePitchTune(f?.pitch),
       formant: normalizeFormantTune(f?.formant),
+      deess: normalizeDeessTune(f?.deess),
     });
   };
 
@@ -639,6 +647,7 @@ export function SpectrumAnalyzer({
       offset: normalizeOffsetTune(f.offset),
       pitch: normalizePitchTune(f.pitch),
       formant: normalizeFormantTune(f.formant),
+      deess: normalizeDeessTune(f.deess),
     });
   };
 
@@ -705,6 +714,7 @@ export function SpectrumAnalyzer({
         offset: normalizeOffsetTune(s.offset),
         pitch: normalizePitchTune(s.pitch),
         formant: normalizeFormantTune(s.formant),
+        deess: normalizeDeessTune(s.deess),
       });
     }
     closeDraft();
@@ -716,9 +726,11 @@ export function SpectrumAnalyzer({
       const auto =
         !d.name ||
         d.name === defaultFilterName(d.kind, d.hz, d.fullBand);
+      const nextHz = kind === "band-deess" && d.hz < 3000 ? 6500 : d.hz;
       const next: Draft = {
         ...d,
         kind,
+        hz: nextHz,
         q: defaultFilterQ(kind),
         gain: defaultFilterGain(kind),
         fullBand: allowsBandToggle(kind) ? d.fullBand : false,
@@ -726,7 +738,7 @@ export function SpectrumAnalyzer({
         name: auto
           ? defaultFilterName(
               kind,
-              d.hz,
+              nextHz,
               allowsBandToggle(kind) ? d.fullBand : false,
             )
           : d.name,
@@ -973,7 +985,8 @@ export function SpectrumAnalyzer({
                 min={
                   draft.kind === "band-reverb" ||
                   draft.kind === "band-delay" ||
-                  draft.kind === "band-offset"
+                  draft.kind === "band-offset" ||
+                  draft.kind === "band-deess"
                     ? 0
                     : draft.kind === "band-pitch"
                       ? -120
@@ -994,6 +1007,8 @@ export function SpectrumAnalyzer({
                     ? "乾いた音"
                     : draft.kind === "band-offset"
                       ? "元のタイミング"
+                      : draft.kind === "band-deess"
+                        ? "潰さない"
                       : draft.kind === "band-pitch"
                         ? "−12 半音"
                         : "−18 dB"}
@@ -1014,6 +1029,8 @@ export function SpectrumAnalyzer({
                       ? "ディレイだけ"
                       : draft.kind === "band-offset"
                         ? "ずらした音だけ"
+                    : draft.kind === "band-deess"
+                      ? "サだけ潰す"
                     : draft.kind === "band-pitch"
                       ? "＋12 半音"
                       : "＋18 dB"}
@@ -1032,6 +1049,11 @@ export function SpectrumAnalyzer({
               {draft.kind === "band-offset" && (
                 <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
                   右がいちばんわかりやすいです。混ぜると元のタイミングと重なってコームが付きます
+                </p>
+              )}
+              {draft.kind === "band-deess" && (
+                <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                  サ行の帯だけ潰します。線は 6kHz 付近が目安です
                 </p>
               )}
               {draft.kind === "band-formant" && (
@@ -1057,6 +1079,12 @@ export function SpectrumAnalyzer({
             <OffsetTuneControls
               value={draft.offset}
               onChange={(offset) => patchDraft({ offset })}
+            />
+          )}
+          {draft.kind === "band-deess" && (
+            <DeessTuneControls
+              value={draft.deess}
+              onChange={(deess) => patchDraft({ deess })}
             />
           )}
           {draft.kind === "band-pitch" && (
@@ -1199,6 +1227,9 @@ export function SpectrumAnalyzer({
                         : ""}
                       {f.kind === "band-offset"
                         ? ` · ${Math.round(normalizeOffsetTune(f.offset).timeMs)}msずらす`
+                        : ""}
+                      {f.kind === "band-deess"
+                        ? ` · ${normalizeDeessTune(f.deess).thresholdDb.toFixed(0)} dB`
                         : ""}
                       {f.kind === "band-formant"
                         ? ` · ${formatHz(formantScaledHz(normalizeFormantTune(f.formant)).f1)}`

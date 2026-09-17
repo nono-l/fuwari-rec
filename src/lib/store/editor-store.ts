@@ -275,6 +275,7 @@ function cloneProcessHold(chain: {
       offset: { ...f.offset },
       pitch: { ...f.pitch },
       formant: { ...f.formant },
+      deess: { ...f.deess },
     })),
     obsInserts: chain.obsInserts.map((f) => ({
       ...f,

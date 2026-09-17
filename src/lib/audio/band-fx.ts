@@ -2,6 +2,7 @@ import {
   clampFilterGain,
   clampFilterHz,
   formantScaledHz,
+  normalizeDeessTune,
   normalizeDelayTune,
   normalizeFormantTune,
   normalizeOffsetTune,
@@ -16,7 +17,8 @@ export type BandFxKind =
   | "band-formant"
   | "band-pitch"
   | "band-delay"
-  | "band-offset";
+  | "band-offset"
+  | "band-deess";
 
 export function isBandFxKind(kind: SpectrumFilterKind): kind is BandFxKind {
   return (
@@ -24,7 +26,8 @@ export function isBandFxKind(kind: SpectrumFilterKind): kind is BandFxKind {
     kind === "band-formant" ||
     kind === "band-pitch" ||
     kind === "band-delay" ||
-    kind === "band-offset"
+    kind === "band-offset" ||
+    kind === "band-deess"
   );
 }
 
@@ -442,6 +445,75 @@ export function createBandFxHandle(
       const o = normalizeOffsetTune(f.offset);
       const mix = Math.max(0, Math.min(1, clampFilterGain(f.gain) / 18));
       setParam(ctx, delay.delayTime, o.timeMs / 1000);
+      setParam(ctx, dryG.gain, 1 - mix);
+      setParam(ctx, wetG.gain, mix);
+    };
+  } else if (filter.kind === "band-deess") {
+    const notch = ctx.createBiquadFilter();
+    notch.type = "notch";
+    const comp = ctx.createDynamicsCompressor();
+    const dryG = ctx.createGain();
+    const wetG = ctx.createGain();
+    comp.connect(wetG);
+    dryG.connect(output);
+    wetG.connect(output);
+    nodes.push(notch, comp, dryG, wetG);
+    let lastFull: boolean | null = null;
+    const full = () => {
+      try {
+        input.disconnect();
+      } catch {
+        /* noop */
+      }
+      try {
+        notch.disconnect();
+      } catch {
+        /* noop */
+      }
+      try {
+        bp.disconnect();
+      } catch {
+        /* noop */
+      }
+      input.connect(dryG);
+      input.connect(comp);
+    };
+    const band = () => {
+      try {
+        input.disconnect();
+      } catch {
+        /* noop */
+      }
+      try {
+        bp.disconnect();
+      } catch {
+        /* noop */
+      }
+      try {
+        notch.disconnect();
+      } catch {
+        /* noop */
+      }
+      input.connect(notch);
+      notch.connect(output);
+      input.connect(bp);
+      bp.connect(comp);
+    };
+    applyFn = (f) => {
+      const isFull = !!f.fullBand;
+      if (lastFull !== isFull) {
+        if (isFull) full();
+        else band();
+        lastFull = isFull;
+      }
+      if (!isFull) tuneSplit(ctx, bp, notch, f.hz, f.q);
+      const d = normalizeDeessTune(f.deess);
+      const mix = Math.max(0, Math.min(1, clampFilterGain(f.gain) / 18));
+      setParam(ctx, comp.threshold, d.thresholdDb);
+      setParam(ctx, comp.ratio, d.ratio);
+      setParam(ctx, comp.knee, 6);
+      setParam(ctx, comp.attack, d.attackMs / 1000);
+      setParam(ctx, comp.release, d.releaseMs / 1000);
       setParam(ctx, dryG.gain, 1 - mix);
       setParam(ctx, wetG.gain, mix);
     };
