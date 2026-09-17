@@ -5,6 +5,7 @@ import { AppNav } from "@/components/editor/app-nav";
 import { TransportBar } from "@/components/editor/transport-bar";
 import { useEditorStore } from "@/lib/store/editor-store";
 import { useAiRuntimeStore } from "@/lib/store/ai-runtime-store";
+import { sceneByKey } from "@/lib/audio/scenes";
 
 export function AppShell({
   title,
@@ -24,6 +25,7 @@ export function AppShell({
   const stop = useEditorStore((s) => s.stop);
   const tapActive = useEditorStore((s) => s.tapActive);
   const undoMidiEdit = useEditorStore((s) => s.undoMidiEdit);
+  const recallScene = useEditorStore((s) => s.recallScene);
 
   useEffect(() => {
     initEngine();
@@ -59,11 +61,17 @@ export function AppShell({
       } else if (e.code === "KeyS" && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         stop();
+      } else if (!e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        const scene = sceneByKey(e.code);
+        if (scene) {
+          e.preventDefault();
+          recallScene(scene);
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [transport, togglePlay, toggleRecord, stop, tapActive, undoMidiEdit]);
+  }, [transport, togglePlay, toggleRecord, stop, tapActive, undoMidiEdit, recallScene]);
 
   return (
     <div className="min-h-dvh bg-background text-foreground">

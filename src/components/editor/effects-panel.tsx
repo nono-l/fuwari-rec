@@ -7,6 +7,7 @@ import { SpectrumAnalyzer } from "@/components/editor/spectrum-analyzer";
 import { FxLibraryPanel } from "@/components/editor/fx-library-panel";
 import { ObsFilterRack } from "@/components/editor/obs-filter-rack";
 import { PipelineTabs } from "@/components/editor/pipeline-rack";
+import { SceneBar } from "@/components/editor/scene-bar";
 import {
   AudioLines,
   Power,
@@ -148,6 +149,7 @@ export function EffectsPanel({
             />
           </div>
           <PipelineTabs />
+          <SceneBar />
           <SpectrumAnalyzer compact={!isPage} />
           {!inputEnabled && (
             <p className="text-[11px] text-danger">

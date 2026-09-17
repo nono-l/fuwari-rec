@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn, formatTime } from "@/lib/utils";
 import { useEditorStore } from "@/lib/store/editor-store";
 import { MEDIA_FILE_ACCEPT } from "@/lib/audio/media-decode";
+import { SceneBar } from "@/components/editor/scene-bar";
 
 export function TransportBar() {
   const status = useEditorStore((s) => s.status);
@@ -152,6 +153,8 @@ export function TransportBar() {
         >
           {recording ? "REC" : playing ? "PLAY" : "STOP"}
         </Badge>
+
+        <SceneBar compact />
 
         <p className="hidden min-w-0 flex-1 truncate text-xs text-muted-foreground sm:block">
           {hint}

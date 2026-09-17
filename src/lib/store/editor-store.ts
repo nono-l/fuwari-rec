@@ -21,6 +21,11 @@ import {
   type StarterChainId,
 } from "@/lib/audio/starter-chains";
 import {
+  factoryScene,
+  type SceneCapture,
+  type SceneId,
+} from "@/lib/audio/scenes";
+import {
   MAX_AI_VOICE,
   newAiVoiceInsert,
   setAiModelFile,
@@ -639,6 +644,8 @@ export interface EditorState {
   liveChain: LiveSlot[];
   fxSoloId: string | null;
   abHold: ProcessHold | null;
+  activeSceneId: SceneId | null;
+  sceneBank: Partial<Record<SceneId, SceneCapture>>;
 
   rangeMeasuring: boolean;
   rangeBusy: boolean;
@@ -770,6 +777,9 @@ export interface EditorState {
   captureAb: () => void;
   toggleAb: () => void;
   toggleFxSolo: (id: string) => void;
+  recallScene: (id: SceneId) => boolean;
+  captureScene: (id: SceneId) => void;
+  resetScene: (id: SceneId) => void;
   addAiVoice: () => string | null;
   updateAiVoice: (patch: Partial<AiVoiceInsert>) => void;
   removeAiVoice: () => void;
@@ -1099,6 +1109,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   liveChain: [],
   fxSoloId: null,
   abHold: null,
+  activeSceneId: null,
+  sceneBank: {},
 
   rangeMeasuring: false,
   rangeBusy: false,
@@ -3155,6 +3167,111 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         ? "ソロ。他の音声フィルターは一時的に素通りです"
         : "ソロを解除",
     });
+  },
+
+  captureScene: (id) => {
+    const s = get();
+    const capture: SceneCapture = {
+      main: cloneProcessHold({
+        spectrumFilters: s.spectrumFilters,
+        obsInserts: s.obsInserts,
+        aiVoice: s.aiVoice,
+      }),
+      mainChain: s.liveChain.map((slot) => ({ ...slot })),
+      extras: s.extraPipelines.map((p) => ({
+        number: p.number,
+        enabled: p.enabled,
+        hold: cloneProcessHold(p),
+        liveChain: p.liveChain.map((slot) => ({ ...slot })),
+      })),
+    };
+    const label = id === "talk" ? "トーク" : id === "song" ? "歌" : "待機";
+    set({
+      sceneBank: { ...s.sceneBank, [id]: capture },
+      activeSceneId: id,
+      statusMessage: `${label}に今の全パイプラインを記憶`,
+    });
+  },
+
+  resetScene: (id) => {
+    const { [id]: _drop, ...rest } = get().sceneBank;
+    const label = id === "talk" ? "トーク" : id === "song" ? "歌" : "待機";
+    set({
+      sceneBank: rest,
+      statusMessage: `${label}を初期の土台に戻しました。キーで読み出してください`,
+    });
+  },
+
+  recallScene: (id) => {
+    const s = get();
+    const cap = s.sceneBank[id] ?? factoryScene(id);
+    const extraPipelines = s.extraPipelines.map((p) => {
+      const hit = cap.extras.find((e) => e.number === p.number);
+      if (!hit) return { ...p, fxSoloId: p.fxSoloId ?? null };
+      return {
+        ...p,
+        enabled: hit.enabled,
+        spectrumFilters: hit.hold.spectrumFilters,
+        obsInserts: hit.hold.obsInserts,
+        aiVoice: hit.hold.aiVoice,
+        liveChain: reconcileLiveChain(
+          hit.liveChain,
+          hit.hold.spectrumFilters,
+          hit.hold.obsInserts,
+          hit.hold.aiVoice,
+          p.cableInserts ?? [],
+          p.deviceInserts ?? [],
+        ),
+        fxSoloId: null,
+      };
+    });
+    const spectrumFilters = cap.main.spectrumFilters;
+    const obsInserts = cap.main.obsInserts;
+    const aiVoice = cap.main.aiVoice;
+    const check = cpuOverBudget({
+      spectrumFilters,
+      obsInserts,
+      aiVoice,
+      extraPipelines,
+    });
+    if (check.over) {
+      set({ statusMessage: cpuRefuseMessage(check.load, check.budget) });
+      return false;
+    }
+    const liveChain = reconcileLiveChain(
+      cap.mainChain,
+      spectrumFilters,
+      obsInserts,
+      aiVoice,
+      s.cableInserts,
+      s.deviceInserts,
+    );
+    const next = {
+      ...s,
+      spectrumFilters,
+      obsInserts,
+      aiVoice,
+      liveChain,
+      extraPipelines,
+      fxSoloId: null,
+    };
+    pushLiveFx(next);
+    const label = id === "talk" ? "トーク" : id === "song" ? "歌" : "待機";
+    const custom = Boolean(s.sceneBank[id]);
+    set({
+      spectrumFilters,
+      obsInserts,
+      aiVoice,
+      liveChain,
+      extraPipelines,
+      fxSoloId: null,
+      activeSceneId: id,
+      statusMessage: cpuStatus(
+        custom ? `シーン「${label}」` : `シーン「${label}」（初期）`,
+        check,
+      ),
+    });
+    return true;
   },
 
   addAiVoice: () => {
