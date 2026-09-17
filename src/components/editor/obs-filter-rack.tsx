@@ -39,6 +39,7 @@ import {
 import { MAX_AI_VOICE } from "@/lib/audio/ai-voice";
 import { MAX_CABLE_INSERTS } from "@/lib/audio/cables";
 import { MAX_DEVICE_IO } from "@/lib/audio/device-io";
+import { STARTER_CHAINS } from "@/lib/audio/starter-chains";
 
 function pct(n: number) {
   return `${Math.round(n * 100)}%`;
@@ -104,6 +105,7 @@ export function ObsFilterRack() {
   const addAiVoice = useEditorStore((s) => s.addAiVoice);
   const addCableInsert = useEditorStore((s) => s.addCableInsert);
   const addDeviceInsert = useEditorStore((s) => s.addDeviceInsert);
+  const applyStarterChain = useEditorStore((s) => s.applyStarterChain);
   const full = inserts.length >= MAX_OBS_INSERTS;
   const aiFull = Boolean(mainAi || extras.some((p) => p.aiVoice) || aiVoice);
   const cableFull = cableInserts.length >= MAX_CABLE_INSERTS;
@@ -123,6 +125,32 @@ export function ObsFilterRack() {
           <p className="mt-0.5 text-[11px] text-background/75 sm:text-xs">
             AIボイスは一段まで。仮想ケーブルでパイプライン2・3へ配線できます。ほかは何段でも置ける
           </p>
+        </div>
+
+        <div className="border-b border-border bg-muted/30 px-3 py-3 sm:px-5">
+          <div className="text-[12px] font-medium text-foreground">
+            おすすめチェーン
+          </div>
+          <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">
+            1タップでゲート→抑制→EQ→コンプ→リミッター。ライブの音声フィルターを差し替えます。帯域フィルターはそのままです
+          </p>
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {STARTER_CHAINS.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => applyStarterChain(c.id)}
+                className="rounded-lg border border-border bg-background px-3 py-2 text-left transition-colors hover:border-primary hover:bg-primary/5"
+              >
+                <span className="block text-[13px] font-semibold text-foreground">
+                  {c.label}
+                </span>
+                <span className="mt-0.5 block text-[10px] leading-relaxed text-muted-foreground">
+                  {c.hint}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="hidden grid-cols-[minmax(7.5rem,1fr)_4.5rem_minmax(0,1.4fr)_minmax(7.5rem,0.9fr)] gap-x-3 border-b border-border bg-muted/60 px-4 py-2 text-[11px] font-semibold text-muted-foreground sm:grid sm:px-5">

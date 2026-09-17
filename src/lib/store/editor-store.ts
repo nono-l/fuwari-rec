@@ -17,6 +17,10 @@ import {
   type ObsInsert,
 } from "@/lib/audio/obs-filters";
 import {
+  buildStarterChain,
+  type StarterChainId,
+} from "@/lib/audio/starter-chains";
+import {
   MAX_AI_VOICE,
   newAiVoiceInsert,
   setAiModelFile,
@@ -716,6 +720,7 @@ export interface EditorState {
   toggleObsInsert: (id: string) => void;
   moveObsInsert: (id: string, delta: -1 | 1) => void;
   replaceObsInserts: (inserts: ObsInsert[]) => void;
+  applyStarterChain: (id: StarterChainId) => boolean;
   addAiVoice: () => string | null;
   updateAiVoice: (patch: Partial<AiVoiceInsert>) => void;
   removeAiVoice: () => void;
@@ -3016,6 +3021,43 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     commitChain(get, set, {
       obsInserts: labelObsInserts(inserts.slice(0, MAX_OBS_INSERTS)),
     });
+  },
+
+  applyStarterChain: (id) => {
+    const chain = readChain(get());
+    const obsInserts = buildStarterChain(id);
+    const check = loadAfterChainPatch(get(), { obsInserts });
+    if (check.over) {
+      set({ statusMessage: cpuRefuseMessage(check.load, check.budget) });
+      return false;
+    }
+    const kept = chain.liveChain.filter((s) => s.family !== "obs");
+    const liveChain = reconcileLiveChain(
+      [
+        ...obsInserts.map((f) => ({ family: "obs" as const, id: f.id })),
+        ...kept,
+      ],
+      chain.spectrumFilters,
+      obsInserts,
+      chain.aiVoice,
+      chain.cableInserts,
+      chain.deviceInserts,
+    );
+    const names: Record<StarterChainId, string> = {
+      stream: "配信",
+      song: "歌",
+      call: "通話",
+    };
+    const replaced = chain.obsInserts.length > 0;
+    commitChain(get, set, { obsInserts, liveChain }, {
+      statusMessage: cpuStatus(
+        replaced
+          ? `${names[id]}のおすすめに差し替えました`
+          : `${names[id]}のおすすめを入れました`,
+        check,
+      ),
+    });
+    return true;
   },
 
   addAiVoice: () => {
