@@ -1,4 +1,10 @@
 import { MIX_PRESETS } from "@/lib/audio/types";
+import {
+  LUFS_TARGETS,
+  formatLufs,
+  formatTp,
+  lufsDelta,
+} from "@/lib/audio/loudness";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -29,6 +35,15 @@ export function EffectsPanel({
   const liveFxActive = useEditorStore((s) => s.liveFxActive);
   const liveFxBusy = useEditorStore((s) => s.liveFxBusy);
   const liveLevel = useEditorStore((s) => s.liveLevel);
+  const lufsMomentary = useEditorStore((s) => s.lufsMomentary);
+  const lufsShort = useEditorStore((s) => s.lufsShort);
+  const truePeakDb = useEditorStore((s) => s.truePeakDb);
+  const lufsTarget = useEditorStore((s) => s.lufsTarget);
+  const outputSafe = useEditorStore((s) => s.outputSafe);
+  const outputCeilingDb = useEditorStore((s) => s.outputCeilingDb);
+  const setLufsTarget = useEditorStore((s) => s.setLufsTarget);
+  const setOutputSafe = useEditorStore((s) => s.setOutputSafe);
+  const setOutputCeilingDb = useEditorStore((s) => s.setOutputCeilingDb);
   const inputEnabled = useEditorStore((s) => s.inputEnabled);
   const outputEnabled = useEditorStore((s) => s.outputEnabled);
   const toggleLiveFx = useEditorStore((s) => s.toggleLiveFx);
@@ -59,6 +74,18 @@ export function EffectsPanel({
 
   const isPage = layout === "page";
   const levelPct = Math.min(100, Math.round(liveLevel * 140));
+  const target = LUFS_TARGETS.find((t) => t.id === lufsTarget) ?? LUFS_TARGETS[0]!;
+  const liveMeters = liveFxActive;
+  const delta = liveMeters ? lufsDelta(lufsShort, target.lufs) : 0;
+  const loud =
+    liveMeters && lufsShort > -69
+      ? delta > 2
+        ? "大きい"
+        : delta < -4
+          ? "小さい"
+          : "目安どおり"
+      : "—";
+  const peakHot = liveMeters && truePeakDb > outputCeilingDb + 0.2;
 
   return (
     <div className={cn("flex flex-col gap-4", isPage && "gap-5")}>
@@ -147,6 +174,106 @@ export function EffectsPanel({
               )}
               style={{ width: liveFxActive ? `${levelPct}%` : "0%" }}
             />
+          </div>
+          <div className="rounded-xl border border-border/80 bg-muted/30 px-3 py-2.5">
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <p className="text-[11px] font-medium text-foreground">
+                  出力の目安
+                </p>
+                <p className="text-[10px] leading-relaxed text-muted-foreground">
+                  プラットフォームが聞いている大きさ。リミッターの数字と外の世界を繋ぎます
+                </p>
+              </div>
+              <span
+                className={cn(
+                  "text-[11px] font-semibold tabular-nums",
+                  loud === "大きい"
+                    ? "text-danger"
+                    : loud === "目安どおり"
+                      ? "text-primary"
+                      : "text-muted-foreground",
+                )}
+              >
+                {loud}
+              </span>
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+              <div>
+                <div className="text-[10px] text-muted-foreground">瞬間</div>
+                <div className="text-[12px] font-semibold tabular-nums text-foreground">
+                  {liveMeters ? formatLufs(lufsMomentary) : "—"}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] text-muted-foreground">3秒</div>
+                <div className="text-[12px] font-semibold tabular-nums text-foreground">
+                  {liveMeters ? formatLufs(lufsShort) : "—"}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] text-muted-foreground">ピーク</div>
+                <div
+                  className={cn(
+                    "text-[12px] font-semibold tabular-nums",
+                    peakHot ? "text-danger" : "text-foreground",
+                  )}
+                >
+                  {liveMeters ? formatTp(truePeakDb) : "—"}
+                </div>
+              </div>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1">
+              {LUFS_TARGETS.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  title={t.hint}
+                  className={cn(
+                    "rounded-full px-2 py-0.5 text-[10px]",
+                    lufsTarget === t.id
+                      ? "bg-primary font-semibold text-primary-foreground"
+                      : "border border-border bg-background text-muted-foreground",
+                  )}
+                  onClick={() => setLufsTarget(t.id)}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <label className="mt-2 flex items-start gap-2 text-[12px] font-medium text-foreground">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={outputSafe}
+                onChange={() => setOutputSafe(!outputSafe)}
+              />
+              <span>
+                出力セーフ
+                <span className="mt-0.5 block text-[10px] font-normal leading-relaxed text-muted-foreground">
+                  最終段でピークを天井以下にします。配信の歪み防止
+                </span>
+              </span>
+            </label>
+            {outputSafe && (
+              <div className="mt-2">
+                <div className="mb-0.5 flex justify-between text-[11px] text-muted-foreground">
+                  <span>天井</span>
+                  <span className="tabular-nums text-foreground">
+                    {outputCeilingDb.toFixed(1)} dBTP
+                  </span>
+                </div>
+                <Slider
+                  min={-12}
+                  max={-1}
+                  step={0.1}
+                  value={[outputCeilingDb]}
+                  onValueChange={([n]) =>
+                    setOutputCeilingDb(n ?? -1)
+                  }
+                />
+              </div>
+            )}
           </div>
           <PipelineTabs />
           <SceneBar />

@@ -17,6 +17,14 @@ import { InsertRack } from "./insert-rack";
 import { CablePatchbay } from "./cables";
 import { DeviceIoBay } from "./device-io";
 import { type DuckTune, type ExtraPipeline } from "./fx-pipeline";
+import {
+  DEFAULT_OUTPUT_CEILING_DB,
+  dbToLin,
+  linToDb,
+  meanSquareToLufs,
+  truePeakLin,
+  type LoudnessReading,
+} from "./loudness";
 import roomWorkletUrl from "./worklets/room-subtract.js?url";
 import pitchWorkletUrl from "./worklets/pitch-shift.js?url";
 import dynamicsWorkletUrl from "./worklets/obs-dynamics.js?url";
@@ -125,6 +133,17 @@ export class AudioEngine {
   private analyser: AnalyserNode | null = null;
   private levelRaf = 0;
   private levelData: Uint8Array | null = null;
+  private loudAnalyser: AnalyserNode | null = null;
+  private loudWave: Float32Array | null = null;
+  private kNodes: AudioNode[] = [];
+  private safetyNode: AudioNode | null = null;
+  private safetyIn: GainNode | null = null;
+  private outputSafe = true;
+  private outputCeilingDb = DEFAULT_OUTPUT_CEILING_DB;
+  private msHist: number[] = [];
+  private lufsMomentary = -70;
+  private lufsShort = -70;
+  private truePeakDb = -70;
   private specAnalyser: AnalyserNode | null = null;
   private specData: Uint8Array | null = null;
   private specWave: Uint8Array | null = null;
@@ -437,6 +456,20 @@ export class AudioEngine {
     return this.liveLevel;
   }
 
+  getLoudness(): LoudnessReading {
+    return {
+      momentary: this.lufsMomentary,
+      shortTerm: this.lufsShort,
+      truePeakDb: this.truePeakDb,
+    };
+  }
+
+  setOutputSafety(enabled: boolean, ceilingDb = this.outputCeilingDb) {
+    this.outputSafe = enabled;
+    this.outputCeilingDb = Math.max(-12, Math.min(-0.1, ceilingDb));
+    this.applyOutputSafety();
+  }
+
   isTransportOnly() {
     return this.transportOnly;
   }
@@ -538,6 +571,14 @@ export class AudioEngine {
     this.analyser.smoothingTimeConstant = 0.8;
     this.levelData = new Uint8Array(this.analyser.frequencyBinCount);
 
+    this.loudAnalyser = ctx.createAnalyser();
+    this.loudAnalyser.fftSize = 2048;
+    this.loudAnalyser.smoothingTimeConstant = 0;
+    this.loudWave = new Float32Array(this.loudAnalyser.fftSize);
+
+    this.safetyIn = ctx.createGain();
+    this.safetyIn.gain.value = 1;
+
     this.specAnalyser = ctx.createAnalyser();
     this.specAnalyser.fftSize = 2048;
     this.specAnalyser.smoothingTimeConstant = 0.45;
@@ -562,8 +603,102 @@ export class AudioEngine {
     this.dryGain.connect(this.analyser);
     this.wetGain.connect(this.analyser);
     this.analyser.connect(this.masterGain);
-    this.masterGain.connect(ctx.destination);
+    this.masterGain.connect(this.safetyIn);
+    const kTail = this.attachKWeight(this.masterGain);
+    kTail.connect(this.loudAnalyser);
+    this.applyOutputSafety();
     void this.ensureDynamicsWorklet();
+  }
+
+  private attachKWeight(from: AudioNode): AudioNode {
+    const ctx = this.ctx!;
+    this.kNodes = [];
+    const sr = ctx.sampleRate;
+    try {
+      if (Math.abs(sr - 48000) < 200 && typeof ctx.createIIRFilter === "function") {
+        const pre = ctx.createIIRFilter(
+          [1.53512485958697, -2.69169618940638, 1.19839281085285],
+          [1.0, -1.69065929318241, 0.73248077421585],
+        );
+        const rlb = ctx.createIIRFilter(
+          [1.0, -2.0, 1.0],
+          [1.0, -1.99004745483398, 0.99007225036621],
+        );
+        from.connect(pre);
+        pre.connect(rlb);
+        this.kNodes = [pre, rlb];
+        return rlb;
+      }
+    } catch {
+      /* biquad fallback */
+    }
+    const hp = ctx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = 38;
+    hp.Q.value = 0.5;
+    const sh = ctx.createBiquadFilter();
+    sh.type = "highshelf";
+    sh.frequency.value = 1500;
+    sh.gain.value = 4;
+    from.connect(hp);
+    hp.connect(sh);
+    this.kNodes = [hp, sh];
+    return sh;
+  }
+
+  private applyOutputSafety() {
+    const ctx = this.ctx;
+    const tap = this.safetyIn;
+    if (!ctx || !tap) return;
+    if (this.safetyNode) {
+      try {
+        this.safetyNode.disconnect();
+      } catch {
+        /* noop */
+      }
+      try {
+        tap.disconnect();
+      } catch {
+        /* noop */
+      }
+      this.safetyNode = null;
+    }
+    if (!this.outputSafe) {
+      tap.connect(ctx.destination);
+      return;
+    }
+    const ceil = dbToLin(this.outputCeilingDb);
+    try {
+      const node = new AudioWorkletNode(ctx, "peak-limiter", {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [2],
+      });
+      const set = (name: string, value: number) => {
+        const p = node.parameters.get(name);
+        if (p) p.value = value;
+      };
+      set("ceiling", ceil);
+      set("lookahead", 3);
+      set("release", 50);
+      set("makeup", 1);
+      set("mix", 1);
+      tap.connect(node);
+      node.connect(ctx.destination);
+      this.safetyNode = node;
+      return;
+    } catch {
+      /* compressor fallback */
+    }
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = this.outputCeilingDb;
+    comp.knee.value = 0.3;
+    comp.ratio.value = 20;
+    comp.attack.value = 0.001;
+    comp.release.value = 0.05;
+    tap.connect(comp);
+    comp.connect(ctx.destination);
+    this.safetyNode = comp;
   }
 
   applyMasterFx(fx: MasterFx) {
@@ -599,6 +734,7 @@ export class AudioEngine {
     }
     this.insertRack?.rebuild();
     for (const rack of this.extraRacks.values()) rack.rebuild();
+    this.applyOutputSafety();
   }
 
   private async ensureRoomWorklet() {
@@ -1310,6 +1446,10 @@ export class AudioEngine {
         this.status !== "playing"
       ) {
         this.liveLevel = 0;
+        this.lufsMomentary = -70;
+        this.lufsShort = -70;
+        this.truePeakDb = -70;
+        this.msHist = [];
         this.levelRaf = 0;
         return;
       }
@@ -1321,6 +1461,7 @@ export class AudioEngine {
         if (v > peak) peak = v;
       }
       this.liveLevel = peak;
+      this.updateLoudness();
       this.levelRaf = requestAnimationFrame(loop);
     };
     this.levelRaf = requestAnimationFrame(loop);
@@ -1340,6 +1481,35 @@ export class AudioEngine {
       this.levelRaf = 0;
     }
     this.liveLevel = 0;
+    this.lufsMomentary = -70;
+    this.lufsShort = -70;
+    this.truePeakDb = -70;
+    this.msHist = [];
+  }
+
+  private updateLoudness() {
+    const an = this.loudAnalyser;
+    const wave = this.loudWave;
+    if (!an || !wave) return;
+    // @ts-expect-error Float32Array typing variance across TS lib versions
+    an.getFloatTimeDomainData(wave);
+    let sum = 0;
+    for (let i = 0; i < wave.length; i++) {
+      const s = wave[i]!;
+      sum += s * s;
+    }
+    const ms = sum / wave.length;
+    this.msHist.push(ms);
+    if (this.msHist.length > 72) this.msHist.shift();
+    const last = (n: number) => {
+      const slice = this.msHist.slice(-n);
+      if (!slice.length) return 0;
+      return slice.reduce((a, b) => a + b, 0) / slice.length;
+    };
+    this.lufsMomentary = meanSquareToLufs(last(8));
+    this.lufsShort = meanSquareToLufs(last(60));
+    const tp = linToDb(truePeakLin(wave));
+    this.truePeakDb = Math.max(tp, this.truePeakDb - 0.35);
   }
 
   async startLiveFx(): Promise<void> {

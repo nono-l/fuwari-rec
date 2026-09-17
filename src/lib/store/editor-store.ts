@@ -34,6 +34,10 @@ import {
 } from "@/lib/audio/ai-voice";
 import { getAudioEngine, type EngineStatus } from "@/lib/audio/engine";
 import {
+  DEFAULT_OUTPUT_CEILING_DB,
+  type LufsTargetId,
+} from "@/lib/audio/loudness";
+import {
   assembleLiveFx,
   applyFxSolo,
   reconcileLiveChain,
@@ -625,6 +629,12 @@ export interface EditorState {
   liveFxActive: boolean;
   liveFxBusy: boolean;
   liveLevel: number;
+  lufsMomentary: number;
+  lufsShort: number;
+  truePeakDb: number;
+  lufsTarget: LufsTargetId;
+  outputSafe: boolean;
+  outputCeilingDb: number;
 
   roomProfile: RoomProfile | null;
   roomAmount: number;
@@ -760,6 +770,9 @@ export interface EditorState {
   startLiveFx: () => Promise<void>;
   stopLiveFx: () => void;
   toggleLiveFx: () => Promise<void>;
+  setLufsTarget: (id: LufsTargetId) => void;
+  setOutputSafe: (on: boolean) => void;
+  setOutputCeilingDb: (n: number) => void;
   captureRoomProfile: () => Promise<void>;
   clearRoomProfile: () => void;
   setRoomAmount: (n: number) => void;
@@ -904,12 +917,24 @@ function startLiveMeterPoll(
   stopLiveMeter();
   const tick = () => {
     if (!get().liveFxActive && get().status !== "recording") {
-      set({ liveLevel: 0 });
+      set({
+        liveLevel: 0,
+        lufsMomentary: -70,
+        lufsShort: -70,
+        truePeakDb: -70,
+      });
       stopLiveMeter();
       return;
     }
     try {
-      set({ liveLevel: getAudioEngine().getLiveLevel() });
+      const eng = getAudioEngine();
+      const loud = eng.getLoudness();
+      set({
+        liveLevel: eng.getLiveLevel(),
+        lufsMomentary: loud.momentary,
+        lufsShort: loud.shortTerm,
+        truePeakDb: loud.truePeakDb,
+      });
     } catch {
       /* noop */
     }
@@ -1093,6 +1118,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   liveFxActive: false,
   liveFxBusy: false,
   liveLevel: 0,
+  lufsMomentary: -70,
+  lufsShort: -70,
+  truePeakDb: -70,
+  lufsTarget: "stream",
+  outputSafe: true,
+  outputCeilingDb: DEFAULT_OUTPUT_CEILING_DB,
 
   roomProfile: null,
   roomAmount: 0,
@@ -2812,6 +2843,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       engine.setRoomAmount(get().roomAmount);
       engine.setVoiceProfile(get().voiceProfile);
       engine.setVoiceAmount(get().voiceAmount);
+      engine.setOutputSafety(get().outputSafe, get().outputCeilingDb);
       await engine.startLiveFx();
       set({
         liveFxActive: true,
@@ -2847,6 +2879,29 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   toggleLiveFx: async () => {
     if (get().liveFxActive) get().stopLiveFx();
     else await get().startLiveFx();
+  },
+
+  setLufsTarget: (id) => {
+    set({ lufsTarget: id });
+  },
+
+  setOutputSafe: (on) => {
+    set({ outputSafe: on });
+    try {
+      getAudioEngine().setOutputSafety(on, get().outputCeilingDb);
+    } catch {
+      /* not ready */
+    }
+  },
+
+  setOutputCeilingDb: (n) => {
+    const outputCeilingDb = Math.max(-12, Math.min(-0.1, n));
+    set({ outputCeilingDb });
+    try {
+      getAudioEngine().setOutputSafety(get().outputSafe, outputCeilingDb);
+    } catch {
+      /* not ready */
+    }
   },
 
   setRoomAmount: (n) => {
