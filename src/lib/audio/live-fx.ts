@@ -65,6 +65,38 @@ export function liveItemEnabled(item: LiveFxItem) {
   return item.io.enabled;
 }
 
+export function isProcessFamily(family: LiveFxItem["family"]) {
+  return family === "spectrum" || family === "obs" || family === "ai";
+}
+
+export type ProcessHold = {
+  spectrumFilters: SpectrumFilter[];
+  obsInserts: ObsInsert[];
+  aiVoice: AiVoiceInsert | null;
+};
+
+/** Bypass every process stage except `soloId`. Routing (cables / devices) stays. */
+export function applyFxSolo(
+  items: LiveFxItem[],
+  soloId: string | null | undefined,
+): LiveFxItem[] {
+  if (!soloId) return items;
+  return items.map((item) => {
+    if (!isProcessFamily(item.family)) return item;
+    const on = liveItemId(item) === soloId;
+    if (item.family === "spectrum") {
+      return { ...item, filter: { ...item.filter, enabled: on } };
+    }
+    if (item.family === "obs") {
+      return { ...item, insert: { ...item.insert, enabled: on } };
+    }
+    if (item.family === "ai") {
+      return { ...item, voice: { ...item.voice, enabled: on } };
+    }
+    return item;
+  });
+}
+
 export function liveChainKey(items: LiveFxItem[]) {
   return items
     .filter(liveItemEnabled)

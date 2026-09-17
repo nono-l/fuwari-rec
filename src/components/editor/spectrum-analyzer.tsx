@@ -166,6 +166,11 @@ export function SpectrumAnalyzer({
   const updateDeviceInsert = useEditorStore((s) => s.updateDeviceInsert);
   const removeDeviceInsert = useEditorStore((s) => s.removeDeviceInsert);
   const toggleDeviceInsert = useEditorStore((s) => s.toggleDeviceInsert);
+  const captureAb = useEditorStore((s) => s.captureAb);
+  const toggleAb = useEditorStore((s) => s.toggleAb);
+  const toggleFxSolo = useEditorStore((s) => s.toggleFxSolo);
+  const fxSoloId = pipe.fxSoloId;
+  const hasAbHold = pipe.hasAbHold;
   const inputDevices = useEditorStore((s) => s.inputDevices);
   const outputDevices = useEditorStore((s) => s.outputDevices);
   const filtersRef = useRef(filters);
@@ -1100,7 +1105,26 @@ export function SpectrumAnalyzer({
       )}
 
       {liveItems.length > 0 && (
-        <ul className="mt-3 space-y-1.5">
+        <>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Button type="button" size="sm" variant="secondary" onClick={captureAb}>
+            Aに記憶
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={hasAbHold ? "default" : "secondary"}
+            onClick={toggleAb}
+          >
+            A/B
+          </Button>
+          <span className="text-[10px] leading-relaxed text-muted-foreground">
+            {hasAbHold
+              ? "記憶と今を入れ替えて聞き比べ。ソロは1段だけ"
+              : "今のチェーンをAに残してからいじる"}
+          </span>
+        </div>
+        <ul className="mt-2 space-y-1.5">
           {liveItems.map((item, i) => {
             if (item.family === "spectrum") {
               const f = item.filter;
@@ -1110,6 +1134,8 @@ export function SpectrumAnalyzer({
                   className={cn(
                     "flex items-center gap-2 rounded-xl border border-border bg-card px-2.5 py-2",
                     !f.enabled && "opacity-55",
+                    fxSoloId === f.id && "ring-1 ring-primary/50",
+                    fxSoloId && fxSoloId !== f.id && "opacity-40",
                   )}
                 >
                   <div className="flex shrink-0 flex-col">
@@ -1181,6 +1207,15 @@ export function SpectrumAnalyzer({
                   </div>
                   <Button
                     type="button"
+                    size="sm"
+                    variant={fxSoloId === f.id ? "default" : "ghost"}
+                    className="h-7 px-2 text-[10px]"
+                    onClick={() => toggleFxSolo(f.id)}
+                  >
+                    ソロ
+                  </Button>
+                  <Button
+                    type="button"
                     size="icon-sm"
                     variant="ghost"
                     onClick={() => openEdit(f)}
@@ -1213,6 +1248,8 @@ export function SpectrumAnalyzer({
                     "rounded-xl border border-border bg-card px-2.5 py-2",
                     selected && "ring-1 ring-primary/40",
                     !v.enabled && "opacity-55",
+                    fxSoloId === v.id && "ring-1 ring-primary/50",
+                    fxSoloId && fxSoloId !== v.id && "opacity-40",
                   )}
                 >
                   <div className="flex items-center gap-2">
@@ -1267,6 +1304,15 @@ export function SpectrumAnalyzer({
                         {aiVoiceSummary(v)}
                       </div>
                     </button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={fxSoloId === v.id ? "default" : "ghost"}
+                      className="h-7 px-2 text-[10px]"
+                      onClick={() => toggleFxSolo(v.id)}
+                    >
+                      ソロ
+                    </Button>
                     <Button
                       type="button"
                       size="icon-sm"
@@ -1581,6 +1627,8 @@ export function SpectrumAnalyzer({
                   "rounded-xl border border-border bg-card px-2.5 py-2",
                   selected && "ring-1 ring-primary/40",
                   !ins.enabled && "opacity-55",
+                  fxSoloId === ins.id && "ring-1 ring-primary/50",
+                  fxSoloId && fxSoloId !== ins.id && "opacity-40",
                 )}
               >
                 <div className="flex items-center gap-2">
@@ -1639,6 +1687,15 @@ export function SpectrumAnalyzer({
                   </button>
                   <Button
                     type="button"
+                    size="sm"
+                    variant={fxSoloId === ins.id ? "default" : "ghost"}
+                    className="h-7 px-2 text-[10px]"
+                    onClick={() => toggleFxSolo(ins.id)}
+                  >
+                    ソロ
+                  </Button>
+                  <Button
+                    type="button"
                     size="icon-sm"
                     variant="ghost"
                     onClick={() => {
@@ -1662,6 +1719,7 @@ export function SpectrumAnalyzer({
             );
           })}
         </ul>
+        </>
       )}
 
       {filters.length >= MAX_SPECTRUM_FILTERS && (

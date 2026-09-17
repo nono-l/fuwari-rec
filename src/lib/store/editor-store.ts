@@ -29,9 +29,11 @@ import {
 import { getAudioEngine, type EngineStatus } from "@/lib/audio/engine";
 import {
   assembleLiveFx,
+  applyFxSolo,
   reconcileLiveChain,
   shiftLiveSlot,
   type LiveSlot,
+  type ProcessHold,
 } from "@/lib/audio/live-fx";
 import {
   CABLE_INDEXES,
@@ -158,6 +160,7 @@ function pushLiveFx(s: {
   deviceInserts?: DeviceIoInsert[];
   extraPipelines?: ExtraPipeline[];
   pipelineVia?: PipelineVia;
+  fxSoloId?: string | null;
 }) {
   const cables = s.cableInserts ?? [];
   const devices = s.deviceInserts ?? [];
@@ -172,13 +175,16 @@ function pushLiveFx(s: {
   try {
     const engine = getAudioEngine();
     engine.setLiveFx(
-      assembleLiveFx(
-        liveChain,
-        s.spectrumFilters,
-        s.obsInserts,
-        s.aiVoice,
-        cables,
-        devices,
+      applyFxSolo(
+        assembleLiveFx(
+          liveChain,
+          s.spectrumFilters,
+          s.obsInserts,
+          s.aiVoice,
+          cables,
+          devices,
+        ),
+        s.fxSoloId,
       ),
     );
     engine.setPipelineGraph(s.extraPipelines ?? []);
@@ -195,6 +201,8 @@ type ChainSlice = {
   aiVoice: AiVoiceInsert | null;
   cableInserts: CableInsert[];
   deviceInserts: DeviceIoInsert[];
+  fxSoloId?: string | null;
+  abHold?: ProcessHold | null;
 };
 
 function activeExtra(s: {
@@ -214,6 +222,8 @@ function readChain(s: {
   aiVoice: AiVoiceInsert | null;
   cableInserts: CableInsert[];
   deviceInserts: DeviceIoInsert[];
+  fxSoloId?: string | null;
+  abHold?: ProcessHold | null;
 }): ChainSlice {
   const p = activeExtra(s);
   if (!p) {
@@ -224,6 +234,8 @@ function readChain(s: {
       aiVoice: s.aiVoice,
       cableInserts: s.cableInserts,
       deviceInserts: s.deviceInserts,
+      fxSoloId: s.fxSoloId,
+      abHold: s.abHold,
     };
   }
   return {
@@ -233,6 +245,37 @@ function readChain(s: {
     aiVoice: p.aiVoice,
     cableInserts: p.cableInserts ?? [],
     deviceInserts: p.deviceInserts ?? [],
+    fxSoloId: p.fxSoloId ?? null,
+    abHold: p.abHold ?? null,
+  };
+}
+
+function cloneProcessHold(chain: {
+  spectrumFilters: SpectrumFilter[];
+  obsInserts: ObsInsert[];
+  aiVoice: AiVoiceInsert | null;
+}): ProcessHold {
+  return {
+    spectrumFilters: chain.spectrumFilters.map((f) => ({
+      ...f,
+      reverb: { ...f.reverb },
+      delay: { ...f.delay },
+      offset: { ...f.offset },
+      pitch: { ...f.pitch },
+      formant: { ...f.formant },
+    })),
+    obsInserts: chain.obsInserts.map((f) => ({
+      ...f,
+      comp: { ...f.comp },
+      limiter: { ...f.limiter },
+      gate: { ...f.gate },
+      upwardTune: { ...f.upwardTune },
+      expanderTune: { ...f.expanderTune },
+      denoiseTune: { ...f.denoiseTune },
+      howlTune: { ...f.howlTune },
+      eq3Tune: { ...f.eq3Tune },
+    })),
+    aiVoice: chain.aiVoice ? { ...chain.aiVoice } : null,
   };
 }
 
@@ -310,6 +353,7 @@ function commitChain(
     cableInserts: CableInsert[];
     deviceInserts: DeviceIoInsert[];
     pipelineVia?: PipelineVia;
+    fxSoloId?: string | null;
   },
   set: (partial: Record<string, unknown>) => void,
   patch: Partial<ChainSlice>,
@@ -593,6 +637,8 @@ export interface EditorState {
   activePipelineId: "main" | string;
   pipelineVia: PipelineVia;
   liveChain: LiveSlot[];
+  fxSoloId: string | null;
+  abHold: ProcessHold | null;
 
   rangeMeasuring: boolean;
   rangeBusy: boolean;
@@ -721,6 +767,9 @@ export interface EditorState {
   moveObsInsert: (id: string, delta: -1 | 1) => void;
   replaceObsInserts: (inserts: ObsInsert[]) => void;
   applyStarterChain: (id: StarterChainId) => boolean;
+  captureAb: () => void;
+  toggleAb: () => void;
+  toggleFxSolo: (id: string) => void;
   addAiVoice: () => string | null;
   updateAiVoice: (patch: Partial<AiVoiceInsert>) => void;
   removeAiVoice: () => void;
@@ -1048,6 +1097,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   activePipelineId: "main",
   pipelineVia: "main",
   liveChain: [],
+  fxSoloId: null,
+  abHold: null,
 
   rangeMeasuring: false,
   rangeBusy: false,
@@ -2283,13 +2334,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           profile: get().roomProfile,
           amount: get().roomAmount,
         },
-        assembleLiveFx(
-          get().liveChain,
-          get().spectrumFilters,
-          get().obsInserts,
-          get().aiVoice,
-          get().cableInserts,
-          get().deviceInserts,
+        applyFxSolo(
+          assembleLiveFx(
+            get().liveChain,
+            get().spectrumFilters,
+            get().obsInserts,
+            get().aiVoice,
+            get().cableInserts,
+            get().deviceInserts,
+          ),
+          get().fxSoloId,
         ),
         get().extraPipelines,
       );
@@ -3049,7 +3103,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       call: "通話",
     };
     const replaced = chain.obsInserts.length > 0;
-    commitChain(get, set, { obsInserts, liveChain }, {
+    commitChain(get, set, { obsInserts, liveChain, fxSoloId: null }, {
       statusMessage: cpuStatus(
         replaced
           ? `${names[id]}のおすすめに差し替えました`
@@ -3058,6 +3112,49 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       ),
     });
     return true;
+  },
+
+  captureAb: () => {
+    const chain = readChain(get());
+    const hold = cloneProcessHold(chain);
+    commitChain(get, set, { abHold: hold }, {
+      statusMessage: "今のチェーンを A に記憶。いじってから A/B で聞き比べ",
+    });
+  },
+
+  toggleAb: () => {
+    const chain = readChain(get());
+    if (!chain.abHold) {
+      get().captureAb();
+      return;
+    }
+    const live = cloneProcessHold(chain);
+    const hold = chain.abHold;
+    const next = {
+      spectrumFilters: hold.spectrumFilters,
+      obsInserts: hold.obsInserts,
+      aiVoice: hold.aiVoice,
+      abHold: live,
+      fxSoloId: null as string | null,
+    };
+    const check = loadAfterChainPatch(get(), next);
+    if (check.over) {
+      set({ statusMessage: cpuRefuseMessage(check.load, check.budget) });
+      return;
+    }
+    commitChain(get, set, next, {
+      statusMessage: cpuStatus("A/B を入れ替えました", check),
+    });
+  },
+
+  toggleFxSolo: (id) => {
+    const chain = readChain(get());
+    const next = chain.fxSoloId === id ? null : id;
+    commitChain(get, set, { fxSoloId: next }, {
+      statusMessage: next
+        ? "ソロ。他の音声フィルターは一時的に素通りです"
+        : "ソロを解除",
+    });
   },
 
   addAiVoice: () => {
@@ -3627,13 +3724,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const engine = getAudioEngine();
       engine.applyMasterFx(n.master);
       engine.setLiveFx(
-        assembleLiveFx(
-          n.liveChain ?? [],
-          n.filters,
-          n.inserts,
-          n.aiVoice ?? null,
-          cableInserts,
-          deviceInserts,
+        applyFxSolo(
+          assembleLiveFx(
+            n.liveChain ?? [],
+            n.filters,
+            n.inserts,
+            n.aiVoice ?? null,
+            cableInserts,
+            deviceInserts,
+          ),
+          get().fxSoloId,
         ),
       );
       engine.setPipelineGraph(extraPipelines);

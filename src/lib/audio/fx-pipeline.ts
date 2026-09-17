@@ -1,6 +1,6 @@
 import type { SpectrumFilter } from "./spectrum-filters";
 import type { ObsInsert } from "./obs-filters";
-import type { LiveSlot } from "./live-fx";
+import type { LiveSlot, ProcessHold } from "./live-fx";
 import type { AiVoiceInsert } from "./ai-voice";
 import type { CableInsert } from "./cables";
 import type { DeviceIoInsert } from "./device-io";
@@ -22,6 +22,8 @@ export type ExtraPipeline = {
   deviceInserts: DeviceIoInsert[];
   aiVoice: AiVoiceInsert | null;
   liveChain: LiveSlot[];
+  fxSoloId?: string | null;
+  abHold?: ProcessHold | null;
 };
 
 export const MAX_PIPELINES = 7;
@@ -146,5 +148,7 @@ export function newExtraPipeline(number: number, cable: CableIndex): ExtraPipeli
     deviceInserts: [],
     aiVoice: null,
     liveChain: [],
+    fxSoloId: null,
+    abHold: null,
   };
 }

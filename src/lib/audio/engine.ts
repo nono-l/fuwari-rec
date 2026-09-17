@@ -12,7 +12,7 @@ import {
   subtractRoomFromBuffer,
   type RoomProfile,
 } from "./room-profile";
-import { assembleLiveFx, type LiveFxItem } from "./live-fx";
+import { assembleLiveFx, applyFxSolo, type LiveFxItem } from "./live-fx";
 import { InsertRack } from "./insert-rack";
 import { CablePatchbay } from "./cables";
 import { DeviceIoBay } from "./device-io";
@@ -308,13 +308,16 @@ export class AudioEngine {
       rack.setCableBus(bay);
       rack.setDeviceBus(this.deviceIo);
       rack.setLiveFx(
-        assembleLiveFx(
-          p.liveChain,
-          p.spectrumFilters,
-          p.obsInserts,
-          p.aiVoice,
-          p.cableInserts ?? [],
-          p.deviceInserts ?? [],
+        applyFxSolo(
+          assembleLiveFx(
+            p.liveChain,
+            p.spectrumFilters,
+            p.obsInserts,
+            p.aiVoice,
+            p.cableInserts ?? [],
+            p.deviceInserts ?? [],
+          ),
+          p.fxSoloId,
         ),
       );
       bay.send(p.inputCable).connect(rack.input);
@@ -1512,13 +1515,16 @@ export class AudioEngine {
       rack.setWorkletFactory(workletFactory ?? (() => null));
       rack.setCableBus(cables);
       rack.setLiveFx(
-        assembleLiveFx(
-          p.liveChain,
-          p.spectrumFilters,
-          p.obsInserts,
-          p.aiVoice,
-          p.cableInserts ?? [],
-          p.deviceInserts ?? [],
+        applyFxSolo(
+          assembleLiveFx(
+            p.liveChain,
+            p.spectrumFilters,
+            p.obsInserts,
+            p.aiVoice,
+            p.cableInserts ?? [],
+            p.deviceInserts ?? [],
+          ),
+          p.fxSoloId,
         ),
       );
       cables.send(p.inputCable).connect(rack.input);

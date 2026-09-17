@@ -10,6 +10,8 @@ export function useActivePipeline() {
   const cableInserts = useEditorStore((s) => s.cableInserts);
   const deviceInserts = useEditorStore((s) => s.deviceInserts);
   const liveChain = useEditorStore((s) => s.liveChain);
+  const mainSolo = useEditorStore((s) => s.fxSoloId);
+  const mainHold = useEditorStore((s) => s.abHold);
 
   if (extra) {
     return {
@@ -26,6 +28,8 @@ export function useActivePipeline() {
       cableInserts: extra.cableInserts ?? [],
       deviceInserts: extra.deviceInserts ?? [],
       liveChain: extra.liveChain,
+      fxSoloId: extra.fxSoloId ?? null,
+      hasAbHold: Boolean(extra.abHold),
     };
   }
   return {
@@ -42,5 +46,7 @@ export function useActivePipeline() {
     cableInserts,
     deviceInserts,
     liveChain,
+    fxSoloId: mainSolo,
+    hasAbHold: Boolean(mainHold),
   };
 }
