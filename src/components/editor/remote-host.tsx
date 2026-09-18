@@ -105,6 +105,18 @@ export function RemoteHost() {
                   {" · "}
                   いま {SCENES.find((s) => s.id === scene)?.label}
                 </p>
+                <p className="mt-2 break-all text-center text-[10px] text-muted-foreground">
+                  {url}
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  className="mt-2 w-full"
+                  onClick={() => void navigator.clipboard.writeText(url)}
+                >
+                  リンクをコピー
+                </Button>
                 <Button
                   type="button"
                   size="sm"

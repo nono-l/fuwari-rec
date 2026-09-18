@@ -75,7 +75,10 @@ export function RemotePad({ code }: { code: string }) {
         ))}
       </div>
       <p className="mt-auto text-[11px] leading-relaxed text-muted-foreground">
-        音声は PC 側のタブで処理します。この画面は切替だけです。ホーム画面に追加すると片手で使えます。
+        音声は PC 側のタブで処理します。この画面は切替だけです。コードが違うときは{" "}
+        <a href="/remote" className="font-medium text-primary underline">
+          入力し直す
+        </a>
       </p>
     </div>
   );

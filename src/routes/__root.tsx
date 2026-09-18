@@ -54,7 +54,8 @@ export const Route = createRootRoute({
 function RootComponent() {
   const overlay =
     typeof window !== "undefined" &&
-    (window.location.pathname === "/obs" || window.location.pathname === "/remote");
+    (window.location.pathname === "/obs" ||
+      window.location.pathname.startsWith("/remote"));
   return (
     <html lang="ja">
       <head>

@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { isSceneId, mintRemoteCode, type RemoteRoomState } from "@/lib/audio/remote-room";
 import type { SceneId } from "@/lib/audio/scenes";
+import { getSql } from "@/lib/db";
 
 type Room = {
   code: string;
@@ -11,17 +12,10 @@ type Room = {
 
 const TTL_MS = 20 * 60 * 1000;
 
-function rooms() {
+function roomsMem() {
   const g = globalThis as typeof globalThis & { __fuwariRemoteRooms__?: Map<string, Room> };
   if (!g.__fuwariRemoteRooms__) g.__fuwariRemoteRooms__ = new Map();
   return g.__fuwariRemoteRooms__;
-}
-
-function sweep(map: Map<string, Room>) {
-  const now = Date.now();
-  for (const [k, r] of map) {
-    if (now - Math.max(r.hostAt, r.padAt) > TTL_MS) map.delete(k);
-  }
 }
 
 function json(data: RemoteRoomState | { error: string }, status = 200) {
@@ -30,6 +24,7 @@ function json(data: RemoteRoomState | { error: string }, status = 200) {
     headers: {
       "content-type": "application/json; charset=utf-8",
       "cache-control": "no-store",
+      "access-control-allow-origin": "*",
     },
   });
 }
@@ -38,17 +33,70 @@ function view(r: Room, now: number): RemoteRoomState {
   return {
     code: r.code,
     scene: r.scene,
-    host: now - r.hostAt < 4000,
-    pad: now - r.padAt < 8000,
+    host: now - r.hostAt < 8000,
+    pad: now - r.padAt < 12000,
   };
+}
+
+async function readRoom(code: string): Promise<Room | null> {
+  const mem = roomsMem().get(code);
+  try {
+    const sql = await getSql();
+    const rows = await sql.query<{
+      code: string;
+      scene: string;
+      host_at: number;
+      pad_at: number;
+    }>(
+      "select code, scene, host_at, pad_at from fuwari_remote_rooms where code = $1",
+      [code],
+    );
+    const row = rows[0];
+    if (!row) return mem ?? null;
+    const room: Room = {
+      code: row.code,
+      scene: isSceneId(row.scene) ? row.scene : "talk",
+      hostAt: Number(row.host_at) || 0,
+      padAt: Number(row.pad_at) || 0,
+    };
+    roomsMem().set(code, room);
+    return room;
+  } catch {
+    return mem ?? null;
+  }
+}
+
+async function writeRoom(room: Room) {
+  roomsMem().set(room.code, room);
+  try {
+    const sql = await getSql();
+    await sql.query(
+      `insert into fuwari_remote_rooms (code, scene, host_at, pad_at)
+       values ($1, $2, $3, $4)
+       on conflict (code) do update set
+         scene = excluded.scene,
+         host_at = excluded.host_at,
+         pad_at = excluded.pad_at`,
+      [room.code, room.scene, room.hostAt, room.padAt],
+    );
+  } catch {
+    /* memory fallback */
+  }
 }
 
 export const Route = createFileRoute("/api/remote-room")({
   server: {
     handlers: {
+      OPTIONS: () =>
+        new Response(null, {
+          status: 204,
+          headers: {
+            "access-control-allow-origin": "*",
+            "access-control-allow-methods": "POST, OPTIONS",
+            "access-control-allow-headers": "content-type",
+          },
+        }),
       POST: async ({ request }) => {
-        const map = rooms();
-        sweep(map);
         let body: { code?: string; role?: string; scene?: string } = {};
         try {
           body = (await request.json()) as typeof body;
@@ -64,18 +112,21 @@ export const Route = createFileRoute("/api/remote-room")({
         if (role === "host" && !code) {
           do {
             code = mintRemoteCode();
-          } while (map.has(code));
+          } while (await readRoom(code));
         }
         if (code.length < 4) return json({ error: "コードが不正です" }, 400);
-        let room = map.get(code);
+        let room = await readRoom(code);
+        if (room && now - Math.max(room.hostAt, room.padAt) > TTL_MS) {
+          room = null;
+        }
         if (!room) {
-          if (role === "pad") return json({ error: "PC側が開いていません" }, 404);
+          if (role === "pad") return json({ error: "PC側が開いていません。パソコンでリモコンを出したままにしてください" }, 404);
           room = { code, scene: "talk", hostAt: now, padAt: 0 };
-          map.set(code, room);
         }
         if (isSceneId(body.scene)) room.scene = body.scene;
         if (role === "host") room.hostAt = now;
         else room.padAt = now;
+        await writeRoom(room);
         return json(view(room, now));
       },
     },

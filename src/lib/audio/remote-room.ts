@@ -27,7 +27,15 @@ export function mintRemoteCode() {
 
 export function remotePageUrl(code: string) {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
-  return `${origin}/remote?c=${encodeURIComponent(code)}`;
+  return `${origin}/remote/${encodeURIComponent(code.toUpperCase())}`;
+}
+
+export function parseRemoteCode(raw: string) {
+  return raw
+    .trim()
+    .toUpperCase()
+    .replace(/[^2-9A-Z]/g, "")
+    .slice(0, 8);
 }
 
 export async function postRemoteRoom(body: {

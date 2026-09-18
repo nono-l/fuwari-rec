@@ -28,6 +28,7 @@ import { Route as ApiRemoteRoomRouteImport } from './routes/api/remote-room'
 import { Route as AuthAcceptRouteImport } from './routes/auth/accept'
 import { Route as AuthBridgeRouteImport } from './routes/auth/bridge'
 import { Route as CSoulIdRouteImport } from './routes/c.$soulId'
+import { Route as RemoteCodeRouteImport } from './routes/remote.$code'
 import { Route as SongdbIndexRouteImport } from './routes/songdb.index'
 import { Route as SongdbCodeRouteImport } from './routes/songdb.$code'
 import { Route as USlugRouteImport } from './routes/u.$slug'
@@ -129,6 +130,11 @@ const CSoulIdRoute = CSoulIdRouteImport.update({
   path: '/c/$soulId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RemoteCodeRoute = RemoteCodeRouteImport.update({
+  id: '/$code',
+  path: '/$code',
+  getParentRoute: () => RemoteRoute,
+} as any)
 const SongdbIndexRoute = SongdbIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -166,7 +172,7 @@ export interface FileRoutesByFullPath {
   '/obs': typeof ObsRoute
   '/profile': typeof ProfileRoute
   '/range': typeof RangeRoute
-  '/remote': typeof RemoteRoute
+  '/remote': typeof RemoteRouteWithChildren
   '/songdb': typeof SongdbRouteWithChildren
   '/terms': typeof TermsRoute
   '/api/auth-public-config': typeof ApiAuthPublicConfigRoute
@@ -175,6 +181,7 @@ export interface FileRoutesByFullPath {
   '/auth/accept': typeof AuthAcceptRoute
   '/auth/bridge': typeof AuthBridgeRoute
   '/c/$soulId': typeof CSoulIdRoute
+  '/remote/$code': typeof RemoteCodeRoute
   '/songdb/$code': typeof SongdbCodeRoute
   '/u/$slug': typeof USlugRoute
   '/songdb/': typeof SongdbIndexRoute
@@ -192,7 +199,7 @@ export interface FileRoutesByTo {
   '/obs': typeof ObsRoute
   '/profile': typeof ProfileRoute
   '/range': typeof RangeRoute
-  '/remote': typeof RemoteRoute
+  '/remote': typeof RemoteRouteWithChildren
   '/terms': typeof TermsRoute
   '/api/auth-public-config': typeof ApiAuthPublicConfigRoute
   '/api/obs-overlay': typeof ApiObsOverlayRoute
@@ -200,6 +207,7 @@ export interface FileRoutesByTo {
   '/auth/accept': typeof AuthAcceptRoute
   '/auth/bridge': typeof AuthBridgeRoute
   '/c/$soulId': typeof CSoulIdRoute
+  '/remote/$code': typeof RemoteCodeRoute
   '/songdb/$code': typeof SongdbCodeRoute
   '/u/$slug': typeof USlugRoute
   '/songdb': typeof SongdbIndexRoute
@@ -218,7 +226,7 @@ export interface FileRoutesById {
   '/obs': typeof ObsRoute
   '/profile': typeof ProfileRoute
   '/range': typeof RangeRoute
-  '/remote': typeof RemoteRoute
+  '/remote': typeof RemoteRouteWithChildren
   '/songdb': typeof SongdbRouteWithChildren
   '/terms': typeof TermsRoute
   '/api/auth-public-config': typeof ApiAuthPublicConfigRoute
@@ -227,6 +235,7 @@ export interface FileRoutesById {
   '/auth/accept': typeof AuthAcceptRoute
   '/auth/bridge': typeof AuthBridgeRoute
   '/c/$soulId': typeof CSoulIdRoute
+  '/remote/$code': typeof RemoteCodeRoute
   '/songdb/$code': typeof SongdbCodeRoute
   '/u/$slug': typeof USlugRoute
   '/songdb/': typeof SongdbIndexRoute
@@ -255,6 +264,7 @@ export interface FileRouteTypes {
     | '/auth/accept'
     | '/auth/bridge'
     | '/c/$soulId'
+    | '/remote/$code'
     | '/songdb/$code'
     | '/u/$slug'
     | '/songdb/'
@@ -280,6 +290,7 @@ export interface FileRouteTypes {
     | '/auth/accept'
     | '/auth/bridge'
     | '/c/$soulId'
+    | '/remote/$code'
     | '/songdb/$code'
     | '/u/$slug'
     | '/songdb'
@@ -306,6 +317,7 @@ export interface FileRouteTypes {
     | '/auth/accept'
     | '/auth/bridge'
     | '/c/$soulId'
+    | '/remote/$code'
     | '/songdb/$code'
     | '/u/$slug'
     | '/songdb/'
@@ -324,7 +336,7 @@ export interface RootRouteChildren {
   ObsRoute: typeof ObsRoute
   ProfileRoute: typeof ProfileRoute
   RangeRoute: typeof RangeRoute
-  RemoteRoute: typeof RemoteRoute
+  RemoteRoute: typeof RemoteRouteWithChildren
   SongdbRoute: typeof SongdbRouteWithChildren
   TermsRoute: typeof TermsRoute
   ApiAuthPublicConfigRoute: typeof ApiAuthPublicConfigRoute
@@ -473,6 +485,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CSoulIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/remote/$code': {
+      id: '/remote/$code'
+      path: '/$code'
+      fullPath: '/remote/$code'
+      preLoaderRoute: typeof RemoteCodeRouteImport
+      parentRoute: typeof RemoteRoute
+    }
     '/songdb/': {
       id: '/songdb/'
       path: '/'
@@ -511,6 +530,17 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface RemoteRouteChildren {
+  RemoteCodeRoute: typeof RemoteCodeRoute
+}
+
+const RemoteRouteChildren: RemoteRouteChildren = {
+  RemoteCodeRoute: RemoteCodeRoute,
+}
+
+const RemoteRouteWithChildren =
+  RemoteRoute._addFileChildren(RemoteRouteChildren)
+
 interface SongdbRouteChildren {
   SongdbCodeRoute: typeof SongdbCodeRoute
   SongdbIndexRoute: typeof SongdbIndexRoute
@@ -535,7 +565,7 @@ const rootRouteChildren: RootRouteChildren = {
   ObsRoute: ObsRoute,
   ProfileRoute: ProfileRoute,
   RangeRoute: RangeRoute,
-  RemoteRoute: RemoteRoute,
+  RemoteRoute: RemoteRouteWithChildren,
   SongdbRoute: SongdbRouteWithChildren,
   TermsRoute: TermsRoute,
   ApiAuthPublicConfigRoute: ApiAuthPublicConfigRoute,
