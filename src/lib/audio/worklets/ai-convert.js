@@ -16,10 +16,17 @@ class AiConvertProcessor extends AudioWorkletProcessor {
     this.filledOut = 0;
     this.bypass = true;
     this.pending = false;
+    this.pendingFrames = 0;
+    this.last = new Float32Array(128);
     this.port.onmessage = (ev) => {
       const msg = ev.data || {};
       if (msg.type === "bypass") {
         this.bypass = !!msg.value;
+        return;
+      }
+      if (msg.type === "skip") {
+        this.pending = false;
+        this.pendingFrames = 0;
         return;
       }
       if (msg.type === "out" && msg.samples) {
@@ -30,6 +37,7 @@ class AiConvertProcessor extends AudioWorkletProcessor {
         }
         this.filledOut = Math.min(RING, this.filledOut + src.length);
         this.pending = false;
+        this.pendingFrames = 0;
       }
     };
   }
@@ -46,11 +54,11 @@ class AiConvertProcessor extends AudioWorkletProcessor {
     if (this.bypass || !left) {
       if (left) {
         dest.set(left);
-        for (let c = 1; c < output.length; c++) output[c].set(left);
+        this.last.set(left.subarray(0, Math.min(this.last.length, n)));
       } else {
         dest.fill(0);
-        for (let c = 1; c < output.length; c++) output[c].fill(0);
       }
+      for (let c = 1; c < output.length; c++) output[c].set(dest);
       return true;
     }
 
@@ -59,6 +67,12 @@ class AiConvertProcessor extends AudioWorkletProcessor {
       this.inBuf[this.iw] = s;
       this.iw = (this.iw + 1) & MASK;
       this.filledIn = Math.min(RING, this.filledIn + 1);
+    }
+
+    if (this.pending) this.pendingFrames += n;
+    if (this.pending && this.pendingFrames > sampleRate) {
+      this.pending = false;
+      this.pendingFrames = 0;
     }
 
     if (!this.pending && this.filledIn >= HOP) {
@@ -70,6 +84,7 @@ class AiConvertProcessor extends AudioWorkletProcessor {
       }
       this.filledIn -= HOP;
       this.pending = true;
+      this.pendingFrames = 0;
       this.port.postMessage({ type: "block", sr: sampleRate, samples: block }, [
         block.buffer,
       ]);
@@ -83,8 +98,10 @@ class AiConvertProcessor extends AudioWorkletProcessor {
       }
       this.or = r;
       this.filledOut -= n;
+      this.last.set(dest.subarray(0, Math.min(this.last.length, n)));
     } else {
-      dest.set(left);
+      const hold = this.last[this.last.length - 1] || 0;
+      dest.fill(hold * 0.92);
     }
     for (let c = 1; c < output.length; c++) output[c].set(dest);
     return true;

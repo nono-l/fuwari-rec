@@ -37,8 +37,10 @@ import {
   MAX_AI_VOICE,
   newAiVoiceInsert,
   setAiModelFile,
+  hasAiModelFile,
   type AiVoiceInsert,
 } from "@/lib/audio/ai-voice";
+import { loadVoiceModel } from "@/lib/audio/ai-voice-idb";
 import { getAudioEngine, type EngineStatus } from "@/lib/audio/engine";
 import {
   DEFAULT_OUTPUT_CEILING_DB,
@@ -1254,6 +1256,31 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
 
     void get().refreshAudioDevices({ requestPermission: false });
+    void (async () => {
+      const voices = [
+        get().aiVoice,
+        ...get().extraPipelines.map((p) => p.aiVoice),
+      ].filter((v): v is AiVoiceInsert => Boolean(v?.modelName));
+      let hit = false;
+      for (const v of voices) {
+        if (hasAiModelFile(v.id, v.modelName)) continue;
+        try {
+          const f = await loadVoiceModel(v.id);
+          if (f) {
+            setAiModelFile(v.id, f);
+            hit = true;
+          }
+        } catch {
+          /* idb */
+        }
+      }
+      if (!hit) return;
+      const s = get();
+      pushLiveFx(s);
+      set({
+        aiVoice: s.aiVoice ? { ...s.aiVoice } : null,
+      });
+    })();
   },
 
   setBpm: (n) => set({ bpm: Math.max(40, Math.min(300, n)) }),

@@ -34,7 +34,7 @@ export function AiRuntimePanel() {
             公式の土台
           </h2>
           <p className="mt-0.5 text-[11px] text-background/75 sm:text-xs">
-            誰の声でもない共通モデルです。未設定でもAIボイスは使えます
+            誰の声でもない共通モデルです。変換には .onnx が必要です。.pt では素通りです
           </p>
         </div>
         <div className="flex flex-col gap-3 p-4 sm:p-5">
@@ -48,7 +48,7 @@ export function AiRuntimePanel() {
           >
             <div className="font-medium">{aiRuntimeModeLabel(mode)}</div>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              声色そのものはエフェクターのAIボイス一段で選びます。土台が無くてもキー（半音）と素通りは動きます。
+              声色はエフェクターのAIボイスで .onnx を選びます。.pt / .pth はブラウザでは動きません。
             </p>
           </div>
           {error && (
@@ -111,17 +111,18 @@ function SlotCard({
   onClear: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const onnx = Boolean(meta && /\.onnx$/i.test(meta.name));
   return (
     <div className="rounded-xl border border-border bg-background p-3 sm:p-4">
       <div className="flex items-start gap-2">
         <span
           className={cn(
             "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full",
-            meta ? "bg-success text-background" : "bg-muted text-muted-foreground",
+            onnx ? "bg-success text-background" : "bg-muted text-muted-foreground",
           )}
           aria-hidden
         >
-          {meta ? <Check className="size-3" /> : <span className="text-[10px]">—</span>}
+          {onnx ? <Check className="size-3" /> : <span className="text-[10px]">—</span>}
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2">
@@ -154,7 +155,10 @@ function SlotCard({
               {meta.name}
             </div>
             <div className="text-[10px] text-muted-foreground">
-              {formatModelSize(meta.bytes) || "保存済み"} · この端末
+              {formatModelSize(meta.bytes) || "保存済み"}
+              {/\.onnx$/i.test(meta.name)
+                ? " · 変換に使えます"
+                : " · .pt は学習用。変換には .onnx が必要です"}
             </div>
           </div>
           <Button

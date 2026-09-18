@@ -1,5 +1,6 @@
 import { getAiConvertRuntime } from "./ai-convert-runtime";
 import { detectPitch } from "./pitch";
+import { persistVoiceModel } from "./ai-voice-idb";
 
 /** AI voice is a single live-FX stage. Signal arrives here, then continues down the rack. */
 export const MAX_AI_VOICE = 1;
@@ -23,6 +24,7 @@ const modelFiles = new Map<string, File>();
 export function setAiModelFile(id: string, file: File | null) {
   if (!file) modelFiles.delete(id);
   else modelFiles.set(id, file);
+  void persistVoiceModel(id, file);
 }
 
 export function getAiModelFile(id: string) {
@@ -167,12 +169,13 @@ export function createAiVoiceHandle(
     if (convert) {
       head.connect(convert);
       convert.connect(wet);
-      runtime?.bind(convert, v.id, v.modelName, getAiModelFile(v.id) ?? null);
+      const file = getAiModelFile(v.id) ?? null;
+      runtime?.bind(convert, v.id, v.modelName, file);
       runtime?.setPitch(v.pitch);
       const onnx = /\.onnx$/i.test(v.modelName);
       runtime?.setBypass(convert, !onnx);
       dryDelay.delayTime.value = onnx ? 4096 / ctx.sampleRate : 0;
-      void runtime?.ensure(v.id, v.modelName, getAiModelFile(v.id) ?? null);
+      void runtime?.ensure(v.id, v.modelName, file);
     } else {
       head.connect(wet);
       dryDelay.delayTime.value = 0;
@@ -185,6 +188,18 @@ export function createAiVoiceHandle(
 
   let tapRaf = 0;
   let tapDisposed = false;
+  let retryId = 0;
+  if (live && wantConvert(voice) && !convert) {
+    retryId = window.setInterval(() => {
+      if (tapDisposed || convert) {
+        if (retryId) window.clearInterval(retryId);
+        retryId = 0;
+        return;
+      }
+      convert = tryWorklet(ctx, "ai-convert");
+      if (convert) wire(voice);
+    }, 400);
+  }
   if (live && runtime && typeof requestAnimationFrame !== "undefined") {
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 2048;
@@ -210,9 +225,22 @@ export function createAiVoiceHandle(
       runtime?.setPitch(next.pitch);
       const nextKey = `${next.id}:${next.modelName}:${next.modelBytes}`;
       const shift = wantPitch(next);
-      if (nextKey !== modelKey || shift !== keyed || (!!convert) !== wantConvert(next)) {
+      const hadConvert = Boolean(convert);
+      if (wantConvert(next) && !convert) convert = tryWorklet(ctx, "ai-convert");
+      if (
+        nextKey !== modelKey ||
+        shift !== keyed ||
+        Boolean(convert) !== hadConvert ||
+        wantConvert(next) !== Boolean(convert)
+      ) {
         wire(next);
         return;
+      }
+      if (convert && wantConvert(next)) {
+        const file = getAiModelFile(next.id) ?? null;
+        runtime?.bind(convert, next.id, next.modelName, file);
+        runtime?.setBypass(convert, !/\.onnx$/i.test(next.modelName));
+        void runtime?.ensure(next.id, next.modelName, file);
       }
       if (shift && pitch) {
         pitch.port.postMessage({
@@ -223,6 +251,8 @@ export function createAiVoiceHandle(
     },
     dispose: () => {
       tapDisposed = true;
+      if (retryId) window.clearInterval(retryId);
+      retryId = 0;
       if (tapRaf) cancelAnimationFrame(tapRaf);
       tapRaf = 0;
       disconnectWet();

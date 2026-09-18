@@ -5,6 +5,7 @@ import {
   isOnnxFile,
   type OrtSession,
 } from "./ai-infer";
+import { loadVoiceModel } from "./ai-voice-idb";
 
 export type AiConvertStatus =
   | "off"
@@ -73,6 +74,13 @@ class AiConvertRuntime {
   }
 
   async ensure(voiceId: string, modelName: string, file: File | null) {
+    if (!file) {
+      try {
+        file = await loadVoiceModel(voiceId);
+      } catch {
+        file = null;
+      }
+    }
     const key = `${voiceId}:${file?.name ?? ""}:${file?.size ?? 0}:${modelName}`;
     if (key === this.voiceKey && this.voice) return;
     const gen = ++this.loadGen;
@@ -153,7 +161,7 @@ class AiConvertRuntime {
     sr: number,
   ) {
     if (this.busy || !this.voice) {
-      node.port.postMessage({ type: "out", samples }, [samples.buffer]);
+      node.port.postMessage({ type: "skip" });
       this.set({
         convertRatio: 0,
         hopMs: (samples.length / Math.max(8000, sr)) * 1000,
@@ -174,16 +182,29 @@ class AiConvertRuntime {
         hubert: this.hubert,
         rmvpe: this.rmvpe,
       });
-      const pcm = out && out.length ? matchLength(out, samples.length) : samples;
-      node.port.postMessage({ type: "out", samples: pcm }, [pcm.buffer]);
-      this.set({
-        lastInferMs: performance.now() - t0,
-        convertRatio: out && out.length ? 1 : 0,
-        hopMs: (samples.length / Math.max(8000, sr)) * 1000,
-      });
+      if (out && out.length) {
+        const pcm = matchLength(out, samples.length);
+        node.port.postMessage({ type: "out", samples: pcm }, [pcm.buffer]);
+        this.set({
+          lastInferMs: performance.now() - t0,
+          convertRatio: 1,
+          hopMs: (samples.length / Math.max(8000, sr)) * 1000,
+        });
+      } else {
+        node.port.postMessage({ type: "skip" });
+        this.set({
+          lastInferMs: performance.now() - t0,
+          convertRatio: 0,
+          detail: "このONNXの入力形では変換できません。別の .onnx を試してください",
+        });
+      }
     } catch (e) {
       console.error(e);
-      node.port.postMessage({ type: "out", samples }, [samples.buffer]);
+      node.port.postMessage({ type: "skip" });
+      this.set({
+        convertRatio: 0,
+        detail: "変換に失敗しました。モデルを確認してください",
+      });
     } finally {
       this.busy = false;
     }

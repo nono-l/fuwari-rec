@@ -119,7 +119,7 @@ export function AiVoiceControl({
           </Button>
         )}
         <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground">
-          .onnx / .pth / .pt。未選択のときは素通りでキーだけかかります。
+          .onnx だけが声変換します。.pth / .pt は素通りです。
           {convert.detail ? ` ${convert.detail}` : ""}
         </p>
         <div className="mt-2">

@@ -13,7 +13,7 @@ function AiPage() {
   return (
     <AppShell
       title="AI土台"
-      description="誰の声でもない公式モデル（HuBERT・RMVPEなど）。変換は .onnx。未設定でもエフェクターのAIボイスは素通り＋キーで使えます。"
+      description="誰の声でもない公式モデル。変換に使えるのは .onnx だけです。.pt / .pth は学習用で、選んでも素通りになります。"
     >
       <AiRuntimePanel />
     </AppShell>

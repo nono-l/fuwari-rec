@@ -168,18 +168,24 @@ export async function clearAiRuntimeFile(id: AiRuntimeSlotId) {
 
 export type AiRuntimeMode = "passthrough" | "partial" | "ready";
 
+function slotIsOnnx(meta: AiRuntimeMeta | null) {
+  return Boolean(meta && /\.onnx$/i.test(meta.name));
+}
+
 export function aiRuntimeMode(
   slots: Record<AiRuntimeSlotId, AiRuntimeMeta | null>,
 ): AiRuntimeMode {
-  if (slots.hubert && slots.rmvpe) return "ready";
-  if (slots.hubert || slots.rmvpe) return "partial";
+  const h = slotIsOnnx(slots.hubert);
+  const r = slotIsOnnx(slots.rmvpe);
+  if (h && r) return "ready";
+  if (h || r) return "partial";
   return "passthrough";
 }
 
 export function aiRuntimeModeLabel(mode: AiRuntimeMode) {
-  if (mode === "ready") return "土台あり（声モデルをエフェクターで選択）";
-  if (mode === "partial") return "土台の一部あり。未設定でもキーは使えます";
-  return "未設定。AIボイスは素通り＋キーで動きます";
+  if (mode === "ready") return "土台ONNXあり。エフェクターで声モデル（.onnx）を選ぶと変換します";
+  if (mode === "partial") return "土台の一部が .onnx。未設定のキーは使えます。.pt だけでは変換しません";
+  return "未設定、または .pt のみ。.pt は学習用で、変換には .onnx が必要です";
 }
 
 export function slotSizeLabel(meta: AiRuntimeMeta | null) {

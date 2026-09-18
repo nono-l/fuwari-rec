@@ -262,11 +262,12 @@ export class AudioEngine {
       (i) => i.family === "ai" && i.voice.enabled && i.voice.modelBytes > 0,
     );
     if ((needsPitch && !this.livePitchReady) || (needsAi && !this.aiConvertReady)) {
+      this.insertRack?.setLiveFx(items);
       void Promise.all([
         needsPitch ? this.ensurePitchWorklet() : Promise.resolve(),
         needsAi ? this.ensureAiConvertWorklet() : Promise.resolve(),
       ]).then(() => {
-        this.insertRack?.setLiveFx(items);
+        this.insertRack?.rebuild();
       });
       return;
     }
@@ -293,6 +294,7 @@ export class AudioEngine {
       (p) => p.aiVoice && p.aiVoice.enabled && p.aiVoice.modelBytes > 0,
     );
     if (needsAi && !this.aiConvertReady) {
+      this.rebuildExtraPipelines();
       void this.ensureAiConvertWorklet().then(() => this.rebuildExtraPipelines());
       return;
     }
