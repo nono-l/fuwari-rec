@@ -67,11 +67,20 @@ function classifyRole(session: OrtSession, filename: string): ModelRole {
       (n) =>
         n.includes("phone") ||
         n === "feats" ||
-        n.includes("pitchf") ||
-        n.includes("sid"),
+        n.includes("pitchf"),
     )
   ) {
     return "rvc";
+  }
+  if (
+    ins.some(
+      (n) =>
+        n.includes("x_tst") ||
+        n.includes("style_vec") ||
+        (n.includes("bert") && ins.includes("tones")),
+    )
+  ) {
+    return "audio2audio";
   }
   if (outs.some((n) => n.includes("f0") || n.includes("pitch")) && ins.length <= 2) {
     return "rmvpe";

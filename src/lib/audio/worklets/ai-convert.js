@@ -1,7 +1,7 @@
 /* AI voice: built-in formant STFT always colors the wet path.
  * ONNX hops replace it when conversion actually returns audio. */
 const HOP_ONNX = 4096;
-const RING = 16384;
+const RING = 65536;
 const MASK = RING - 1;
 const FFT = 512;
 const HOP = 128;

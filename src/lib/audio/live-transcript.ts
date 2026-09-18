@@ -17,6 +17,12 @@ type SpeechResultEvent = {
   }>;
 };
 
+let spoken = "";
+
+export function lastSpokenText() {
+  return spoken;
+}
+
 export function speechRecognitionAvailable() {
   if (typeof window === "undefined") return false;
   const w = window as Window & {
@@ -61,6 +67,7 @@ export function startLiveTranscript(opts: {
       }
     }
     opts.onUpdate({ finalText: finals.trim(), interim: interim.trim(), error: "" });
+    spoken = `${finals} ${interim}`.trim();
   };
   rec.onerror = (ev) => {
     const code = ev.error || "error";

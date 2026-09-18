@@ -1,6 +1,6 @@
 import { detectPitch } from "./pitch";
 
-type OrtTensor = {
+export type OrtTensor = {
   data: Float32Array | BigInt64Array | number[];
   dims?: number[];
 };
@@ -11,7 +11,7 @@ export type OrtSession = {
   run: (feeds: Record<string, unknown>) => Promise<Record<string, OrtTensor>>;
 };
 
-type OrtModule = {
+export type OrtModule = {
   env: { wasm: { wasmPaths: string; numThreads: number; simd: boolean } };
   InferenceSession: {
     create: (
@@ -26,7 +26,7 @@ type OrtModule = {
   ) => unknown;
 };
 
-export type ConvertKind = "audio2audio" | "rvc" | "none";
+export type ConvertKind = "audio2audio" | "rvc" | "sbvits" | "none";
 
 const ORT_WASM =
   "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.1/dist/";
@@ -110,6 +110,9 @@ export async function createOnnxSession(
 
 export function classifySession(session: OrtSession): ConvertKind {
   const inputs = session.inputNames.map((n: string) => n.toLowerCase());
+  if (inputs.includes("x_tst") || (inputs.includes("bert") && inputs.includes("style_vec"))) {
+    return "sbvits";
+  }
   if (
     inputs.some(
       (n: string) => n.includes("phone") || n.includes("hubert") || n === "feats",
@@ -278,9 +281,28 @@ export async function convertPcm(opts: {
   }
   const ort = await loadOrt();
   const kind = classifySession(voice);
-  const pcm16 = resampleLinear(pcm, sampleRate, 16000);
   const vName = opts.voiceName || "声モデル.onnx";
   const hName = opts.hubertName || "内容エンコーダ.onnx";
+
+  if (kind === "sbvits") {
+    const { convertSbVits } = await import("./sbvits");
+    const out = await convertSbVits(ort, voice, "");
+    if ("pcm" in out) {
+      return { pcm: resampleLinear(out.pcm, out.rate, sampleRate) };
+    }
+    return {
+      fail: {
+        stage: "voice",
+        file: vName,
+        kind,
+        inputs: voice.inputNames,
+        tried: out.tried,
+        reason: `これは RVC ではなく Style-Bert-VITS2（文章→音声）です。文字起こしを開始して話してください。${out.error}`,
+      },
+    };
+  }
+
+  const pcm16 = resampleLinear(pcm, sampleRate, 16000);
 
   if (kind === "audio2audio" || (!hubert && kind !== "rvc")) {
     if (kind === "rvc" && !hubert) {

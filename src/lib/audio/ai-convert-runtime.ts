@@ -214,7 +214,7 @@ class AiConvertRuntime {
         this.rmvpeName = rmvpeFile && !isOnnxFile(rmvpeFile) ? rmvpeFile.name : "";
       }
       const kindJa =
-        this.voiceKind === "rvc" ? "RVC" : this.voiceKind === "audio2audio" ? "音声→音声" : "不明";
+        this.voiceKind === "rvc" ? "RVC" : this.voiceKind === "audio2audio" ? "音声→音声" : this.voiceKind === "sbvits" ? "Style-Bert-VITS2" : "不明";
       this.set({
         status: "ready",
         provider,
@@ -238,7 +238,9 @@ class AiConvertRuntime {
           this.rmvpe ? `ピッチ ${this.rmvpeName}` : "ピッチ抽出なし",
           `${provider} で待機`,
         ],
-        detail: this.hubert
+          detail: this.voiceKind === "sbvits"
+            ? `Style-Bert-VITS2 です。文字起こしを開始すると、その文章を「${this.voiceName}」の声で合成します（${provider}）`
+            : this.hubert
           ? `変換待機（${provider} · 声「${this.voiceName}」${kindJa} · 土台「${this.hubertName}」）`
           : `変換待機（${provider} · 声「${this.voiceName}」${kindJa} · 土台なし）`,
       });
@@ -288,7 +290,11 @@ class AiConvertRuntime {
         rmvpeName: this.rmvpeName,
       });
       if ("pcm" in out && out.pcm.length) {
-        const pcm = matchLength(out.pcm, samples.length);
+        const raw = out.pcm;
+        const pcm =
+          this.voiceKind === "sbvits"
+            ? raw
+            : matchLength(raw, samples.length);
         node.port.postMessage({ type: "out", samples: pcm }, [pcm.buffer]);
         this.lastFail = "";
         this.set({
@@ -303,7 +309,10 @@ class AiConvertRuntime {
           contentWidth: out.content?.width ?? this.state.contentWidth,
           contentBars: out.content?.bars ?? this.state.contentBars,
           contentEnergy: out.content?.energy ?? this.state.contentEnergy,
-          detail: `変換できています（${this.state.provider} · ${this.voiceName}）`,
+          detail:
+            this.voiceKind === "sbvits"
+              ? `合成できています（${this.state.provider} · ${this.voiceName} · Style-Bert-VITS2）`
+              : `変換できています（${this.state.provider} · ${this.voiceName}）`,
         });
       } else {
         node.port.postMessage({ type: "skip" });
