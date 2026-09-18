@@ -52,6 +52,8 @@ export const Route = createRootRoute({
 });
 
 function RootComponent() {
+  const obs =
+    typeof window !== "undefined" && window.location.pathname === "/obs";
   return (
     <html lang="ja">
       <head>
@@ -60,8 +62,8 @@ function RootComponent() {
       <body>
         <AuthProvider>
           <Outlet />
-          <YoutubePlayerHost />
-          <CreatedWithGrokBanner />
+          {!obs && <YoutubePlayerHost />}
+          {!obs && <CreatedWithGrokBanner />}
         </AuthProvider>
         <Scripts />
       </body>

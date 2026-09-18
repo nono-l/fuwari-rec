@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { SCENES, type SceneId } from "@/lib/audio/scenes";
+import { obsOverlayUrl } from "@/lib/audio/obs-overlay-bus";
 import { useEditorStore } from "@/lib/store/editor-store";
 
 export function SceneBar({ compact = false }: { compact?: boolean }) {
@@ -9,6 +11,16 @@ export function SceneBar({ compact = false }: { compact?: boolean }) {
   const recall = useEditorStore((s) => s.recallScene);
   const capture = useEditorStore((s) => s.captureScene);
   const reset = useEditorStore((s) => s.resetScene);
+  const [copied, setCopied] = useState(false);
+
+  const copyObs = async () => {
+    try {
+      await navigator.clipboard.writeText(obsOverlayUrl());
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  };
 
   if (compact) {
     return (
@@ -92,6 +104,16 @@ export function SceneBar({ compact = false }: { compact?: boolean }) {
             </div>
           );
         })}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <Button type="button" size="sm" variant="secondary" onClick={() => void copyObs()}>
+          OBSソース
+        </Button>
+        <p className="text-[10px] leading-relaxed text-muted-foreground">
+          {copied
+            ? "URL をコピーしました。ブラウザソースに貼って透明をオン"
+            : "スペクトラムとシーン名の透過ページ。このタブを開いたまま OBS のブラウザソースへ"}
+        </p>
       </div>
     </div>
   );

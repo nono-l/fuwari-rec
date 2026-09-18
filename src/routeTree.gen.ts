@@ -16,6 +16,7 @@ import { Route as AnalyzeRouteImport } from './routes/analyze'
 import { Route as CloudRouteImport } from './routes/cloud'
 import { Route as EffectorRouteImport } from './routes/effector'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as ObsRouteImport } from './routes/obs'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as RangeRouteImport } from './routes/range'
 import { Route as SongdbRouteImport } from './routes/songdb'
@@ -63,6 +64,11 @@ const EffectorRoute = EffectorRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ObsRoute = ObsRouteImport.update({
+  id: '/obs',
+  path: '/obs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProfileRoute = ProfileRouteImport.update({
@@ -139,6 +145,7 @@ export interface FileRoutesByFullPath {
   '/cloud': typeof CloudRoute
   '/effector': typeof EffectorRoute
   '/login': typeof LoginRoute
+  '/obs': typeof ObsRoute
   '/profile': typeof ProfileRoute
   '/range': typeof RangeRoute
   '/songdb': typeof SongdbRouteWithChildren
@@ -161,6 +168,7 @@ export interface FileRoutesByTo {
   '/cloud': typeof CloudRoute
   '/effector': typeof EffectorRoute
   '/login': typeof LoginRoute
+  '/obs': typeof ObsRoute
   '/profile': typeof ProfileRoute
   '/range': typeof RangeRoute
   '/terms': typeof TermsRoute
@@ -183,6 +191,7 @@ export interface FileRoutesById {
   '/cloud': typeof CloudRoute
   '/effector': typeof EffectorRoute
   '/login': typeof LoginRoute
+  '/obs': typeof ObsRoute
   '/profile': typeof ProfileRoute
   '/range': typeof RangeRoute
   '/songdb': typeof SongdbRouteWithChildren
@@ -207,6 +216,7 @@ export interface FileRouteTypes {
     | '/cloud'
     | '/effector'
     | '/login'
+    | '/obs'
     | '/profile'
     | '/range'
     | '/songdb'
@@ -229,6 +239,7 @@ export interface FileRouteTypes {
     | '/cloud'
     | '/effector'
     | '/login'
+    | '/obs'
     | '/profile'
     | '/range'
     | '/terms'
@@ -250,6 +261,7 @@ export interface FileRouteTypes {
     | '/cloud'
     | '/effector'
     | '/login'
+    | '/obs'
     | '/profile'
     | '/range'
     | '/songdb'
@@ -273,6 +285,7 @@ export interface RootRouteChildren {
   CloudRoute: typeof CloudRoute
   EffectorRoute: typeof EffectorRoute
   LoginRoute: typeof LoginRoute
+  ObsRoute: typeof ObsRoute
   ProfileRoute: typeof ProfileRoute
   RangeRoute: typeof RangeRoute
   SongdbRoute: typeof SongdbRouteWithChildren
@@ -335,6 +348,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/obs': {
+      id: '/obs'
+      path: '/obs'
+      fullPath: '/obs'
+      preLoaderRoute: typeof ObsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/profile': {
@@ -452,6 +472,7 @@ const rootRouteChildren: RootRouteChildren = {
   CloudRoute: CloudRoute,
   EffectorRoute: EffectorRoute,
   LoginRoute: LoginRoute,
+  ObsRoute: ObsRoute,
   ProfileRoute: ProfileRoute,
   RangeRoute: RangeRoute,
   SongdbRoute: SongdbRouteWithChildren,
