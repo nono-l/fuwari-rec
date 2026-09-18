@@ -254,7 +254,8 @@ export class AudioEngine {
     if (!this.insertRack) this.getContext();
     const needsPitch = items.some(
       (i) =>
-        (i.family === "spectrum" && i.filter.kind === "band-pitch") ||
+        (i.family === "spectrum" &&
+          (i.filter.kind === "band-pitch" || i.filter.kind === "band-autotune")) ||
         (i.family === "ai" && Math.abs(i.voice.pitch) >= 0.05),
     );
     const needsAi = items.some(
@@ -277,7 +278,11 @@ export class AudioEngine {
     this.extraPipelines = pipelines;
     const needsPitch = pipelines.some(
       (p) =>
-        p.spectrumFilters.some((f) => f.enabled && f.kind === "band-pitch") ||
+        p.spectrumFilters.some(
+          (f) =>
+            f.enabled &&
+            (f.kind === "band-pitch" || f.kind === "band-autotune"),
+        ) ||
         (p.aiVoice && Math.abs(p.aiVoice.pitch) >= 0.05),
     );
     if (needsPitch && !this.livePitchReady) {

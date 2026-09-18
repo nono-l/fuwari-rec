@@ -276,6 +276,7 @@ function cloneProcessHold(chain: {
       pitch: { ...f.pitch },
       formant: { ...f.formant },
       deess: { ...f.deess },
+      autotune: { ...f.autotune },
     })),
     obsInserts: chain.obsInserts.map((f) => ({
       ...f,
@@ -3828,6 +3829,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         offset: { ...f.offset },
         pitch: { ...f.pitch },
         formant: { ...f.formant },
+        deess: { ...f.deess },
+        autotune: { ...f.autotune },
       })),
       inserts: s.obsInserts.map((f) => ({
         ...f,

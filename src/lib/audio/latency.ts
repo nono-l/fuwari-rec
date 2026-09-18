@@ -1,4 +1,4 @@
-import { normalizeOffsetTune, normalizePitchTune, type SpectrumFilter } from "./spectrum-filters";
+import { normalizeAutotuneTune, normalizeOffsetTune, normalizePitchTune, type SpectrumFilter } from "./spectrum-filters";
 import { normalizeLimiterTune, type ObsInsert } from "./obs-filters";
 import type { AiVoiceInsert } from "./ai-voice";
 
@@ -52,6 +52,16 @@ export function partsFromChain(
       const t = normalizeOffsetTune(f.offset).timeMs;
       if (t > 0.5 && (f.gain ?? 0) > 0.05) {
         parts.push({ id: `off-${f.id}`, label: "オフセット", ms: t });
+      }
+    }
+    if (f.kind === "band-autotune") {
+      const a = normalizeAutotuneTune(f.autotune);
+      if ((f.gain ?? 0) > 0.05) {
+        parts.push({
+          id: `at-${f.id}`,
+          label: "キー吸着",
+          ms: grainMs(a.grain, sr),
+        });
       }
     }
     if (f.kind === "band-pitch") {

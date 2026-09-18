@@ -27,6 +27,7 @@ import {
   defaultFilterGain,
   defaultFilterQ,
   MAX_SPECTRUM_FILTERS,
+  normalizeAutotuneTune,
   normalizeDelayTune,
   normalizeDeessTune,
   normalizeEqSlope,
@@ -89,6 +90,7 @@ const KINDS = new Set<SpectrumFilterKind>([
   "band-delay",
   "band-offset",
   "band-deess",
+  "band-autotune",
 ]);
 
 const MIX_IDS = new Set<MixPresetId>([
@@ -175,6 +177,7 @@ function normalizeFilter(raw: Partial<SpectrumFilter>): SpectrumFilter | null {
     pitch: normalizePitchTune(raw.pitch),
     formant: normalizeFormantTune(raw.formant),
     deess: normalizeDeessTune(raw.deess),
+    autotune: normalizeAutotuneTune(raw.autotune),
   };
 }
 
@@ -356,7 +359,8 @@ function filterXml(f: SpectrumFilter) {
   const p = normalizePitchTune(f.pitch);
   const fm = normalizeFormantTune(f.formant);
   const ds = normalizeDeessTune(f.deess);
-  return `      <filter id="${esc(f.id)}" name="${esc(f.name)}" kind="${f.kind}" hz="${f.hz}" q="${f.q}" gain="${f.gain ?? 0}" enabled="${f.enabled ? "true" : "false"}" fullBand="${f.fullBand ? "true" : "false"}" slope="${normalizeEqSlope(f.slope)}" reverbDecay="${rv.decay}" reverbPredelay="${rv.predelayMs}" reverbBright="${rv.brightness}" reverbSize="${rv.size}" reverbLowCut="${rv.lowCutHz}" reverbHighCut="${rv.highCutHz}" reverbWidth="${rv.width}" delayTime="${d.timeMs}" delayFb="${d.feedback}" delayPing="${d.pingpong}" delayLowCut="${d.lowCutHz}" delayHighCut="${d.highCutHz}" delaySpread="${d.spreadMs}" delayMod="${d.mod}" delayModRate="${d.modRate}" delayDrive="${d.drive}" delaySync="${d.sync ? "true" : "false"}" delayNote="${d.note}" offsetTime="${o.timeMs}" pitchCents="${p.cents}" pitchFormant="${p.formant}" pitchPreserve="${p.preserve}" pitchMix="${p.mix}" pitchGrain="${p.grain}" pitchFb="${p.feedback}" pitchDelay="${p.delayMs}" formantF1="${fm.f1Hz}" formantF2="${fm.f2Hz}" formantF3="${fm.f3Hz}" formantQ1="${fm.q1}" formantQ2="${fm.q2}" formantQ3="${fm.q3}" formantGender="${fm.gender}" formantMix="${fm.mix}" deessThresh="${ds.thresholdDb}" deessRatio="${ds.ratio}" deessAtk="${ds.attackMs}" deessRel="${ds.releaseMs}"/>`;
+  const at = normalizeAutotuneTune(f.autotune);
+  return `      <filter id="${esc(f.id)}" name="${esc(f.name)}" kind="${f.kind}" hz="${f.hz}" q="${f.q}" gain="${f.gain ?? 0}" enabled="${f.enabled ? "true" : "false"}" fullBand="${f.fullBand ? "true" : "false"}" slope="${normalizeEqSlope(f.slope)}" reverbDecay="${rv.decay}" reverbPredelay="${rv.predelayMs}" reverbBright="${rv.brightness}" reverbSize="${rv.size}" reverbLowCut="${rv.lowCutHz}" reverbHighCut="${rv.highCutHz}" reverbWidth="${rv.width}" delayTime="${d.timeMs}" delayFb="${d.feedback}" delayPing="${d.pingpong}" delayLowCut="${d.lowCutHz}" delayHighCut="${d.highCutHz}" delaySpread="${d.spreadMs}" delayMod="${d.mod}" delayModRate="${d.modRate}" delayDrive="${d.drive}" delaySync="${d.sync ? "true" : "false"}" delayNote="${d.note}" offsetTime="${o.timeMs}" pitchCents="${p.cents}" pitchFormant="${p.formant}" pitchPreserve="${p.preserve}" pitchMix="${p.mix}" pitchGrain="${p.grain}" pitchFb="${p.feedback}" pitchDelay="${p.delayMs}" formantF1="${fm.f1Hz}" formantF2="${fm.f2Hz}" formantF3="${fm.f3Hz}" formantQ1="${fm.q1}" formantQ2="${fm.q2}" formantQ3="${fm.q3}" formantGender="${fm.gender}" formantMix="${fm.mix}" deessThresh="${ds.thresholdDb}" deessRatio="${ds.ratio}" deessAtk="${ds.attackMs}" deessRel="${ds.releaseMs}" autoKey="${at.key}" autoScale="${at.scale}" autoStr="${at.strength}" autoSpd="${at.speed}" autoGrain="${at.grain}"/>`;
 }
 
 function insertXml(f: ObsInsert) {
@@ -554,6 +558,13 @@ function parseFilterEl(f: Element): SpectrumFilter | null {
       ratio: num(attr(f, "deessRatio"), 6),
       attackMs: num(attr(f, "deessAtk"), 1.5),
       releaseMs: num(attr(f, "deessRel"), 55),
+    }),
+    autotune: normalizeAutotuneTune({
+      key: num(attr(f, "autoKey"), 0),
+      scale: attr(f, "autoScale") as "chromatic" | "major" | "minor",
+      strength: num(attr(f, "autoStr"), 0.72),
+      speed: num(attr(f, "autoSpd"), 0.55),
+      grain: num(attr(f, "autoGrain"), 1024),
     }),
   });
 }

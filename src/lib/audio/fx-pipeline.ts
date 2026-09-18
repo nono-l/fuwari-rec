@@ -91,6 +91,8 @@ export function stageCost(kind: string): number {
       return 2;
     case "band-deess":
       return 4;
+    case "band-autotune":
+      return 8;
     case "ai":
       return 6;
     case "band-formant":

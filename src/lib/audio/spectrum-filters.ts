@@ -9,7 +9,8 @@ export type SpectrumFilterKind =
   | "band-pitch"
   | "band-delay"
   | "band-offset"
-  | "band-deess";
+  | "band-deess"
+  | "band-autotune";
 
 export type ReverbTune = {
   /** Tail length, seconds. */
@@ -235,6 +236,89 @@ export function normalizeDeessTune(
   };
 }
 
+export const AUTOTUNE_KEYS = [
+  "C",
+  "C#",
+  "D",
+  "D#",
+  "E",
+  "F",
+  "F#",
+  "G",
+  "G#",
+  "A",
+  "A#",
+  "B",
+] as const;
+
+export type AutotuneScale = "chromatic" | "major" | "minor";
+
+export type AutotuneTune = {
+  /** Pitch class 0=C … 11=B. */
+  key: number;
+  scale: AutotuneScale;
+  /** 0 = follow the voice, 1 = stick to the scale. */
+  strength: number;
+  /** 0 = glide, 1 = hard. */
+  speed: number;
+  grain: number;
+};
+
+export const DEFAULT_AUTOTUNE_TUNE: AutotuneTune = {
+  key: 0,
+  scale: "major",
+  strength: 0.72,
+  speed: 0.55,
+  grain: 1024,
+};
+
+const SCALE_STEPS: Record<AutotuneScale, number[]> = {
+  chromatic: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  major: [0, 2, 4, 5, 7, 9, 11],
+  minor: [0, 2, 3, 5, 7, 8, 10],
+};
+
+export function normalizeAutotuneTune(
+  raw?: Partial<AutotuneTune> | null,
+): AutotuneTune {
+  const r = raw ?? {};
+  const num = (v: unknown, fallback: number) => {
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  const grainRaw = Math.round(num(r.grain, DEFAULT_AUTOTUNE_TUNE.grain));
+  const grain = grainRaw >= 1536 ? 2048 : grainRaw >= 768 ? 1024 : 512;
+  const scaleRaw = String(r.scale ?? DEFAULT_AUTOTUNE_TUNE.scale);
+  const scale: AutotuneScale =
+    scaleRaw === "chromatic" || scaleRaw === "minor" ? scaleRaw : "major";
+  return {
+    key: Math.max(0, Math.min(11, Math.round(num(r.key, DEFAULT_AUTOTUNE_TUNE.key)))),
+    scale,
+    strength: clamp01(num(r.strength, DEFAULT_AUTOTUNE_TUNE.strength)),
+    speed: clamp01(num(r.speed, DEFAULT_AUTOTUNE_TUNE.speed)),
+    grain,
+  };
+}
+
+export function snapMidiToScale(midi: number, key: number, scale: AutotuneScale) {
+  const steps = SCALE_STEPS[scale] ?? SCALE_STEPS.major;
+  const allowed = steps.map((d) => (d + key) % 12);
+  let best = midi;
+  let bestD = 99;
+  const lo = Math.floor(midi) - 14;
+  const hi = Math.ceil(midi) + 14;
+  for (let n = lo; n <= hi; n++) {
+    const pc = ((n % 12) + 12) % 12;
+    if (!allowed.includes(pc)) continue;
+    const d = Math.abs(midi - n);
+    if (d < bestD) {
+      bestD = d;
+      best = n;
+    }
+  }
+  return best;
+}
+
 export type PitchTune = {
   /** Fine tune, cents. */
   cents: number;
@@ -372,6 +456,7 @@ export type SpectrumFilter = {
   pitch: PitchTune;
   formant: FormantTune;
   deess: DeessTune;
+  autotune: AutotuneTune;
 };
 
 export type EqSlope = 12 | 24 | 48;
@@ -416,6 +501,7 @@ export const FILTER_KINDS: {
   { id: "band-delay", label: "この帯にディレイ", hint: "帯域エコー" },
   { id: "band-offset", label: "この帯をずらす", hint: "繰り返しなしの時間ずらし" },
   { id: "band-deess", label: "この帯のサ行を潰す", hint: "ディエッサー・歯擦音" },
+  { id: "band-autotune", label: "この帯をキーに吸いつける", hint: "自動ピッチ補正" },
 ];
 
 export function formatHz(hz: number) {
@@ -430,6 +516,7 @@ export function filterKindLabel(kind: SpectrumFilterKind) {
 export function defaultFilterQ(kind: SpectrumFilterKind) {
   if (kind === "notch") return 6;
   if (kind === "band-deess") return 2.8;
+  if (kind === "band-autotune") return 1.2;
   if (
     kind === "keep-band" ||
     kind === "peak" ||
@@ -450,6 +537,7 @@ export function defaultFilterGain(kind: SpectrumFilterKind) {
   if (kind === "band-delay") return 7;
   if (kind === "band-offset") return 18;
   if (kind === "band-deess") return 14;
+  if (kind === "band-autotune") return 18;
   if (kind === "band-pitch") return 2;
   return 0;
 }
@@ -474,7 +562,8 @@ export function usesGain(kind: SpectrumFilterKind) {
     kind === "band-pitch" ||
     kind === "band-delay" ||
     kind === "band-offset" ||
-    kind === "band-deess"
+    kind === "band-deess" ||
+    kind === "band-autotune"
   );
 }
 
@@ -495,6 +584,10 @@ export function formatFilterAmount(kind: SpectrumFilterKind, gain: number) {
     const pct = Math.round((Math.max(0, Math.min(18, gain)) / 18) * 100);
     return `${pct}%`;
   }
+  if (kind === "band-autotune") {
+    const pct = Math.round((Math.max(0, Math.min(18, gain)) / 18) * 100);
+    return `${pct}%`;
+  }
   if (kind === "band-pitch") {
     const s = Math.round(gain * 10) / 10;
     if (s > 0.05) return `+${s.toFixed(1)} 半音`;
@@ -509,6 +602,7 @@ export function amountSliderLabel(kind: SpectrumFilterKind) {
   if (kind === "band-delay") return "ディレイの量";
   if (kind === "band-offset") return "ずらした音の割合";
   if (kind === "band-deess") return "潰す量";
+  if (kind === "band-autotune") return "補正の量";
   if (kind === "band-formant") return "フォルマントの量";
   if (kind === "band-pitch") return "シフト（半音）";
   return "バンドパスゲイン";
@@ -554,6 +648,10 @@ export function defaultFilterName(
                         ? fullBand
                           ? "ディエッサー"
                           : "帯ディエッサー"
+                      : kind === "band-autotune"
+                        ? fullBand
+                          ? "キー吸着"
+                          : "帯キー吸着"
                       : "帯域通過";
   if (fullBand && allowsBandToggle(kind)) return short;
   return `${short} ${formatHz(hz)}`;
@@ -592,7 +690,8 @@ export function allowsBandToggle(kind: SpectrumFilterKind) {
     kind === "band-pitch" ||
     kind === "band-delay" ||
     kind === "band-offset" ||
-    kind === "band-deess"
+    kind === "band-deess" ||
+    kind === "band-autotune"
   );
 }
 
@@ -607,7 +706,8 @@ export function usesBandWidth(kind: SpectrumFilterKind, fullBand = false) {
     kind === "band-pitch" ||
     kind === "band-delay" ||
     kind === "band-offset" ||
-    kind === "band-deess"
+    kind === "band-deess" ||
+    kind === "band-autotune"
   );
 }
 
@@ -627,7 +727,7 @@ export function newSpectrumFilter(
     q: defaultFilterQ(kind),
     gain: defaultFilterGain(kind),
     enabled: true,
-    fullBand: false,
+    fullBand: kind === "band-autotune",
     slope: 12,
     reverb: { ...DEFAULT_REVERB_TUNE },
     delay: { ...DEFAULT_DELAY_TUNE },
@@ -635,6 +735,7 @@ export function newSpectrumFilter(
     pitch: { ...DEFAULT_PITCH_TUNE },
     formant: { ...DEFAULT_FORMANT_TUNE },
     deess: { ...DEFAULT_DEESS_TUNE },
+    autotune: { ...DEFAULT_AUTOTUNE_TUNE },
   };
 }
 
@@ -657,7 +758,8 @@ export function applyFilterToBiquad(
               f.kind === "band-pitch" ||
               f.kind === "band-delay" ||
               f.kind === "band-offset" ||
-              f.kind === "band-deess"
+              f.kind === "band-deess" ||
+              f.kind === "band-autotune"
             ? "peaking"
             : "bandpass";
   if (node.type !== type) node.type = type;

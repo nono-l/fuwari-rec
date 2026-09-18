@@ -1,9 +1,13 @@
+import { detectPitch, hzToMidi, midiToHz, midiToNoteName } from "./pitch";
+import { publishAutotune, clearAutotune } from "./autotune-report";
 import {
   clampFilterGain,
   clampFilterHz,
   formantScaledHz,
-  normalizeDeessTune,
+  normalizeAutotuneTune,
+  snapMidiToScale,
   normalizeDelayTune,
+  normalizeDeessTune,
   normalizeFormantTune,
   normalizeOffsetTune,
   normalizePitchTune,
@@ -18,7 +22,8 @@ export type BandFxKind =
   | "band-pitch"
   | "band-delay"
   | "band-offset"
-  | "band-deess";
+  | "band-deess"
+  | "band-autotune";
 
 export function isBandFxKind(kind: SpectrumFilterKind): kind is BandFxKind {
   return (
@@ -27,7 +32,8 @@ export function isBandFxKind(kind: SpectrumFilterKind): kind is BandFxKind {
     kind === "band-pitch" ||
     kind === "band-delay" ||
     kind === "band-offset" ||
-    kind === "band-deess"
+    kind === "band-deess" ||
+    kind === "band-autotune"
   );
 }
 
@@ -599,6 +605,153 @@ export function createBandFxHandle(
       setParam(ctx, dryG.gain, 1 - ft.mix);
       setParam(ctx, wetG.gain, ft.mix);
     };
+  } else if (filter.kind === "band-autotune") {
+    const notch = ctx.createBiquadFilter();
+    notch.type = "notch";
+    pitch = tryPitchNode(ctx);
+    const dryG = ctx.createGain();
+    const wetG = ctx.createGain();
+    dryG.connect(output);
+    if (pitch) pitch.connect(wetG);
+    wetG.connect(output);
+    nodes.push(notch, dryG, wetG);
+    if (pitch) nodes.push(pitch);
+
+    let lastFull: boolean | null = null;
+    let tune = normalizeAutotuneTune(filter.autotune);
+    let rate = 1;
+    let raf = 0;
+    let disposed = false;
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0;
+    const wave = new Float32Array(analyser.fftSize);
+    nodes.push(analyser);
+    input.connect(analyser);
+
+    const setRate = (v: number) => {
+      rate = v;
+      if (pitch) pitch.port.postMessage({ type: "rate", value: v });
+    };
+    const setGrain = (g: number) => {
+      if (pitch) pitch.port.postMessage({ type: "grain", value: g });
+    };
+
+    const hook = (from: AudioNode) => {
+      if (pitch) from.connect(pitch);
+      else from.connect(wetG);
+    };
+    const full = () => {
+      try {
+        input.disconnect();
+      } catch {
+        /* noop */
+      }
+      try {
+        notch.disconnect();
+      } catch {
+        /* noop */
+      }
+      try {
+        bp.disconnect();
+      } catch {
+        /* noop */
+      }
+      if (pitch) {
+        try {
+          pitch.disconnect();
+        } catch {
+          /* noop */
+        }
+        pitch.connect(wetG);
+      }
+      input.connect(dryG);
+      input.connect(analyser);
+      hook(input);
+    };
+    const band = () => {
+      try {
+        input.disconnect();
+      } catch {
+        /* noop */
+      }
+      try {
+        bp.disconnect();
+      } catch {
+        /* noop */
+      }
+      try {
+        notch.disconnect();
+      } catch {
+        /* noop */
+      }
+      if (pitch) {
+        try {
+          pitch.disconnect();
+        } catch {
+          /* noop */
+        }
+        pitch.connect(wetG);
+      }
+      input.connect(notch);
+      notch.connect(output);
+      input.connect(bp);
+      bp.connect(dryG);
+      input.connect(analyser);
+      hook(bp);
+    };
+
+    const tick = () => {
+      if (disposed) return;
+      analyser.getFloatTimeDomainData(wave as unknown as Float32Array<ArrayBuffer>);
+      const hit = detectPitch(wave, ctx.sampleRate);
+      if (!hit || hit.confidence < 0.55) {
+        const tau = 0.08;
+        setRate(rate + (1 - rate) * tau);
+        publishAutotune(filter.id, null);
+      } else {
+        const midi = hzToMidi(hit.hz);
+        const snapped = snapMidiToScale(midi, tune.key, tune.scale);
+        const mixed = midi + (snapped - midi) * tune.strength;
+        const want = midiToHz(mixed) / hit.hz;
+        const tau = 0.22 - tune.speed * 0.18;
+        setRate(rate + (want - rate) * Math.max(0.04, tau));
+        publishAutotune(filter.id, {
+          hz: hit.hz,
+          note: midiToNoteName(midi),
+          target: midiToNoteName(snapped),
+          cents: (snapped - midi) * 100,
+        });
+      }
+      raf = requestAnimationFrame(tick);
+    };
+
+    applyFn = (f) => {
+      const isFull = !!f.fullBand;
+      if (lastFull !== isFull) {
+        if (isFull) full();
+        else band();
+        lastFull = isFull;
+      }
+      if (!isFull) tuneSplit(ctx, bp, notch, f.hz, f.q);
+      tune = normalizeAutotuneTune(f.autotune);
+      const mix = Math.max(0, Math.min(1, clampFilterGain(f.gain) / 18));
+      setParam(ctx, dryG.gain, 1 - mix);
+      setParam(ctx, wetG.gain, mix);
+      setGrain(tune.grain);
+    };
+
+    if (typeof requestAnimationFrame !== "undefined") {
+      raf = requestAnimationFrame(tick);
+    }
+    const stopAuto = () => {
+      disposed = true;
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      clearAutotune(filter.id);
+      setRate(1);
+    };
+    nodes.push({ disconnect: stopAuto } as unknown as AudioNode);
   } else {
     const notch = ctx.createBiquadFilter();
     notch.type = "notch";
