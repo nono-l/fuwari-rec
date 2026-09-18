@@ -1,7 +1,7 @@
 /* AI voice: built-in formant STFT always colors the wet path.
  * ONNX hops replace it when conversion actually returns audio. */
 const HOP_ONNX = 4096;
-const RING = 65536;
+const RING = 262144;
 const MASK = RING - 1;
 const FFT = 512;
 const HOP = 128;
@@ -72,6 +72,7 @@ class AiConvertProcessor extends AudioWorkletProcessor {
     this.useOnnx = false;
     this.pending = false;
     this.pendingFrames = 0;
+    this.ttsLeft = 0;
     this.formant = 1.22;
     this.win = makeHann(WIN);
     this.fifo = new Float32Array(FFT);
@@ -111,6 +112,7 @@ class AiConvertProcessor extends AudioWorkletProcessor {
           this.ow = (this.ow + 1) & MASK;
         }
         this.filledOut = Math.min(RING, this.filledOut + src.length);
+        this.ttsLeft = Math.min(RING, this.ttsLeft + src.length);
         this.pending = false;
         this.pendingFrames = 0;
       }
@@ -174,7 +176,7 @@ class AiConvertProcessor extends AudioWorkletProcessor {
       }
     }
 
-    if (this.formFilled >= n) {
+    if (this.formFilled >= n && this.ttsLeft <= 0) {
       let r = this.fr;
       for (let i = 0; i < n; i++) {
         dest[i] = this.formOut[r];
@@ -182,17 +184,20 @@ class AiConvertProcessor extends AudioWorkletProcessor {
       }
       this.fr = r;
       this.formFilled -= n;
+    } else if (this.ttsLeft <= 0) {
+      dest.fill(0);
     } else {
       dest.fill(0);
     }
 
     if (this.useOnnx) {
       if (this.pending) this.pendingFrames += n;
-      if (this.pending && this.pendingFrames > sampleRate) {
+      if (this.pending && this.pendingFrames > sampleRate * 20) {
         this.pending = false;
         this.pendingFrames = 0;
       }
-      if (!this.pending && this.filledIn >= HOP_ONNX) {
+      const playing = this.ttsLeft > 0 || this.filledOut > n;
+      if (!this.pending && !playing && this.filledIn >= HOP_ONNX) {
         const block = new Float32Array(HOP_ONNX);
         let r = (this.iw - this.filledIn + RING) & MASK;
         for (let i = 0; i < HOP_ONNX; i++) {
@@ -214,6 +219,10 @@ class AiConvertProcessor extends AudioWorkletProcessor {
         }
         this.or = r;
         this.filledOut -= n;
+        this.ttsLeft = Math.max(0, this.ttsLeft - n);
+      } else if (this.ttsLeft > 0) {
+        dest.fill(0);
+        this.ttsLeft = Math.max(0, this.ttsLeft - n);
       }
     }
 

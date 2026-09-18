@@ -160,14 +160,41 @@ function buildFeeds(
       const size = sshape.reduce((a, b) => a * Math.max(1, b), 1);
       feeds[raw] = f32(ort, new Float32Array(size), sshape);
     } else if (n.includes("sdp")) feeds[raw] = f32(ort, Float32Array.from([0.2]), scDims);
-    else if (n.includes("length")) feeds[raw] = f32(ort, Float32Array.from([1]), scDims);
+    else if (n.includes("length")) feeds[raw] = f32(ort, Float32Array.from([1.35]), scDims);
     else if (n.includes("noise") && n.includes("w")) {
-      feeds[raw] = f32(ort, Float32Array.from([0.8]), scDims);
+      feeds[raw] = f32(ort, Float32Array.from([0.5]), scDims);
     } else if (n.includes("noise")) {
-      feeds[raw] = f32(ort, Float32Array.from([0.6]), scDims);
+      feeds[raw] = f32(ort, Float32Array.from([0.35]), scDims);
     }
   }
   return feeds;
+}
+
+function guessTtsRate(samples: number, phoneCount: number) {
+  const mora = Math.max(2, Math.round(phoneCount * 0.55));
+  const want = mora * 0.22;
+  const rates = [22050, 24000, 32000, 44100, 48000];
+  let best = 44100;
+  let err = Infinity;
+  for (const r of rates) {
+    const d = Math.abs(samples / r - want);
+    if (d < err) {
+      err = d;
+      best = r;
+    }
+  }
+  return best;
+}
+
+function easeEdges(pcm: Float32Array, sr: number) {
+  const n = Math.min(pcm.length, Math.floor(sr * 0.02));
+  if (n < 8) return pcm;
+  for (let i = 0; i < n; i++) {
+    const g = i / n;
+    pcm[i]! *= g;
+    pcm[pcm.length - 1 - i]! *= g;
+  }
+  return pcm;
 }
 
 let cached:
@@ -183,8 +210,8 @@ export async function convertSbVits(
   | { skip: true }
   | { error: string; tried: string }
 > {
-  const spoken = (text || peekUtterance()).trim().slice(0, 48);
-  if (!spoken) return { skip: true };
+  const spoken = (text || peekUtterance()).trim().slice(0, 80);
+  if (spoken.length < 2) return { skip: true };
   const phones = textToPhones(spoken);
   const ids = phonesToIds(phones);
   const t = ids.length;
@@ -235,7 +262,8 @@ export async function convertSbVits(
       if (!data?.length) throw new Error("無音出力");
       cached = combo;
       consumeUtterance(spoken);
-      return { pcm: Float32Array.from(data), rate: 44100, used: label };
+      const pcm = easeEdges(Float32Array.from(data), guessTtsRate(data.length, t));
+      return { pcm, rate: guessTtsRate(data.length, t), used: label };
     } catch (e) {
       last = e instanceof Error ? e.message : String(e);
       if (combo.intKind === "int64" && wantsInt32(last)) intKind = "int32";
@@ -256,7 +284,8 @@ export async function convertSbVits(
             if (!data?.length) throw new Error("無音出力");
             cached = { intKind, bshape, sshape, sc };
             consumeUtterance(spoken);
-            return { pcm: Float32Array.from(data), rate: 44100, used: label };
+            const rate = guessTtsRate(data.length, t);
+            return { pcm: easeEdges(Float32Array.from(data), rate), rate, used: label };
           } catch (e) {
             last = e instanceof Error ? e.message : String(e);
           }

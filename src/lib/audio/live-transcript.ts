@@ -17,8 +17,8 @@ type SpeechResultEvent = {
   }>;
 };
 
-const MAX_QUEUE = 6;
-const MAX_UTTER = 48;
+const MAX_QUEUE = 4;
+const MAX_UTTER = 80;
 
 let queue: string[] = [];
 let interim = "";
@@ -26,7 +26,7 @@ let lines: string[] = [];
 
 function enqueue(raw: string) {
   const parts = raw
-    .split(/[。．.!?！？\n]+/)
+    .split(/[。．!?！？\n]+/)
     .map((s) => s.trim())
     .filter(Boolean);
   for (const part of parts) {
