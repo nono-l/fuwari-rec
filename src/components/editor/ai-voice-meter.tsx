@@ -13,7 +13,15 @@ export function AiVoiceMeter({
   const note = f0 > 50 ? midiToNoteName(hzToMidi(f0)) : "—";
   const wet = Math.round(convert.convertRatio * mix * 100);
   const delay = convert.convertRatio > 0.05 ? convert.hopMs + convert.lastInferMs : 0;
-  const live = convert.status === "running" || convert.convertRatio > 0.15;
+  const ok = convert.convertRatio > 0.15;
+  const pending =
+    convert.status === "running" && !ok && convert.detail.includes("初回");
+  const failed =
+    Boolean(convert.detail) &&
+    (convert.detail.includes("だめなファイル") ||
+      convert.detail.includes("失敗") ||
+      convert.status === "error" ||
+      convert.status === "unsupported");
 
   return (
     <div className="rounded-lg border border-border bg-background px-2.5 py-2">
@@ -22,7 +30,7 @@ export function AiVoiceMeter({
         <div>
           <div className="text-[10px] text-muted-foreground">変換</div>
           <div className="text-[12px] font-semibold tabular-nums text-foreground">
-            {live ? `${wet}%` : "素通り"}
+            {ok ? `${wet}%` : pending ? "推論中" : failed ? "失敗" : "素通り"}
           </div>
         </div>
         <div>
@@ -44,10 +52,10 @@ export function AiVoiceMeter({
       <p className="mt-1.5 break-words text-[10px] leading-relaxed text-muted-foreground">
         {convert.detail
           ? convert.detail
-          : live
+          : ok
             ? convert.provider
               ? `推論 ${formatMs(convert.lastInferMs)} · ${convert.provider}`
-              : "変換しています"
+              : "変換できています"
             : "モデルがなくても F0 は出ます"}
       </p>
     </div>

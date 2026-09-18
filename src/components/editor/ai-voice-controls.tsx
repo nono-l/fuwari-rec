@@ -130,7 +130,8 @@ export function AiVoiceControl({
               (convert.status === "error" ||
                 convert.status === "unsupported" ||
                 convert.detail.includes("だめなファイル") ||
-                convert.detail.includes("失敗"))
+                convert.detail.includes("失敗") ||
+                convert.detail.includes("まだ成功ではありません"))
                 ? "mt-1.5 text-[11px] leading-relaxed text-danger"
                 : "mt-1.5 text-[11px] leading-relaxed text-muted-foreground"
             }

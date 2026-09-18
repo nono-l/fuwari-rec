@@ -188,7 +188,10 @@ class AiConvertRuntime {
     }
     this.busy = true;
     if (this.state.status === "ready") {
-      this.set({ status: "running", detail: `変換中（${this.state.provider}）` });
+      this.set({
+        status: "running",
+        detail: `初回推論中（${this.state.provider || "wasm"}）…まだ成功ではありません`,
+      });
     }
     const t0 = performance.now();
     try {
@@ -211,7 +214,7 @@ class AiConvertRuntime {
           lastInferMs: performance.now() - t0,
           convertRatio: 1,
           hopMs: (samples.length / Math.max(8000, sr)) * 1000,
-          detail: `変換中（${this.state.provider} · ${this.voiceName}）`,
+          detail: `変換できています（${this.state.provider} · ${this.voiceName}）`,
         });
       } else {
         node.port.postMessage({ type: "skip" });
