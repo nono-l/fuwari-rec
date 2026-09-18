@@ -1,8 +1,7 @@
-import type { SceneId } from "./scenes";
-import { SCENES } from "./scenes";
+import type { RemoteSceneBtn, SceneId } from "./scenes";
 
 export function isSceneId(v: unknown): v is SceneId {
-  return SCENES.some((s) => s.id === v);
+  return typeof v === "string" && /^[a-zA-Z0-9_-]{1,48}$/.test(v);
 }
 
 export type RemoteRoomState = {
@@ -10,6 +9,7 @@ export type RemoteRoomState = {
   scene: SceneId;
   pad: boolean;
   host: boolean;
+  scenes: RemoteSceneBtn[];
 };
 
 export function mintRemoteCode() {
@@ -42,6 +42,7 @@ export async function postRemoteRoom(body: {
   code?: string;
   role: "host" | "pad";
   scene?: SceneId;
+  scenes?: RemoteSceneBtn[];
 }): Promise<RemoteRoomState> {
   const res = await fetch("/api/remote-room", {
     method: "POST",

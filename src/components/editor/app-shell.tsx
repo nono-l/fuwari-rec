@@ -28,6 +28,7 @@ export function AppShell({
   const tapActive = useEditorStore((s) => s.tapActive);
   const undoMidiEdit = useEditorStore((s) => s.undoMidiEdit);
   const recallScene = useEditorStore((s) => s.recallScene);
+  const sceneList = useEditorStore((s) => s.sceneList);
 
   useEffect(() => {
     initEngine();
@@ -64,7 +65,7 @@ export function AppShell({
         e.preventDefault();
         stop();
       } else if (!e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
-        const scene = sceneByKey(e.code);
+        const scene = sceneByKey(e.code, sceneList);
         if (scene) {
           e.preventDefault();
           recallScene(scene);
@@ -73,7 +74,7 @@ export function AppShell({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [transport, togglePlay, toggleRecord, stop, tapActive, undoMidiEdit, recallScene]);
+  }, [transport, togglePlay, toggleRecord, stop, tapActive, undoMidiEdit, recallScene, sceneList]);
 
   return (
     <div className="min-h-dvh bg-background text-foreground">

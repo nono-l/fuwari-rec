@@ -6,6 +6,7 @@ import { downsampleSpectrum, publishObsOverlay } from "@/lib/audio/obs-overlay-b
 /** Pushes scene + spectrum to the OBS overlay tab. */
 export function ObsOverlayPublish() {
   const scene = useEditorStore((s) => s.activeSceneId);
+  const sceneList = useEditorStore((s) => s.sceneList);
   const live = useEditorStore((s) => s.liveFxActive);
 
   useEffect(() => {
@@ -21,12 +22,16 @@ export function ObsOverlayPublish() {
       } catch {
         bars = [];
       }
-      publishObsOverlay({ scene, live, bars });
+      publishObsOverlay({
+        scene: sceneList.find((s) => s.id === scene)?.label ?? scene ?? "",
+        live,
+        bars,
+      });
     };
     tick();
     const id = window.setInterval(tick, 50);
     return () => window.clearInterval(id);
-  }, [scene, live]);
+  }, [scene, sceneList, live]);
 
   return null;
 }

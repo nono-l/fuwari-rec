@@ -22,10 +22,17 @@ import {
   type StarterChainId,
 } from "@/lib/audio/starter-chains";
 import {
+  BUILTIN_SCENES,
+  MAX_SCENES,
   factoryScene,
+  isBuiltinScene,
+  newSceneId,
+  sceneLabelOf,
   type SceneCapture,
   type SceneId,
+  type SceneMeta,
 } from "@/lib/audio/scenes";
+import { loadScenePersist, saveScenePersist } from "@/lib/audio/scenes-persist";
 import {
   MAX_AI_VOICE,
   newAiVoiceInsert,
@@ -664,6 +671,7 @@ export interface EditorState {
   abHold: ProcessHold | null;
   activeSceneId: SceneId | null;
   sceneBank: Partial<Record<SceneId, SceneCapture>>;
+  sceneList: SceneMeta[];
 
   rangeMeasuring: boolean;
   rangeBusy: boolean;
@@ -802,6 +810,10 @@ export interface EditorState {
   recallScene: (id: SceneId) => boolean;
   captureScene: (id: SceneId) => void;
   resetScene: (id: SceneId) => void;
+  addScene: (label: string) => SceneId | null;
+  renameScene: (id: SceneId, label: string) => void;
+  removeScene: (id: SceneId) => void;
+  toggleSceneRemote: (id: SceneId) => void;
   addAiVoice: () => string | null;
   updateAiVoice: (patch: Partial<AiVoiceInsert>) => void;
   removeAiVoice: () => void;
@@ -1155,7 +1167,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   fxSoloId: null,
   abHold: null,
   activeSceneId: null,
-  sceneBank: {},
+  sceneBank: loadScenePersist()?.bank ?? {},
+  sceneList: loadScenePersist()?.list ?? BUILTIN_SCENES.map((s) => ({ ...s })),
 
   rangeMeasuring: false,
   rangeBusy: false,
@@ -3255,21 +3268,23 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         duck: { ...p.duck },
       })),
     };
-    const label = id === "talk" ? "トーク" : id === "song" ? "歌" : "待機";
+    const label = sceneLabelOf(id, s.sceneList);
     set({
       sceneBank: { ...s.sceneBank, [id]: capture },
       activeSceneId: id,
       statusMessage: `${label}に今の全パイプラインを記憶`,
     });
+    saveScenePersist(get().sceneList, get().sceneBank);
   },
 
   resetScene: (id) => {
     const { [id]: _drop, ...rest } = get().sceneBank;
-    const label = id === "talk" ? "トーク" : id === "song" ? "歌" : "待機";
+    const label = sceneLabelOf(id, get().sceneList);
     set({
       sceneBank: rest,
       statusMessage: `${label}を初期の土台に戻しました。キーで読み出してください`,
     });
+    saveScenePersist(get().sceneList, get().sceneBank);
   },
 
   recallScene: (id) => {
@@ -3327,7 +3342,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       fxSoloId: null,
     };
     pushLiveFx(next);
-    const label = id === "talk" ? "トーク" : id === "song" ? "歌" : "待機";
+    const label = sceneLabelOf(id, s.sceneList);
     const custom = Boolean(s.sceneBank[id]);
     set({
       spectrumFilters,
@@ -3343,6 +3358,55 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       ),
     });
     return true;
+  },
+
+  addScene: (raw) => {
+    const s = get();
+    if (s.sceneList.length >= MAX_SCENES) {
+      set({ statusMessage: `シーンは ${MAX_SCENES} までです` });
+      return null;
+    }
+    const label = raw.trim().slice(0, 24) || `シーン${s.sceneList.length + 1}`;
+    const id = newSceneId();
+    set({ sceneList: [...s.sceneList, { id, label, remote: true, hint: "記憶した内容" }] });
+    get().captureScene(id);
+    saveScenePersist(get().sceneList, get().sceneBank);
+    set({ statusMessage: `シーン「${label}」を追加して記憶しました` });
+    return id;
+  },
+
+  renameScene: (id, raw) => {
+    const label = raw.trim().slice(0, 24);
+    if (!label) return;
+    set({
+      sceneList: get().sceneList.map((sc) => (sc.id === id ? { ...sc, label } : sc)),
+    });
+    saveScenePersist(get().sceneList, get().sceneBank);
+  },
+
+  removeScene: (id) => {
+    if (isBuiltinScene(id)) {
+      set({ statusMessage: "最初の3つは消せません。中身は「初期」で戻せます" });
+      return;
+    }
+    const s = get();
+    const { [id]: _drop, ...rest } = s.sceneBank;
+    set({
+      sceneList: s.sceneList.filter((sc) => sc.id !== id),
+      sceneBank: rest,
+      activeSceneId: s.activeSceneId === id ? null : s.activeSceneId,
+      statusMessage: "シーンを削除しました",
+    });
+    saveScenePersist(get().sceneList, get().sceneBank);
+  },
+
+  toggleSceneRemote: (id) => {
+    set({
+      sceneList: get().sceneList.map((sc) =>
+        sc.id === id ? { ...sc, remote: !sc.remote } : sc,
+      ),
+    });
+    saveScenePersist(get().sceneList, get().sceneBank);
   },
 
   addAiVoice: () => {

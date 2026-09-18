@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { QrCode, Smartphone, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { SCENES, type SceneId } from "@/lib/audio/scenes";
+import { remoteSceneButtons, sceneLabelOf, type SceneId } from "@/lib/audio/scenes";
 import { isSceneId, postRemoteRoom, remotePageUrl } from "@/lib/audio/remote-room";
 import { qrImageUrl } from "@/lib/audio/fx-link";
 import { useEditorStore } from "@/lib/store/editor-store";
@@ -14,6 +14,7 @@ export function RemoteHost() {
   const [error, setError] = useState<string | null>(null);
   const recall = useEditorStore((s) => s.recallScene);
   const scene = useEditorStore((s) => s.activeSceneId);
+  const sceneList = useEditorStore((s) => s.sceneList);
   const fromPad = useRef<SceneId | null>(null);
 
   useEffect(() => {
@@ -24,6 +25,7 @@ export function RemoteHost() {
         const s = await postRemoteRoom({
           code: code ?? undefined,
           role: "host",
+          scenes: remoteSceneButtons(useEditorStore.getState().sceneList),
         });
         if (stop) return;
         setCode(s.code);
@@ -70,8 +72,13 @@ export function RemoteHost() {
       fromPad.current = null;
       return;
     }
-    void postRemoteRoom({ code, role: "host", scene }).catch(() => {});
-  }, [code, scene]);
+    void postRemoteRoom({
+      code,
+      role: "host",
+      scene,
+      scenes: remoteSceneButtons(sceneList),
+    }).catch(() => {});
+  }, [code, scene, sceneList]);
 
   const url = code ? remotePageUrl(code) : "";
   const stop = () => {
@@ -122,7 +129,7 @@ export function RemoteHost() {
                 <p className="mt-1.5 text-center text-[10px] text-muted-foreground">
                   {pad ? "スマホ接続中" : "QR を読んで待っています"}
                   {" · "}
-                  いま {SCENES.find((s) => s.id === scene)?.label}
+                  いま {sceneLabelOf(scene ?? "", sceneList)}
                 </p>
                 <p className="mt-2 break-all text-center text-[10px] text-muted-foreground">
                   {url}

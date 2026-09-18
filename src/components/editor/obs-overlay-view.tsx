@@ -1,5 +1,4 @@
 import { useEffect, useRef } from "react";
-import { SCENES } from "@/lib/audio/scenes";
 import {
   subscribeObsOverlay,
   type ObsOverlayFrame,
@@ -35,8 +34,7 @@ export function ObsOverlayView() {
       ctx.clearRect(0, 0, cssW, cssH);
 
       const frame = frameRef.current;
-      const scene =
-        SCENES.find((s) => s.id === frame.scene)?.label ?? frame.scene ?? "—";
+      const scene = frame.scene || "—";
       const live = frame.live;
       const bars = frame.bars.length ? frame.bars : emptyBars;
 

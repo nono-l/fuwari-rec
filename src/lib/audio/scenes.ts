@@ -3,35 +3,77 @@ import { labelObsInserts, newObsInsert } from "./obs-filters";
 import type { ProcessHold, LiveSlot } from "./live-fx";
 import type { DuckTune } from "./fx-pipeline";
 
-export type SceneId = "talk" | "song" | "wait";
+export type SceneId = string;
 
 export type SceneMeta = {
   id: SceneId;
   label: string;
-  key: "1" | "2" | "3";
-  hint: string;
+  hint?: string;
+  remote: boolean;
+  builtin?: boolean;
 };
 
-export const SCENES: SceneMeta[] = [
+export const MAX_SCENES = 12;
+
+export const BUILTIN_SCENES: SceneMeta[] = [
   {
     id: "talk",
     label: "トーク",
-    key: "1",
     hint: "配信トーク。ゲート→抑制→EQ→コンプ→リミッター",
+    remote: true,
+    builtin: true,
   },
   {
     id: "song",
     label: "歌",
-    key: "2",
     hint: "歌。語尾を残して厚み",
+    remote: true,
+    builtin: true,
   },
   {
     id: "wait",
     label: "待機",
-    key: "3",
     hint: "離席。ゲートを強めて部屋を落とす",
+    remote: true,
+    builtin: true,
   },
 ];
+
+/** @deprecated use sceneList from the store. Built-in three. */
+export const SCENES = BUILTIN_SCENES;
+
+export function newSceneId() {
+  const n =
+    typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID().slice(0, 8)
+      : Math.random().toString(36).slice(2, 10);
+  return `sc-${n}`;
+}
+
+export function isBuiltinScene(id: SceneId) {
+  return id === "talk" || id === "song" || id === "wait";
+}
+
+export function sceneLabelOf(id: SceneId, list: SceneMeta[]) {
+  return list.find((s) => s.id === id)?.label ?? id;
+}
+
+export function sceneKeyIndex(list: SceneMeta[], id: SceneId) {
+  const i = list.findIndex((s) => s.id === id);
+  return i >= 0 && i < 9 ? String(i + 1) : "";
+}
+
+export function sceneByKey(code: string, list: SceneMeta[] = BUILTIN_SCENES): SceneId | null {
+  const m = /^(?:Digit|Numpad)([1-9])$/.exec(code);
+  if (!m) return null;
+  return list[Number(m[1]) - 1]?.id ?? null;
+}
+
+export type RemoteSceneBtn = { id: SceneId; label: string };
+
+export function remoteSceneButtons(list: SceneMeta[]): RemoteSceneBtn[] {
+  return list.filter((s) => s.remote).map((s) => ({ id: s.id, label: s.label }));
+}
 
 export type SceneExtraCapture = {
   number: number;
@@ -91,10 +133,11 @@ function buildWaitChain() {
 }
 
 export function factoryScene(id: SceneId): SceneCapture {
+  const kind = id === "song" ? "song" : id === "wait" ? "wait" : "talk";
   const obs =
-    id === "song"
+    kind === "song"
       ? buildStarterChain("song")
-      : id === "wait"
+      : kind === "wait"
         ? buildWaitChain()
         : buildStarterChain("stream");
   const main = holdFromObs(obs);
@@ -103,11 +146,4 @@ export function factoryScene(id: SceneId): SceneCapture {
     mainChain: obs.map((f) => ({ family: "obs" as const, id: f.id })),
     extras: [],
   };
-}
-
-export function sceneByKey(code: string): SceneId | null {
-  if (code === "Digit1" || code === "Numpad1") return "talk";
-  if (code === "Digit2" || code === "Numpad2") return "song";
-  if (code === "Digit3" || code === "Numpad3") return "wait";
-  return null;
 }
