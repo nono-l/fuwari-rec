@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useEditorStore } from "@/lib/store/editor-store";
 import { getAudioEngine } from "@/lib/audio/engine";
 import { downsampleSpectrum, publishObsOverlay } from "@/lib/audio/obs-overlay-bus";
+import { overlayCaption } from "@/lib/audio/live-transcript";
 
 /** Pushes scene + spectrum to the OBS overlay tab. */
 export function ObsOverlayPublish() {
@@ -22,10 +23,13 @@ export function ObsOverlayPublish() {
       } catch {
         bars = [];
       }
+      const cap = overlayCaption();
       publishObsOverlay({
         scene: sceneList.find((s) => s.id === scene)?.label ?? scene ?? "",
         live,
         bars,
+        caption: cap.text,
+        captionInterim: cap.interim,
       });
     };
     tick();

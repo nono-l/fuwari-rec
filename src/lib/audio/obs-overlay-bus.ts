@@ -5,6 +5,8 @@ export type ObsOverlayFrame = {
   scene: string;
   live: boolean;
   bars: number[];
+  caption?: string;
+  captionInterim?: string;
 };
 
 export function downsampleSpectrum(bins: Uint8Array, n = OBS_BARS) {

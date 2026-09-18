@@ -23,6 +23,8 @@ const MAX_UTTER = 80;
 let queue: string[] = [];
 let interim = "";
 let lines: string[] = [];
+let onAir = "";
+let onAirAt = 0;
 
 function enqueue(raw: string) {
   const parts = raw
@@ -53,12 +55,24 @@ export function consumeUtterance(text: string) {
     const i = queue.indexOf(text);
     if (i >= 0) queue.splice(i, 1);
   }
+  onAir = text;
+  onAirAt = Date.now();
+}
+
+export function overlayCaption() {
+  const hold = Date.now() - onAirAt < 14000 && onAir;
+  return {
+    text: hold || queue[0] || "",
+    interim,
+  };
 }
 
 export function clearTranscript() {
   queue = [];
   interim = "";
   lines = [];
+  onAir = "";
+  onAirAt = 0;
 }
 
 export function speechRecognitionAvailable() {

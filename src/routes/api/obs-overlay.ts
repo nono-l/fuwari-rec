@@ -24,7 +24,7 @@ export const Route = createFileRoute("/api/obs-overlay")({
       GET: () => {
         const s = slot().__fuwariObsOverlay__;
         if (!s || Date.now() - s.at > 2500) {
-          return json({ scene: "", live: false, bars: [] });
+          return json({ scene: "", live: false, bars: [], caption: "", captionInterim: "" });
         }
         return json(s.frame);
       },
@@ -44,6 +44,8 @@ export const Route = createFileRoute("/api/obs-overlay")({
             scene: String(body.scene ?? ""),
             live: Boolean(body.live),
             bars,
+            caption: String(body.caption ?? "").slice(0, 120),
+            captionInterim: String(body.captionInterim ?? "").slice(0, 80),
           },
         };
         return json({ ok: true });
