@@ -41,12 +41,14 @@ export function AiVoiceMeter({
           </div>
         </div>
       </div>
-      <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground">
-        {live
-          ? convert.provider
-            ? `推論 ${formatMs(convert.lastInferMs)} · ${convert.provider}`
-            : "変換しています"
-          : "モデルがなくても F0 は出ます"}
+      <p className="mt-1.5 break-words text-[10px] leading-relaxed text-muted-foreground">
+        {convert.detail
+          ? convert.detail
+          : live
+            ? convert.provider
+              ? `推論 ${formatMs(convert.lastInferMs)} · ${convert.provider}`
+              : "変換しています"
+            : "モデルがなくても F0 は出ます"}
       </p>
     </div>
   );

@@ -1,8 +1,11 @@
 import { loadAiRuntimeFile } from "./ai-runtime";
 import {
+  classifySession,
   convertPcm,
   createOnnxSession,
+  formatConvertFail,
   isOnnxFile,
+  type ConvertKind,
   type OrtSession,
 } from "./ai-infer";
 import { loadVoiceModel } from "./ai-voice-idb";
@@ -44,8 +47,13 @@ class AiConvertRuntime {
   private hubert: OrtSession | null = null;
   private rmvpe: OrtSession | null = null;
   private voiceKey = "";
+  private voiceName = "";
+  private hubertName = "";
+  private rmvpeName = "";
+  private voiceKind: ConvertKind | "" = "";
   private loadGen = 0;
   private busy = false;
+  private lastFail = "";
 
   subscribe(fn: Listener) {
     this.listeners.add(fn);
@@ -98,7 +106,7 @@ class AiConvertRuntime {
     if (!isOnnxFile(file)) {
       this.set({
         status: "unsupported",
-        detail: ".pth / .pt は学習用です。変換には .onnx を選んでください。キーは使えます",
+        detail: `「${file.name}」は .pt / .pth です。変換には .onnx が必要です`,
         provider: "",
       });
       return;
@@ -113,35 +121,45 @@ class AiConvertRuntime {
       ]);
       if (gen !== this.loadGen) return;
       this.voice = voicePack.session;
+      this.voiceName = file.name;
+      this.voiceKind = classifySession(voicePack.session);
       let provider = voicePack.provider;
       if (hubertFile && isOnnxFile(hubertFile)) {
         try {
           const h = await createOnnxSession(hubertFile);
           if (gen !== this.loadGen) return;
           this.hubert = h.session;
+          this.hubertName = hubertFile.name;
         } catch {
           this.hubert = null;
+          this.hubertName = hubertFile.name;
         }
       } else {
         this.hubert = null;
+        this.hubertName = hubertFile && !isOnnxFile(hubertFile) ? hubertFile.name : "";
       }
       if (rmvpeFile && isOnnxFile(rmvpeFile)) {
         try {
           const r = await createOnnxSession(rmvpeFile);
           if (gen !== this.loadGen) return;
           this.rmvpe = r.session;
+          this.rmvpeName = rmvpeFile.name;
         } catch {
           this.rmvpe = null;
+          this.rmvpeName = rmvpeFile.name;
         }
       } else {
         this.rmvpe = null;
+        this.rmvpeName = rmvpeFile && !isOnnxFile(rmvpeFile) ? rmvpeFile.name : "";
       }
+      const kindJa =
+        this.voiceKind === "rvc" ? "RVC" : this.voiceKind === "audio2audio" ? "音声→音声" : "不明";
       this.set({
         status: "ready",
         provider,
         detail: this.hubert
-          ? `変換待機（${provider} · 土台あり）`
-          : `変換待機（${provider} · 声モデルのみ）`,
+          ? `変換待機（${provider} · 声「${this.voiceName}」${kindJa} · 土台「${this.hubertName}」）`
+          : `変換待機（${provider} · 声「${this.voiceName}」${kindJa} · 土台なし）`,
       });
     } catch (e) {
       console.error(e);
@@ -150,7 +168,7 @@ class AiConvertRuntime {
       this.set({
         status: "error",
         provider: "",
-        detail: "ONNX を読めませんでした。素通り＋キーで続けます",
+        detail: `声モデル「${file.name}」をONNXとして開けませんでした。素通り＋キーで続けます`,
       });
     }
   }
@@ -181,29 +199,47 @@ class AiConvertRuntime {
         voice: this.voice,
         hubert: this.hubert,
         rmvpe: this.rmvpe,
+        voiceName: this.voiceName,
+        hubertName: this.hubertName,
+        rmvpeName: this.rmvpeName,
       });
-      if (out && out.length) {
-        const pcm = matchLength(out, samples.length);
+      if ("pcm" in out && out.pcm.length) {
+        const pcm = matchLength(out.pcm, samples.length);
         node.port.postMessage({ type: "out", samples: pcm }, [pcm.buffer]);
+        this.lastFail = "";
         this.set({
           lastInferMs: performance.now() - t0,
           convertRatio: 1,
           hopMs: (samples.length / Math.max(8000, sr)) * 1000,
+          detail: `変換中（${this.state.provider} · ${this.voiceName}）`,
         });
       } else {
         node.port.postMessage({ type: "skip" });
-        this.set({
-          lastInferMs: performance.now() - t0,
-          convertRatio: 0,
-          detail: "このONNXの入力形では変換できません。別の .onnx を試してください",
-        });
+        const fail = "fail" in out ? out.fail : null;
+        const detail = fail
+          ? formatConvertFail(fail)
+          : "このONNXの入力形では変換できません";
+        if (detail !== this.lastFail) {
+          this.lastFail = detail;
+          this.set({
+            lastInferMs: performance.now() - t0,
+            convertRatio: 0,
+            detail,
+          });
+        } else {
+          this.set({
+            lastInferMs: performance.now() - t0,
+            convertRatio: 0,
+            hopMs: (samples.length / Math.max(8000, sr)) * 1000,
+          });
+        }
       }
     } catch (e) {
       console.error(e);
       node.port.postMessage({ type: "skip" });
       this.set({
         convertRatio: 0,
-        detail: "変換に失敗しました。モデルを確認してください",
+        detail: `変換に失敗 · 声「${this.voiceName}」: ${e instanceof Error ? e.message.slice(0, 120) : "不明"}`,
       });
     } finally {
       this.busy = false;
@@ -233,7 +269,11 @@ class AiConvertRuntime {
     this.voice = null;
     this.hubert = null;
     this.rmvpe = null;
-    this.voiceKey = "";
+    this.voiceName = "";
+    this.hubertName = "";
+    this.rmvpeName = "";
+    this.voiceKind = "";
+    this.lastFail = "";
     this.set({ ...init });
   }
 }

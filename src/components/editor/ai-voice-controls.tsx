@@ -122,8 +122,22 @@ export function AiVoiceControl({
         )}
         <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground">
           .onnx が読めたときだけモデル変換します。それ以外は内蔵の声色です。
-          {convert.detail ? ` ${convert.detail}` : ""}
         </p>
+        {convert.detail && (
+          <p
+            className={
+              convert.convertRatio < 0.05 &&
+              (convert.status === "error" ||
+                convert.status === "unsupported" ||
+                convert.detail.includes("だめなファイル") ||
+                convert.detail.includes("失敗"))
+                ? "mt-1.5 text-[11px] leading-relaxed text-danger"
+                : "mt-1.5 text-[11px] leading-relaxed text-muted-foreground"
+            }
+          >
+            {convert.detail}
+          </p>
+        )}
         <AiVoiceFileCheck voiceId={voice.id} file={getAiModelFile(voice.id)} />
         <div className="mt-2">
           <WebGpuToggle />

@@ -178,6 +178,36 @@ function tensorFloat(
   return new ort.Tensor("float32", data, dims);
 }
 
+export type ConvertFail = {
+  stage: "voice" | "hubert" | "rmvpe" | "assemble";
+  file: string;
+  kind: ConvertKind | "";
+  inputs: string[];
+  tried: string;
+  reason: string;
+};
+
+export function formatConvertFail(f: ConvertFail) {
+  const who =
+    f.stage === "hubert"
+      ? "内容エンコーダ"
+      : f.stage === "rmvpe"
+        ? "ピッチ抽出"
+        : "声モデル";
+  const name = f.file || "(無名)";
+  const ins = f.inputs.length ? `入力名: ${f.inputs.join(", ")}` : "入力名なし";
+  const kind = f.kind && f.kind !== "none" ? `形式 ${f.kind}` : "";
+  return [
+    `だめなファイル: ${who}「${name}」`,
+    kind,
+    ins,
+    f.tried ? `試した形: ${f.tried}` : "",
+    f.reason,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 export async function convertPcm(opts: {
   pcm: Float32Array;
   sampleRate: number;
@@ -185,47 +215,106 @@ export async function convertPcm(opts: {
   voice: OrtSession | null;
   hubert: OrtSession | null;
   rmvpe: OrtSession | null;
-}): Promise<Float32Array | null> {
+  voiceName?: string;
+  hubertName?: string;
+  rmvpeName?: string;
+}): Promise<{ pcm: Float32Array } | { fail: ConvertFail }> {
   const { pcm, sampleRate, pitch, voice, hubert } = opts;
-  if (!voice) return null;
+  if (!voice) {
+    return {
+      fail: {
+        stage: "voice",
+        file: opts.voiceName || "",
+        kind: "",
+        inputs: [],
+        tried: "",
+        reason: "声モデルが載っていません",
+      },
+    };
+  }
   const ort = await loadOrt();
   const kind = classifySession(voice);
   const pcm16 = resampleLinear(pcm, sampleRate, 16000);
+  const vName = opts.voiceName || "声モデル.onnx";
+  const hName = opts.hubertName || "内容エンコーダ.onnx";
 
   if (kind === "audio2audio" || (!hubert && kind !== "rvc")) {
+    if (kind === "rvc" && !hubert) {
+      return {
+        fail: {
+          stage: "hubert",
+          file: hName,
+          kind,
+          inputs: voice.inputNames,
+          tried: "",
+          reason: `声モデル「${vName}」は RVC です。AIタブに HuBERT / ContentVec の .onnx が必要です`,
+        },
+      };
+    }
     const name = voice.inputNames[0];
-    if (!name) return null;
+    if (!name) {
+      return {
+        fail: {
+          stage: "voice",
+          file: vName,
+          kind,
+          inputs: [],
+          tried: "",
+          reason: "入力テンソル名が空です",
+        },
+      };
+    }
     const input = pcm16.length ? pcm16 : pcm;
-    try {
-      const t = await runNamed(voice, {
-        [name]: tensorFloat(ort, input, [1, input.length]),
-      });
-      const data = t.data as Float32Array;
-      return resampleLinear(Float32Array.from(data), 16000, sampleRate);
-    } catch {
+    const shapes: [number[], string][] = [
+      [[1, input.length], `[1, ${input.length}]`],
+      [[1, 1, input.length], `[1, 1, ${input.length}]`],
+      [[input.length], `[${input.length}]`],
+    ];
+    let last = "";
+    for (const [dims, label] of shapes) {
       try {
-        const t = await runNamed(voice, {
-          [name]: tensorFloat(ort, input, [1, 1, input.length]),
-        });
+        const t = await runNamed(voice, { [name]: tensorFloat(ort, input, dims) });
         const data = t.data as Float32Array;
-        return resampleLinear(Float32Array.from(data), 16000, sampleRate);
-      } catch {
-        return null;
+        return { pcm: resampleLinear(Float32Array.from(data), 16000, sampleRate) };
+      } catch (e) {
+        last = errText(e);
       }
     }
+    return {
+      fail: {
+        stage: "voice",
+        file: vName,
+        kind,
+        inputs: voice.inputNames,
+        tried: shapes.map((s) => `${name} ${s[1]}`).join(" / "),
+        reason: last || "単体変換に失敗",
+      },
+    };
   }
 
-  if (!hubert) return null;
-  const hName = hubert.inputNames[0];
-  if (!hName) return null;
-  let feats: OrtTensor;
-  try {
-    feats = await runNamed(hubert, {
-      [hName]: tensorFloat(ort, pcm16, [1, pcm16.length]),
-    });
-  } catch {
-    return null;
+  if (!hubert) {
+    return {
+      fail: {
+        stage: "hubert",
+        file: hName,
+        kind,
+        inputs: voice.inputNames,
+        tried: "",
+        reason: `声モデル「${vName}」は RVC です。内容エンコーダの .onnx が未設定です`,
+      },
+    };
   }
+
+  const hubertRun = await runHubert(ort, hubert, pcm16);
+  if ("fail" in hubertRun) {
+    return {
+      fail: {
+        ...hubertRun.fail,
+        file: opts.hubertName || hubertRun.fail.file,
+      },
+    };
+  }
+  const feats = hubertRun.tensor;
   const featData = feats.data as Float32Array;
   const dims = feats.dims ?? [];
   const frames =
@@ -234,11 +323,12 @@ export async function convertPcm(opts: {
     dims.length >= 1 ? Number(dims[dims.length - 1]) : Math.floor(featData.length / frames);
   const f0 = f0Contour(pcm16, 16000, Math.max(1, frames), pitch);
   const feeds: Record<string, unknown> = {};
+  const missing: string[] = [];
   for (const raw of voice.inputNames) {
     const n = raw.toLowerCase();
     if (n.includes("phone") || n.includes("feat") || n.includes("hubert") || n.includes("content")) {
       feeds[raw] = tensorFloat(ort, featData, [1, frames, width]);
-    } else if (n === "pitchf" || n.includes("f0") && !n.includes("coarse")) {
+    } else if (n === "pitchf" || (n.includes("f0") && !n.includes("coarse"))) {
       feeds[raw] = tensorFloat(ort, f0, [1, f0.length]);
     } else if (n === "pitch" || n.includes("pitch") || n.includes("coarse")) {
       const bins = new BigInt64Array(f0.length);
@@ -252,15 +342,95 @@ export async function convertPcm(opts: {
       feeds[raw] = tensorFloat(ort, rnd, [1, 1, rnd.length]);
     } else if (n.includes("len")) {
       feeds[raw] = new ort.Tensor("int64", BigInt64Array.from([BigInt(frames)]), [1]);
+    } else {
+      missing.push(raw);
     }
   }
-  if (!Object.keys(feeds).length) return null;
+  if (!Object.keys(feeds).length) {
+    return {
+      fail: {
+        stage: "voice",
+        file: vName,
+        kind,
+        inputs: voice.inputNames,
+        tried: `HuBERT出力 [1, ${frames}, ${width}]`,
+        reason: "声モデルの入力名（phone / pitch など）に割り当てられませんでした",
+      },
+    };
+  }
   try {
     const t = await runNamed(voice, feeds);
     const data = t.data as Float32Array;
     const outRate = data.length > pcm16.length * 1.5 ? 40000 : 16000;
-    return resampleLinear(Float32Array.from(data), outRate, sampleRate);
-  } catch {
-    return null;
+    return { pcm: resampleLinear(Float32Array.from(data), outRate, sampleRate) };
+  } catch (e) {
+    return {
+      fail: {
+        stage: "voice",
+        file: vName,
+        kind,
+        inputs: voice.inputNames,
+        tried: `phone/feats [1, ${frames}, ${width}]${missing.length ? ` · 未割り当て: ${missing.join(", ")}` : ""}`,
+        reason: errText(e),
+      },
+    };
   }
+}
+
+function errText(e: unknown) {
+  const s = e instanceof Error ? e.message : String(e);
+  return s.replace(/\s+/g, " ").slice(0, 180) || "エラー詳細なし";
+}
+
+async function runHubert(
+  ort: OrtModule,
+  hubert: OrtSession,
+  pcm16: Float32Array,
+): Promise<{ tensor: OrtTensor } | { fail: ConvertFail }> {
+  const names = hubert.inputNames;
+  const attempts: { label: string; feeds: () => Record<string, unknown> }[] = [
+    {
+      label: names.map((n) => `${n} [1, ${pcm16.length}]`).join(" + "),
+      feeds: () => {
+        const feeds: Record<string, unknown> = {};
+        for (const n of names) {
+          const k = n.toLowerCase();
+          if (k.includes("mask") || k.includes("pad")) {
+            feeds[n] = new ort.Tensor("bool", new Uint8Array(pcm16.length), [1, pcm16.length]);
+          } else {
+            feeds[n] = tensorFloat(ort, pcm16, [1, pcm16.length]);
+          }
+        }
+        return feeds;
+      },
+    },
+    {
+      label: `${names[0] ?? "input"} [1, ${pcm16.length}]`,
+      feeds: () => ({ [names[0]!]: tensorFloat(ort, pcm16, [1, pcm16.length]) }),
+    },
+    {
+      label: `${names[0] ?? "input"} [1, 1, ${pcm16.length}]`,
+      feeds: () => ({ [names[0]!]: tensorFloat(ort, pcm16, [1, 1, pcm16.length]) }),
+    },
+  ];
+  let last = "";
+  for (const a of attempts) {
+    if (!names[0] && a !== attempts[0]) continue;
+    try {
+      const t = await runNamed(hubert, a.feeds());
+      return { tensor: t };
+    } catch (e) {
+      last = errText(e);
+    }
+  }
+  return {
+    fail: {
+      stage: "hubert",
+      file: "内容エンコーダ.onnx",
+      kind: "none",
+      inputs: names,
+      tried: attempts.map((a) => a.label).join(" / "),
+      reason: last || "HuBERT 推論に失敗",
+    },
+  };
 }
