@@ -160,7 +160,7 @@ function buildFeeds(
       const size = sshape.reduce((a, b) => a * Math.max(1, b), 1);
       feeds[raw] = f32(ort, new Float32Array(size), sshape);
     } else if (n.includes("sdp")) feeds[raw] = f32(ort, Float32Array.from([0.2]), scDims);
-    else if (n.includes("length")) feeds[raw] = f32(ort, Float32Array.from([1.35]), scDims);
+    else if (n.includes("length")) feeds[raw] = f32(ort, Float32Array.from([1.55]), scDims);
     else if (n.includes("noise") && n.includes("w")) {
       feeds[raw] = f32(ort, Float32Array.from([0.5]), scDims);
     } else if (n.includes("noise")) {
@@ -172,7 +172,7 @@ function buildFeeds(
 
 function guessTtsRate(samples: number, phoneCount: number) {
   const mora = Math.max(2, Math.round(phoneCount * 0.55));
-  const want = mora * 0.22;
+  const want = mora * 0.26;
   const rates = [22050, 24000, 32000, 44100, 48000];
   let best = 44100;
   let err = Infinity;
@@ -261,9 +261,10 @@ export async function convertSbVits(
       const data = out.data as Float32Array;
       if (!data?.length) throw new Error("無音出力");
       cached = combo;
-      consumeUtterance(spoken);
-      const pcm = easeEdges(Float32Array.from(data), guessTtsRate(data.length, t));
-      return { pcm, rate: guessTtsRate(data.length, t), used: label };
+      const rate = guessTtsRate(data.length, t);
+      consumeUtterance(spoken, (data.length / rate) * 1000);
+      const pcm = easeEdges(Float32Array.from(data), rate);
+      return { pcm, rate, used: label };
     } catch (e) {
       last = e instanceof Error ? e.message : String(e);
       if (combo.intKind === "int64" && wantsInt32(last)) intKind = "int32";
@@ -283,8 +284,8 @@ export async function convertSbVits(
             const data = out.data as Float32Array;
             if (!data?.length) throw new Error("無音出力");
             cached = { intKind, bshape, sshape, sc };
-            consumeUtterance(spoken);
             const rate = guessTtsRate(data.length, t);
+            consumeUtterance(spoken, (data.length / rate) * 1000);
             return { pcm: easeEdges(Float32Array.from(data), rate), rate, used: label };
           } catch (e) {
             last = e instanceof Error ? e.message : String(e);

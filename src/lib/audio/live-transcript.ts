@@ -23,8 +23,44 @@ const MAX_UTTER = 80;
 let queue: string[] = [];
 let interim = "";
 let lines: string[] = [];
-let onAir = "";
-let onAirAt = 0;
+
+type Cap = { text: string; holdMs: number; startedAt: number };
+let showing: Cap | null = null;
+let capQ: Cap[] = [];
+
+function readHold(text: string, audioMs = 0) {
+  const chars = Math.max(1, [...text].length);
+  const readMs = Math.max(4500, Math.min(16000, chars * 450));
+  return Math.max(readMs, audioMs + 1800);
+}
+
+function pushCaption(text: string, audioMs = 0) {
+  const holdMs = readHold(text, audioMs);
+  if (showing?.text === text) {
+    const elapsed = Date.now() - showing.startedAt;
+    showing.holdMs = Math.max(showing.holdMs, elapsed + holdMs);
+    return;
+  }
+  const found = capQ.find((c) => c.text === text);
+  if (found) {
+    found.holdMs = Math.max(found.holdMs, holdMs);
+    return;
+  }
+  if (!showing) {
+    showing = { text, holdMs, startedAt: Date.now() };
+    return;
+  }
+  capQ.push({ text, holdMs, startedAt: 0 });
+  if (capQ.length > 8) capQ.shift();
+}
+
+function advanceCaption() {
+  const now = Date.now();
+  while (showing && now - showing.startedAt >= showing.holdMs) {
+    const n = capQ.shift();
+    showing = n ? { ...n, startedAt: now } : null;
+  }
+}
 
 function enqueue(raw: string) {
   const parts = raw
@@ -34,7 +70,10 @@ function enqueue(raw: string) {
   for (const part of parts) {
     for (let i = 0; i < part.length; i += MAX_UTTER) {
       const chunk = part.slice(i, i + MAX_UTTER).trim();
-      if (chunk) queue.push(chunk);
+      if (chunk) {
+        queue.push(chunk);
+        pushCaption(chunk);
+      }
     }
   }
   if (queue.length > MAX_QUEUE) queue = queue.slice(-MAX_QUEUE);
@@ -48,22 +87,22 @@ export function peekUtterance() {
   return queue[0] ?? "";
 }
 
-export function consumeUtterance(text: string) {
+export function consumeUtterance(text: string, audioMs = 0) {
   if (!text) return;
   if (queue[0] === text) queue.shift();
   else {
     const i = queue.indexOf(text);
     if (i >= 0) queue.splice(i, 1);
   }
-  onAir = text;
-  onAirAt = Date.now();
+  pushCaption(text, audioMs);
 }
 
 export function overlayCaption() {
-  const hold = Date.now() - onAirAt < 14000 && onAir;
+  advanceCaption();
   return {
-    text: hold || queue[0] || "",
-    interim,
+    text: showing?.text || "",
+    next: capQ[0]?.text || "",
+    interim: showing ? "" : interim.length >= 4 ? interim : "",
   };
 }
 
@@ -71,8 +110,8 @@ export function clearTranscript() {
   queue = [];
   interim = "";
   lines = [];
-  onAir = "";
-  onAirAt = 0;
+  showing = null;
+  capQ = [];
 }
 
 export function speechRecognitionAvailable() {

@@ -37,26 +37,35 @@ function paintCaption(
   frame: ObsOverlayFrame,
 ) {
   const main = (frame.caption || "").trim();
+  const next = (frame.captionNext || "").trim();
   const wait = (frame.captionInterim || "").trim();
   const raw = main || wait;
-  if (!raw) return;
-  const maxW = Math.max(120, cssW - 48);
-  ctx.font = "700 28px ui-sans-serif, system-ui, 'Noto Sans JP', sans-serif";
-  const lines = wrapText(ctx, raw, maxW, 2);
-  if (!lines.length) return;
-  const lineH = 36;
-  const padX = 18;
-  const padY = 12;
-  const boxH = lines.length * lineH + padY * 2;
-  const boxW = Math.min(
-    maxW + padX * 2,
-    Math.max(...lines.map((l) => ctx.measureText(l).width)) + padX * 2,
-  );
+  if (!raw && !next) return;
+  const maxW = Math.max(120, cssW - 56);
+  ctx.font = "700 32px ui-sans-serif, system-ui, 'Noto Sans JP', sans-serif";
+  const lines = raw ? wrapText(ctx, raw, maxW, 2) : [];
+  ctx.font = "600 18px ui-sans-serif, system-ui, 'Noto Sans JP', sans-serif";
+  const nextLines = next && next !== raw ? wrapText(ctx, `次  ${next}`, maxW, 1) : [];
+  if (!lines.length && !nextLines.length) return;
+  const lineH = 40;
+  const nextH = nextLines.length ? 26 : 0;
+  const padX = 22;
+  const padY = 14;
+  const boxH = lines.length * lineH + nextH + padY * 2 + (nextH ? 6 : 0);
+  ctx.font = "700 32px ui-sans-serif, system-ui, 'Noto Sans JP', sans-serif";
+  const widths = [
+    ...lines.map((l) => ctx.measureText(l).width),
+    ...nextLines.map((l) => {
+      ctx.font = "600 18px ui-sans-serif, system-ui, 'Noto Sans JP', sans-serif";
+      return ctx.measureText(l).width;
+    }),
+  ];
+  const boxW = Math.min(maxW + padX * 2, Math.max(160, ...widths) + padX * 2);
   const x = (cssW - boxW) / 2;
-  const y = cssH - boxH - 64;
-  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  const y = cssH - boxH - 56;
+  ctx.fillStyle = "rgba(0,0,0,0.62)";
   ctx.beginPath();
-  const r = 12;
+  const r = 14;
   ctx.moveTo(x + r, y);
   ctx.arcTo(x + boxW, y, x + boxW, y + boxH, r);
   ctx.arcTo(x + boxW, y + boxH, x, y + boxH, r);
@@ -67,14 +76,23 @@ function paintCaption(
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.lineJoin = "round";
-  ctx.lineWidth = 6;
-  ctx.strokeStyle = "rgba(0,0,0,0.8)";
-  ctx.fillStyle = main ? "#fff" : "rgba(255,255,255,0.72)";
+  ctx.lineWidth = 7;
+  ctx.strokeStyle = "rgba(0,0,0,0.85)";
+  ctx.fillStyle = main ? "#fff" : "rgba(255,255,255,0.8)";
+  ctx.font = "700 32px ui-sans-serif, system-ui, 'Noto Sans JP', sans-serif";
   lines.forEach((line, i) => {
     const ty = y + padY + lineH * i + lineH / 2;
     ctx.strokeText(line, cssW / 2, ty);
     ctx.fillText(line, cssW / 2, ty);
   });
+  if (nextLines[0]) {
+    ctx.font = "600 18px ui-sans-serif, system-ui, 'Noto Sans JP', sans-serif";
+    ctx.lineWidth = 4;
+    ctx.fillStyle = "rgba(255,255,255,0.7)";
+    const ty = y + padY + lines.length * lineH + 8 + 13;
+    ctx.strokeText(nextLines[0], cssW / 2, ty);
+    ctx.fillText(nextLines[0], cssW / 2, ty);
+  }
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
   ctx.shadowBlur = 0;

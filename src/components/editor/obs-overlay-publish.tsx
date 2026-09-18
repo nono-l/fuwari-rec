@@ -30,6 +30,7 @@ export function ObsOverlayPublish() {
         bars,
         caption: cap.text,
         captionInterim: cap.interim,
+        captionNext: cap.next,
       });
     };
     tick();
