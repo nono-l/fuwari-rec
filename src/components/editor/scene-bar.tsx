@@ -114,7 +114,7 @@ export function SceneBar({ compact = false }: { compact?: boolean }) {
         <p className="text-[10px] leading-relaxed text-muted-foreground">
           {copied
             ? "URL をコピーしました。OBS のブラウザソースに貼って、背景を透明に"
-            : "このタブを開いたまま、OBS へブラウザソースとして追加します"}
+            : "エフェクト ON のこのタブを開いたまま、OBS のブラウザソースへ"}
         </p>
       </div>
     </div>

@@ -9,21 +9,23 @@ export function ObsOverlayPublish() {
   const live = useEditorStore((s) => s.liveFxActive);
 
   useEffect(() => {
-    let raf = 0;
-    const buf = new Uint8Array(2048);
+    let buf = new Uint8Array(1024);
     const tick = () => {
       let bars: number[] = [];
       try {
-        getAudioEngine().fillSpectrum(buf);
+        const engine = getAudioEngine();
+        const count = engine.getSpectrumBinCount() || 1024;
+        if (buf.length !== count) buf = new Uint8Array(count);
+        engine.fillSpectrum(buf);
         bars = downsampleSpectrum(buf);
       } catch {
         bars = [];
       }
       publishObsOverlay({ scene, live, bars });
-      raf = requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    tick();
+    const id = window.setInterval(tick, 50);
+    return () => window.clearInterval(id);
   }, [scene, live]);
 
   return null;

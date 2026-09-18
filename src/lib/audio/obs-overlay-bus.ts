@@ -9,23 +9,40 @@ export type ObsOverlayFrame = {
 
 export function downsampleSpectrum(bins: Uint8Array, n = OBS_BARS) {
   const out: number[] = [];
-  if (!bins.length) return out;
-  const step = bins.length / n;
+  const len = bins.length;
+  if (!len) return out;
+  const step = len / n;
   for (let i = 0; i < n; i++) {
     const a = Math.floor(i * step);
     const b = Math.max(a + 1, Math.floor((i + 1) * step));
     let m = 0;
-    for (let j = a; j < b && j < bins.length; j++) {
+    for (let j = a; j < b && j < len; j++) {
       if (bins[j]! > m) m = bins[j]!;
     }
-    out.push(m / 255);
+    out.push(Math.min(1, Math.pow(m / 255, 0.55)));
   }
   return out;
 }
 
 let pub: BroadcastChannel | null = null;
-let lastPost = 0;
 let posting = false;
+let queued: ObsOverlayFrame | null = null;
+
+function sendQueued() {
+  const frame = queued;
+  if (!frame || posting || typeof fetch === "undefined") return;
+  queued = null;
+  posting = true;
+  void fetch("/api/obs-overlay", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(frame),
+    keepalive: true,
+  }).finally(() => {
+    posting = false;
+    if (queued) sendQueued();
+  });
+}
 
 export function publishObsOverlay(frame: ObsOverlayFrame) {
   if (typeof BroadcastChannel !== "undefined") {
@@ -36,19 +53,8 @@ export function publishObsOverlay(frame: ObsOverlayFrame) {
       /* private mode */
     }
   }
-  const now = typeof performance !== "undefined" ? performance.now() : Date.now();
-  if (now - lastPost < 80 || posting) return;
-  lastPost = now;
-  if (typeof fetch === "undefined") return;
-  posting = true;
-  void fetch("/api/obs-overlay", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(frame),
-    keepalive: true,
-  }).finally(() => {
-    posting = false;
-  });
+  queued = frame;
+  sendQueued();
 }
 
 export function subscribeObsOverlay(fn: (f: ObsOverlayFrame) => void) {
