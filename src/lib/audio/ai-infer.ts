@@ -88,18 +88,21 @@ export async function preferWebGpu(): Promise<boolean> {
 
 export async function createOnnxSession(
   file: File,
+  opts?: { wasmOnly?: boolean },
 ): Promise<{ session: OrtSession; provider: "webgpu" | "wasm" }> {
   const ort = await loadOrt();
   const buf = await file.arrayBuffer();
-  const gpu = await preferWebGpu();
-  if (gpu) {
-    try {
-      const session = await ort.InferenceSession.create(buf.slice(0), {
-        executionProviders: ["webgpu", "wasm"],
-      });
-      return { session, provider: "webgpu" };
-    } catch {
-      /* wasm fallback */
+  if (!opts?.wasmOnly) {
+    const gpu = await preferWebGpu();
+    if (gpu) {
+      try {
+        const session = await ort.InferenceSession.create(buf.slice(0), {
+          executionProviders: ["webgpu", "wasm"],
+        });
+        return { session, provider: "webgpu" };
+      } catch {
+        /* wasm fallback */
+      }
     }
   }
   const session = await ort.InferenceSession.create(buf.slice(0), {

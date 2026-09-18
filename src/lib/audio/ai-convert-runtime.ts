@@ -185,6 +185,16 @@ class AiConvertRuntime {
       this.voiceName = file.name;
       this.voiceKind = classifySession(voicePack.session);
       let provider = voicePack.provider;
+      if (this.voiceKind === "sbvits" && provider === "webgpu") {
+        try {
+          const wasmPack = await createOnnxSession(file, { wasmOnly: true });
+          if (gen !== this.loadGen) return;
+          this.voice = wasmPack.session;
+          provider = wasmPack.provider;
+        } catch {
+          /* keep gpu session */
+        }
+      }
       if (hubertFile && isOnnxFile(hubertFile)) {
         try {
           const h = await createOnnxSession(hubertFile);

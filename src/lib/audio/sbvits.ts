@@ -112,6 +112,13 @@ function f32(ort: OrtModule, data: Float32Array, dims: number[]) {
   return new ort.Tensor("float32", data, dims);
 }
 
+function wantsInt32(msg: string) {
+  return /expected:\s*\(?tensor\(int32\)/i.test(msg);
+}
+function wantsInt64(msg: string) {
+  return /expected:\s*\(?tensor\(int64\)/i.test(msg);
+}
+
 async function runNamed(session: OrtSession, feeds: Record<string, unknown>) {
   const out = await session.run(feeds);
   const first = session.outputNames[0] && out[session.outputNames[0]];
@@ -120,6 +127,52 @@ async function runNamed(session: OrtSession, feeds: Record<string, unknown>) {
   if (!keys[0]) throw new Error("出力なし");
   return out[keys[0]]!;
 }
+
+type IntKind = "int64" | "int32";
+
+function buildFeeds(
+  ort: OrtModule,
+  names: readonly string[],
+  intKind: IntKind,
+  ids: Int32Array,
+  tones: Int32Array,
+  lang: Int32Array,
+  t: number,
+  bshape: number[],
+  sshape: number[],
+  sc: number[],
+) {
+  const im = intKind === "int64" ? i64 : i32;
+  const scDims = sc.length ? sc : [1];
+  const feeds: Record<string, unknown> = {};
+  for (const raw of names) {
+    const n = raw.toLowerCase();
+    if (n === "x_tst") feeds[raw] = im(ort, ids, [1, t]);
+    else if (n === "x_tst_lengths" || (n.includes("tst") && n.includes("len"))) {
+      feeds[raw] = im(ort, Int32Array.from([t]), [1]);
+    } else if (n === "sid" || n === "speaker") feeds[raw] = im(ort, Int32Array.from([0]), [1]);
+    else if (n.includes("tone")) feeds[raw] = im(ort, tones, [1, t]);
+    else if (n.includes("lang")) feeds[raw] = im(ort, lang, [1, t]);
+    else if (n.includes("bert")) {
+      const size = bshape.reduce((a, b) => a * Math.max(1, b), 1);
+      feeds[raw] = f32(ort, new Float32Array(size), bshape);
+    } else if (n.includes("style")) {
+      const size = sshape.reduce((a, b) => a * Math.max(1, b), 1);
+      feeds[raw] = f32(ort, new Float32Array(size), sshape);
+    } else if (n.includes("sdp")) feeds[raw] = f32(ort, Float32Array.from([0.2]), scDims);
+    else if (n.includes("length")) feeds[raw] = f32(ort, Float32Array.from([1]), scDims);
+    else if (n.includes("noise") && n.includes("w")) {
+      feeds[raw] = f32(ort, Float32Array.from([0.8]), scDims);
+    } else if (n.includes("noise")) {
+      feeds[raw] = f32(ort, Float32Array.from([0.6]), scDims);
+    }
+  }
+  return feeds;
+}
+
+let cached:
+  | { intKind: IntKind; bshape: number[]; sshape: number[]; sc: number[] }
+  | null = null;
 
 export async function convertSbVits(
   ort: OrtModule,
@@ -133,10 +186,6 @@ export async function convertSbVits(
   const tones = new Int32Array(t).fill(JP_TONE0);
   const lang = new Int32Array(t).fill(JP_LANG);
   const names = voice.inputNames;
-  const intMakers = [
-    { tag: "int64", make: i64 },
-    { tag: "int32", make: i32 },
-  ];
   const bertShapes: number[][] = [
     [1, 1024, t],
     [1, t, 1024],
@@ -146,42 +195,60 @@ export async function convertSbVits(
   ];
   const styleShapes: number[][] = [[1, 256], [256], [1, 128], [1, 512]];
   const scalarShapes: number[][] = [[1], []];
+  let intKind: IntKind = cached?.intKind ?? "int64";
   const tried: string[] = [];
   let last = "";
-  for (const im of intMakers) {
+
+  const combos: { intKind: IntKind; bshape: number[]; sshape: number[]; sc: number[] }[] = [];
+  if (cached) combos.push(cached);
+  for (const bshape of bertShapes) {
+    for (const sshape of styleShapes) {
+      for (const sc of scalarShapes) {
+        combos.push({ intKind, bshape, sshape, sc });
+      }
+    }
+  }
+
+  for (const combo of combos) {
+    const label = `${combo.intKind} bert${combo.bshape.join("x")} style${combo.sshape.join("x")} 「${spoken}」`;
+    tried.push(label);
+    try {
+      const feeds = buildFeeds(
+        ort,
+        names,
+        combo.intKind,
+        ids,
+        tones,
+        lang,
+        t,
+        combo.bshape,
+        combo.sshape,
+        combo.sc,
+      );
+      const out = await runNamed(voice, feeds);
+      const data = out.data as Float32Array;
+      if (!data?.length) throw new Error("無音出力");
+      cached = combo;
+      return { pcm: Float32Array.from(data), rate: 44100, used: label };
+    } catch (e) {
+      last = e instanceof Error ? e.message : String(e);
+      if (combo.intKind === "int64" && wantsInt32(last)) intKind = "int32";
+      if (combo.intKind === "int32" && wantsInt64(last)) intKind = "int64";
+    }
+  }
+
+  if (intKind !== (cached?.intKind ?? "int64")) {
     for (const bshape of bertShapes) {
       for (const sshape of styleShapes) {
         for (const sc of scalarShapes) {
-          const feeds: Record<string, unknown> = {};
-          for (const raw of names) {
-            const n = raw.toLowerCase();
-            if (n === "x_tst") feeds[raw] = im.make(ort, ids, [1, t]);
-            else if (n === "x_tst_lengths" || (n.includes("tst") && n.includes("len"))) {
-              feeds[raw] = im.make(ort, Int32Array.from([t]), [1]);
-            } else if (n === "sid" || n === "speaker") feeds[raw] = im.make(ort, Int32Array.from([0]), [1]);
-            else if (n.includes("tone")) feeds[raw] = im.make(ort, tones, [1, t]);
-            else if (n.includes("lang")) feeds[raw] = im.make(ort, lang, [1, t]);
-            else if (n.includes("bert")) {
-              const size = bshape.reduce((a, b) => a * (b || 1), 1);
-              feeds[raw] = f32(ort, new Float32Array(size), bshape);
-            } else if (n.includes("style")) {
-              const size = sshape.reduce((a, b) => a * (b || 1), 1);
-              feeds[raw] = f32(ort, new Float32Array(size), sshape);
-            } else if (n.includes("sdp")) feeds[raw] = f32(ort, Float32Array.from([0.2]), sc.length ? sc : [1]);
-            else if (n.includes("length")) {
-              feeds[raw] = f32(ort, Float32Array.from([1]), sc.length ? sc : [1]);
-            } else if (n.includes("noise") && n.includes("w")) {
-              feeds[raw] = f32(ort, Float32Array.from([0.8]), sc.length ? sc : [1]);
-            } else if (n.includes("noise")) {
-              feeds[raw] = f32(ort, Float32Array.from([0.6]), sc.length ? sc : [1]);
-            }
-          }
-          const label = `${im.tag} bert${bshape.join("x")} style${sshape.join("x")} 「${spoken}」`;
+          const label = `${intKind} bert${bshape.join("x")} style${sshape.join("x")} 「${spoken}」`;
           tried.push(label);
           try {
+            const feeds = buildFeeds(ort, names, intKind, ids, tones, lang, t, bshape, sshape, sc);
             const out = await runNamed(voice, feeds);
             const data = out.data as Float32Array;
             if (!data?.length) throw new Error("無音出力");
+            cached = { intKind, bshape, sshape, sc };
             return { pcm: Float32Array.from(data), rate: 44100, used: label };
           } catch (e) {
             last = e instanceof Error ? e.message : String(e);
@@ -190,8 +257,10 @@ export async function convertSbVits(
       }
     }
   }
+
   return {
-    error: last.replace(/\s+/g, " ").slice(0, 180) || "Style-Bert-VITS2 の推論に失敗",
-    tried: tried.slice(0, 6).join(" / "),
+    error: last.replace(/\s+/g, " ").slice(0, 220) || "Style-Bert-VITS2 の推論に失敗",
+    tried: tried.slice(0, 8).join(" / "),
   };
 }
+
