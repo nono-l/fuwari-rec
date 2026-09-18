@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { QrCode, Smartphone, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SCENES, type SceneId } from "@/lib/audio/scenes";
@@ -60,20 +61,18 @@ export function RemoteHost() {
     setOpen(false);
   };
 
-  return (
-    <>
-      <Button
-        type="button"
-        size="sm"
-        variant={code ? "default" : "secondary"}
-        onClick={() => setOpen(true)}
-      >
-        <Smartphone className="size-3.5" />
-        {code ? (pad ? "リモコン接続中" : "リモコン待ち") : "リモコン"}
-      </Button>
-      {open && (
-        <div className="pointer-events-none fixed inset-x-0 top-[calc(var(--grok-banner-h,0px)+0.75rem)] z-40 flex justify-end px-3 sm:px-4">
-          <div className="pointer-events-auto w-full max-w-[220px] rounded-2xl border border-border bg-card/95 p-3 shadow-lg backdrop-blur-sm">
+  const panel =
+    open && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            className="w-[min(220px,calc(100vw-1.5rem))] rounded-2xl border border-border bg-card p-3 shadow-lg"
+            style={{
+              position: "fixed",
+              top: "calc(var(--grok-banner-h, 0px) + 0.75rem)",
+              right: "0.75rem",
+              zIndex: 80,
+            }}
+          >
             <div className="mb-2 flex items-start justify-between gap-2">
               <div>
                 <h2 className="flex items-center gap-1.5 text-[12px] font-semibold text-foreground">
@@ -81,7 +80,7 @@ export function RemoteHost() {
                   スマホリモコン
                 </h2>
                 <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">
-                  スクロールしてもこのQRは残ります
+                  ページを動かしてもこのQRは画面に残ります
                 </p>
               </div>
               <Button type="button" size="icon-sm" variant="ghost" onClick={() => setOpen(false)}>
@@ -106,16 +105,36 @@ export function RemoteHost() {
                   {" · "}
                   いま {SCENES.find((s) => s.id === scene)?.label}
                 </p>
-                <Button type="button" size="sm" variant="ghost" className="mt-1 w-full text-[10px]" onClick={stop}>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="mt-1 w-full text-[10px]"
+                  onClick={stop}
+                >
                   リモコンを切る
                 </Button>
               </>
             ) : (
               <p className="text-[11px] text-muted-foreground">コードを発行しています…</p>
             )}
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )
+      : null;
+
+  return (
+    <>
+      <Button
+        type="button"
+        size="sm"
+        variant={code ? "default" : "secondary"}
+        onClick={() => setOpen(true)}
+      >
+        <Smartphone className="size-3.5" />
+        {code ? (pad ? "リモコン接続中" : "リモコン待ち") : "リモコン"}
+      </Button>
+      {panel}
     </>
   );
 }
