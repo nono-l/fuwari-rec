@@ -7,6 +7,7 @@ import {
   AI_MODEL_ACCEPT,
   formatModelSize,
   hasAiModelFile,
+  getAiModelFile,
   setAiModelFile,
   type AiVoiceInsert,
 } from "@/lib/audio/ai-voice";
@@ -15,6 +16,7 @@ import { aiRuntimeModeLabel } from "@/lib/audio/ai-runtime";
 import { useAiRuntimeStore } from "@/lib/store/ai-runtime-store";
 import { WebGpuToggle } from "@/components/editor/webgpu-toggle";
 import { AiVoiceMeter } from "@/components/editor/ai-voice-meter";
+import { AiVoiceFileCheck } from "@/components/editor/ai-file-check";
 
 export function AiVoiceControl({
   voice,
@@ -122,6 +124,7 @@ export function AiVoiceControl({
           .onnx が読めたときだけモデル変換します。それ以外は内蔵の声色です。
           {convert.detail ? ` ${convert.detail}` : ""}
         </p>
+        <AiVoiceFileCheck voiceId={voice.id} file={getAiModelFile(voice.id)} />
         <div className="mt-2">
           <WebGpuToggle />
         </div>

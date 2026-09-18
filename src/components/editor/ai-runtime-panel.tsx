@@ -11,6 +11,7 @@ import {
 import { formatModelSize } from "@/lib/audio/ai-voice";
 import { useAiRuntimeStore } from "@/lib/store/ai-runtime-store";
 import { WebGpuToggle } from "@/components/editor/webgpu-toggle";
+import { AiSetupCheck, AiSlotCheck } from "@/components/editor/ai-file-check";
 
 export function AiRuntimePanel() {
   const hydrate = useAiRuntimeStore((s) => s.hydrate);
@@ -60,6 +61,7 @@ export function AiRuntimePanel() {
             <p className="text-xs text-muted-foreground">読み込み中…</p>
           )}
           <WebGpuToggle />
+          <AiSetupCheck />
           <ul className="space-y-3">
             {AI_RUNTIME_SLOTS.map((def) => (
               <li key={def.id}>
@@ -194,6 +196,8 @@ function SlotCard({
           {busy ? "保存中…" : "ファイルを選ぶ"}
         </Button>
       )}
+
+      <AiSlotCheck slot={def.id} />
 
       <a
         href={def.officialUrl}
