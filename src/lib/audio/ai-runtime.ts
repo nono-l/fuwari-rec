@@ -23,22 +23,22 @@ export const AI_RUNTIME_SLOTS: AiRuntimeSlotDef[] = [
   {
     id: "hubert",
     label: "内容エンコーダ",
-    role: "何を言ったかを取る土台。HuBERT / ContentVec。誰の声色でもない",
-    accept: ".pt,.pth,.onnx",
+    role: "何を言ったかを取る土台。HuBERT / ContentVec の .onnx。誰の声色でもない",
+    accept: ".onnx,.pt,.pth",
     optional: true,
     officialUrl:
-      "https://huggingface.co/lj1995/VoiceConversionWebUI/blob/main/hubert_base.pt",
-    officialName: "hubert_base.pt（公式・約190MB）",
+      "https://huggingface.co/wok000/vcclient_modules/blob/main/contentvec/contentvec-f.onnx",
+    officialName: "contentvec-f.onnx（RVC用ONNX・約379MB）",
   },
   {
     id: "rmvpe",
     label: "ピッチ抽出",
     role: "音の高さを精密に取る。未設定でもキー（半音）は動く",
-    accept: ".pt,.pth,.onnx",
+    accept: ".onnx,.pt,.pth",
     optional: true,
     officialUrl:
-      "https://huggingface.co/lj1995/VoiceConversionWebUI/blob/main/rmvpe.pt",
-    officialName: "rmvpe.pt または rmvpe.onnx",
+      "https://huggingface.co/lj1995/VoiceConversionWebUI/blob/main/rmvpe.onnx",
+    officialName: "rmvpe.onnx（公式ONNX・約362MB）",
   },
   {
     id: "pretrained",
@@ -48,7 +48,7 @@ export const AI_RUNTIME_SLOTS: AiRuntimeSlotDef[] = [
     optional: true,
     officialUrl:
       "https://huggingface.co/lj1995/VoiceConversionWebUI/tree/main/pretrained_v2",
-    officialName: "pretrained_v2（f0G48k.pth など）",
+    officialName: "pretrained_v2（f0G48k.pth など・学習用）",
   },
 ];
 

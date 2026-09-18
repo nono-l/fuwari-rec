@@ -76,16 +76,25 @@ export function AiRuntimePanel() {
             ))}
           </ul>
           <p className="text-[11px] leading-relaxed text-muted-foreground">
-            公式ファイルは Hugging Face の{" "}
+            ブラウザで変換できるのは .onnx だけです。内容エンコーダは{" "}
             <a
-              href="https://huggingface.co/lj1995/VoiceConversionWebUI"
+              href="https://huggingface.co/wok000/vcclient_modules/blob/main/contentvec/contentvec-f.onnx"
               target="_blank"
               rel="noreferrer"
               className="font-medium text-primary underline-offset-2 hover:underline"
             >
-              lj1995/VoiceConversionWebUI
+              contentvec-f.onnx
             </a>
-            （MIT）から入手できます。この端末のブラウザにだけ保存します。
+            、ピッチは{" "}
+            <a
+              href="https://huggingface.co/lj1995/VoiceConversionWebUI/blob/main/rmvpe.onnx"
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-primary underline-offset-2 hover:underline"
+            >
+              rmvpe.onnx
+            </a>
+            （公式）。hubert_base.pt は学習用なので使いません。この端末にだけ保存します。
           </p>
           <Link
             to="/effector"
