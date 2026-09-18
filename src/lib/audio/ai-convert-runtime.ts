@@ -18,6 +18,8 @@ export type AiConvertStatus =
   | "unsupported"
   | "error";
 
+export type AiHopResult = "idle" | "busy" | "ok" | "fail" | "skip";
+
 export type AiConvertState = {
   status: AiConvertStatus;
   detail: string;
@@ -26,6 +28,25 @@ export type AiConvertState = {
   f0Hz: number;
   convertRatio: number;
   hopMs: number;
+  busy: boolean;
+  inferStartedAt: number;
+  attempts: number;
+  okCount: number;
+  failCount: number;
+  skipCount: number;
+  lastResult: AiHopResult;
+  voiceName: string;
+  hubertName: string;
+  rmvpeName: string;
+  voiceKind: ConvertKind | "";
+  voiceReady: boolean;
+  hubertReady: boolean;
+  rmvpeReady: boolean;
+  log: string[];
+  contentFrames: number;
+  contentWidth: number;
+  contentBars: string;
+  contentEnergy: number;
 };
 
 type Listener = (s: AiConvertState) => void;
@@ -38,6 +59,25 @@ const init: AiConvertState = {
   f0Hz: 0,
   convertRatio: 0,
   hopMs: 0,
+  busy: false,
+  inferStartedAt: 0,
+  attempts: 0,
+  okCount: 0,
+  failCount: 0,
+  skipCount: 0,
+  lastResult: "idle",
+  voiceName: "",
+  hubertName: "",
+  rmvpeName: "",
+  voiceKind: "",
+  voiceReady: false,
+  hubertReady: false,
+  rmvpeReady: false,
+  log: [],
+  contentFrames: 0,
+  contentWidth: 0,
+  contentBars: "",
+  contentEnergy: 0,
 };
 
 class AiConvertRuntime {
@@ -54,6 +94,27 @@ class AiConvertRuntime {
   private loadGen = 0;
   private busy = false;
   private lastFail = "";
+  private lastSkipUi = 0;
+  private pulse: number | null = null;
+
+  private pushLog(line: string) {
+    const log = [...this.state.log, line].slice(-8);
+    this.set({ log });
+  }
+
+  private startPulse() {
+    if (this.pulse != null || typeof window === "undefined") return;
+    this.pulse = window.setInterval(() => {
+      if (!this.busy) return;
+      this.set({ inferStartedAt: this.state.inferStartedAt });
+    }, 250);
+  }
+
+  private stopPulse() {
+    if (this.pulse == null || typeof window === "undefined") return;
+    window.clearInterval(this.pulse);
+    this.pulse = null;
+  }
 
   subscribe(fn: Listener) {
     this.listeners.add(fn);
@@ -157,6 +218,26 @@ class AiConvertRuntime {
       this.set({
         status: "ready",
         provider,
+        voiceName: this.voiceName,
+        hubertName: this.hubertName,
+        rmvpeName: this.rmvpeName,
+        voiceKind: this.voiceKind,
+        voiceReady: true,
+        hubertReady: Boolean(this.hubert),
+        rmvpeReady: Boolean(this.rmvpe),
+        attempts: 0,
+        okCount: 0,
+        failCount: 0,
+        skipCount: 0,
+        lastResult: "idle",
+        log: [
+          `声 ${this.voiceName}（${kindJa}）`,
+          this.hubert
+            ? `土台 ${this.hubertName}`
+            : "土台なし",
+          this.rmvpe ? `ピッチ ${this.rmvpeName}` : "ピッチ抽出なし",
+          `${provider} で待機`,
+        ],
         detail: this.hubert
           ? `変換待機（${provider} · 声「${this.voiceName}」${kindJa} · 土台「${this.hubertName}」）`
           : `変換待機（${provider} · 声「${this.voiceName}」${kindJa} · 土台なし）`,
@@ -214,28 +295,38 @@ class AiConvertRuntime {
           lastInferMs: performance.now() - t0,
           convertRatio: 1,
           hopMs: (samples.length / Math.max(8000, sr)) * 1000,
+          lastResult: "ok",
+          okCount: this.state.okCount + 1,
+          attempts: this.state.attempts + 1,
+          busy: false,
+          contentFrames: out.content?.frames ?? this.state.contentFrames,
+          contentWidth: out.content?.width ?? this.state.contentWidth,
+          contentBars: out.content?.bars ?? this.state.contentBars,
+          contentEnergy: out.content?.energy ?? this.state.contentEnergy,
           detail: `変換できています（${this.state.provider} · ${this.voiceName}）`,
         });
       } else {
         node.port.postMessage({ type: "skip" });
         const fail = "fail" in out ? out.fail : null;
+        const content = fail?.content;
         const detail = fail
           ? formatConvertFail(fail)
           : "このONNXの入力形では変換できません";
-        if (detail !== this.lastFail) {
-          this.lastFail = detail;
-          this.set({
-            lastInferMs: performance.now() - t0,
-            convertRatio: 0,
-            detail,
-          });
-        } else {
-          this.set({
-            lastInferMs: performance.now() - t0,
-            convertRatio: 0,
-            hopMs: (samples.length / Math.max(8000, sr)) * 1000,
-          });
-        }
+        this.lastFail = detail;
+        this.set({
+          lastInferMs: performance.now() - t0,
+          convertRatio: 0,
+          hopMs: (samples.length / Math.max(8000, sr)) * 1000,
+          lastResult: "fail",
+          failCount: this.state.failCount + 1,
+          attempts: this.state.attempts + 1,
+          busy: false,
+          contentFrames: content?.frames ?? this.state.contentFrames,
+          contentWidth: content?.width ?? this.state.contentWidth,
+          contentBars: content?.bars ?? this.state.contentBars,
+          contentEnergy: content?.energy ?? this.state.contentEnergy,
+          detail,
+        });
       }
     } catch (e) {
       console.error(e);

@@ -17,6 +17,7 @@ import { useAiRuntimeStore } from "@/lib/store/ai-runtime-store";
 import { WebGpuToggle } from "@/components/editor/webgpu-toggle";
 import { AiVoiceMeter } from "@/components/editor/ai-voice-meter";
 import { AiVoiceFileCheck } from "@/components/editor/ai-file-check";
+import { AiContentTranscript } from "@/components/editor/ai-transcript";
 
 export function AiVoiceControl({
   voice,
@@ -145,6 +146,9 @@ export function AiVoiceControl({
         </div>
         <div className="mt-2">
           <AiVoiceMeter convert={convert} mix={voice.mix} />
+        </div>
+        <div className="mt-2">
+          <AiContentTranscript convert={convert} />
         </div>
       </div>
 

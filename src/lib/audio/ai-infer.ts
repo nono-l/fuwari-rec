@@ -178,6 +178,49 @@ function tensorFloat(
   return new ort.Tensor("float32", data, dims);
 }
 
+export type ContentSnap = {
+  frames: number;
+  width: number;
+  energy: number;
+  bars: string;
+};
+
+export function contentSnap(
+  feat: Float32Array,
+  frames: number,
+  width: number,
+): ContentSnap {
+  const f = Math.max(1, frames);
+  const w = Math.max(1, width);
+  const glyph = "▁▂▃▄▅▆▇█";
+  const cols = 16;
+  const step = Math.max(1, Math.floor(f / cols));
+  const rmsArr: number[] = [];
+  let energy = 0;
+  for (let b = 0; b < cols; b++) {
+    let e = 0;
+    let n = 0;
+    const a = b * step;
+    const z = Math.min(f, a + step);
+    for (let i = a; i < z; i++) {
+      for (let j = 0; j < w; j++) {
+        const v = feat[i * w + j] ?? 0;
+        e += v * v;
+        n += 1;
+      }
+    }
+    const rms = Math.sqrt(e / Math.max(1, n));
+    rmsArr.push(rms);
+    energy += rms;
+  }
+  const peak = Math.max(1e-6, ...rmsArr);
+  let bars = "";
+  for (const rms of rmsArr) {
+    bars += glyph[Math.min(glyph.length - 1, Math.floor((rms / peak) * 7.99))] ?? "▁";
+  }
+  return { frames: f, width: w, energy, bars };
+}
+
 export type ConvertFail = {
   stage: "voice" | "hubert" | "rmvpe" | "assemble";
   file: string;
@@ -185,6 +228,7 @@ export type ConvertFail = {
   inputs: string[];
   tried: string;
   reason: string;
+  content?: ContentSnap;
 };
 
 export function formatConvertFail(f: ConvertFail) {
@@ -218,7 +262,7 @@ export async function convertPcm(opts: {
   voiceName?: string;
   hubertName?: string;
   rmvpeName?: string;
-}): Promise<{ pcm: Float32Array } | { fail: ConvertFail }> {
+}): Promise<{ pcm: Float32Array; content?: ContentSnap } | { fail: ConvertFail }> {
   const { pcm, sampleRate, pitch, voice, hubert } = opts;
   if (!voice) {
     return {
@@ -321,6 +365,7 @@ export async function convertPcm(opts: {
     dims.length >= 2 ? Number(dims[dims.length - 2]) : Math.max(1, Math.floor(featData.length / 256));
   const width =
     dims.length >= 1 ? Number(dims[dims.length - 1]) : Math.floor(featData.length / frames);
+  const content = contentSnap(featData, Math.max(1, frames), Math.max(1, width));
   const f0 = f0Contour(pcm16, 16000, Math.max(1, frames), pitch);
   const feeds: Record<string, unknown> = {};
   const missing: string[] = [];
@@ -355,6 +400,7 @@ export async function convertPcm(opts: {
         inputs: voice.inputNames,
         tried: `HuBERT出力 [1, ${frames}, ${width}]`,
         reason: "声モデルの入力名（phone / pitch など）に割り当てられませんでした",
+        content,
       },
     };
   }
@@ -362,7 +408,10 @@ export async function convertPcm(opts: {
     const t = await runNamed(voice, feeds);
     const data = t.data as Float32Array;
     const outRate = data.length > pcm16.length * 1.5 ? 40000 : 16000;
-    return { pcm: resampleLinear(Float32Array.from(data), outRate, sampleRate) };
+    return {
+      pcm: resampleLinear(Float32Array.from(data), outRate, sampleRate),
+      content,
+    };
   } catch (e) {
     return {
       fail: {
@@ -372,6 +421,7 @@ export async function convertPcm(opts: {
         inputs: voice.inputNames,
         tried: `phone/feats [1, ${frames}, ${width}]${missing.length ? ` · 未割り当て: ${missing.join(", ")}` : ""}`,
         reason: errText(e),
+        content,
       },
     };
   }
