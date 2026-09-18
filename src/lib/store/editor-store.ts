@@ -32,7 +32,7 @@ import {
   type SceneId,
   type SceneMeta,
 } from "@/lib/audio/scenes";
-import { loadScenePersist, saveScenePersist } from "@/lib/audio/scenes-persist";
+import { loadScenePersist, saveScenePersist, type ScenePersist } from "@/lib/audio/scenes-persist";
 import {
   MAX_AI_VOICE,
   newAiVoiceInsert,
@@ -674,6 +674,7 @@ export interface EditorState {
   activeSceneId: SceneId | null;
   sceneBank: Partial<Record<SceneId, SceneCapture>>;
   sceneList: SceneMeta[];
+  sceneCloud: "local" | "loading" | "ok" | "error";
 
   rangeMeasuring: boolean;
   rangeBusy: boolean;
@@ -816,6 +817,8 @@ export interface EditorState {
   renameScene: (id: SceneId, label: string) => void;
   removeScene: (id: SceneId) => void;
   toggleSceneRemote: (id: SceneId) => void;
+  applySceneBundle: (bundle: ScenePersist) => void;
+  setSceneCloud: (v: "local" | "loading" | "ok" | "error") => void;
   addAiVoice: () => string | null;
   updateAiVoice: (patch: Partial<AiVoiceInsert>) => void;
   removeAiVoice: () => void;
@@ -1171,6 +1174,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   activeSceneId: null,
   sceneBank: loadScenePersist()?.bank ?? {},
   sceneList: loadScenePersist()?.list ?? BUILTIN_SCENES.map((s) => ({ ...s })),
+  sceneCloud: "local",
 
   rangeMeasuring: false,
   rangeBusy: false,
@@ -3435,6 +3439,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     });
     saveScenePersist(get().sceneList, get().sceneBank);
   },
+
+  applySceneBundle: (bundle) => {
+    if (!bundle.list.length) return;
+    set({
+      sceneList: bundle.list,
+      sceneBank: bundle.bank ?? {},
+    });
+    saveScenePersist(bundle.list, bundle.bank ?? {});
+  },
+
+  setSceneCloud: (v) => set({ sceneCloud: v }),
 
   addAiVoice: () => {
     const existing = anyAiVoice(get());

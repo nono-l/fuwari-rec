@@ -22,6 +22,7 @@ export function SceneBar({ compact = false }: { compact?: boolean }) {
   const renameScene = useEditorStore((s) => s.renameScene);
   const removeScene = useEditorStore((s) => s.removeScene);
   const toggleRemote = useEditorStore((s) => s.toggleSceneRemote);
+  const cloud = useEditorStore((s) => s.sceneCloud);
   const [copied, setCopied] = useState(false);
   const [draft, setDraft] = useState("");
   const [renameId, setRenameId] = useState<SceneId | null>(null);
@@ -64,6 +65,13 @@ export function SceneBar({ compact = false }: { compact?: boolean }) {
       <div className="text-[12px] font-medium text-foreground">シーン</div>
       <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">
         数字キーで切替。今のチェーンをプリセットとして足せます。リモコンに出すものだけスマホに出ます
+        {cloud === "ok"
+          ? "。ログイン中のアカウントに保存され、別の端末でも使えます"
+          : cloud === "loading"
+            ? "。アカウントから読み込み中…"
+            : cloud === "error"
+              ? "。アカウント保存に失敗。この端末には残っています"
+              : "。ログインするとアカウントに連携します"}
       </p>
       <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
         {list.map((sc) => {
