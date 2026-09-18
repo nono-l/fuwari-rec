@@ -72,47 +72,46 @@ export function RemoteHost() {
         {code ? (pad ? "リモコン接続中" : "リモコン待ち") : "リモコン"}
       </Button>
       {open && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
-          <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-4 shadow-lg">
-            <div className="mb-3 flex items-start justify-between gap-2">
+        <div className="pointer-events-none fixed inset-x-0 top-[calc(var(--grok-banner-h,0px)+0.75rem)] z-40 flex justify-end px-3 sm:px-4">
+          <div className="pointer-events-auto w-full max-w-[220px] rounded-2xl border border-border bg-card/95 p-3 shadow-lg backdrop-blur-sm">
+            <div className="mb-2 flex items-start justify-between gap-2">
               <div>
-                <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                  <QrCode className="size-4 text-primary" />
+                <h2 className="flex items-center gap-1.5 text-[12px] font-semibold text-foreground">
+                  <QrCode className="size-3.5 text-primary" />
                   スマホリモコン
                 </h2>
-                <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-                  この PC のタブは開いたまま。スマホはシーン切替だけです
+                <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">
+                  スクロールしてもこのQRは残ります
                 </p>
               </div>
               <Button type="button" size="icon-sm" variant="ghost" onClick={() => setOpen(false)}>
                 <X className="size-4" />
               </Button>
             </div>
-            {error && <p className="text-[12px] text-danger">{error}</p>}
+            {error && <p className="text-[11px] text-danger">{error}</p>}
             {code ? (
               <>
-                <p className="text-center text-3xl font-semibold tracking-[0.3em] text-foreground">
+                <p className="text-center text-xl font-semibold tracking-[0.28em] text-foreground">
                   {code}
                 </p>
                 <img
                   src={qrImageUrl(url)}
                   alt="リモコンのQR"
-                  width={220}
-                  height={220}
-                  className="mx-auto mt-3 rounded-xl border border-border bg-white p-2"
+                  width={180}
+                  height={180}
+                  className="mx-auto mt-2 w-full rounded-xl border border-border bg-white p-1.5"
                 />
-                <p className="mt-2 text-center text-[11px] text-muted-foreground">
+                <p className="mt-1.5 text-center text-[10px] text-muted-foreground">
                   {pad ? "スマホ接続中" : "QR を読んで待っています"}
                   {" · "}
                   いま {SCENES.find((s) => s.id === scene)?.label}
                 </p>
-                <p className="mt-2 break-all text-center text-[10px] text-muted-foreground">{url}</p>
-                <Button type="button" size="sm" variant="ghost" className="mt-2 w-full" onClick={stop}>
+                <Button type="button" size="sm" variant="ghost" className="mt-1 w-full text-[10px]" onClick={stop}>
                   リモコンを切る
                 </Button>
               </>
             ) : (
-              <p className="text-[12px] text-muted-foreground">コードを発行しています…</p>
+              <p className="text-[11px] text-muted-foreground">コードを発行しています…</p>
             )}
           </div>
         </div>
