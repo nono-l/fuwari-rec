@@ -14,6 +14,7 @@ import { getAiConvertRuntime } from "@/lib/audio/ai-convert-runtime";
 import { aiRuntimeModeLabel } from "@/lib/audio/ai-runtime";
 import { useAiRuntimeStore } from "@/lib/store/ai-runtime-store";
 import { WebGpuToggle } from "@/components/editor/webgpu-toggle";
+import { AiVoiceMeter } from "@/components/editor/ai-voice-meter";
 
 export function AiVoiceControl({
   voice,
@@ -123,6 +124,9 @@ export function AiVoiceControl({
         </p>
         <div className="mt-2">
           <WebGpuToggle />
+        </div>
+        <div className="mt-2">
+          <AiVoiceMeter convert={convert} mix={voice.mix} />
         </div>
       </div>
 

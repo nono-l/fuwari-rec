@@ -1,4 +1,5 @@
 import { getAiConvertRuntime } from "./ai-convert-runtime";
+import { detectPitch } from "./pitch";
 
 /** AI voice is a single live-FX stage. Signal arrives here, then continues down the rack. */
 export const MAX_AI_VOICE = 1;
@@ -182,6 +183,24 @@ export function createAiVoiceHandle(
 
   wire(voice);
 
+  let tapRaf = 0;
+  let tapDisposed = false;
+  if (live && runtime && typeof requestAnimationFrame !== "undefined") {
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0;
+    const wave = new Float32Array(analyser.fftSize);
+    input.connect(analyser);
+    const tick = () => {
+      if (tapDisposed) return;
+      analyser.getFloatTimeDomainData(wave as unknown as Float32Array<ArrayBuffer>);
+      const hit = detectPitch(wave, ctx.sampleRate);
+      runtime.setTap(hit?.hz ?? 0);
+      tapRaf = requestAnimationFrame(tick);
+    };
+    tapRaf = requestAnimationFrame(tick);
+  }
+
   return {
     id: voice.id,
     input,
@@ -203,6 +222,9 @@ export function createAiVoiceHandle(
       }
     },
     dispose: () => {
+      tapDisposed = true;
+      if (tapRaf) cancelAnimationFrame(tapRaf);
+      tapRaf = 0;
       disconnectWet();
       try {
         dry.disconnect();

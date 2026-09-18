@@ -19,6 +19,9 @@ export type AiConvertState = {
   detail: string;
   provider: "" | "webgpu" | "wasm";
   lastInferMs: number;
+  f0Hz: number;
+  convertRatio: number;
+  hopMs: number;
 };
 
 type Listener = (s: AiConvertState) => void;
@@ -28,6 +31,9 @@ const init: AiConvertState = {
   detail: "モデル未選択。素通り＋キーで動きます",
   provider: "",
   lastInferMs: 0,
+  f0Hz: 0,
+  convertRatio: 0,
+  hopMs: 0,
 };
 
 class AiConvertRuntime {
@@ -148,6 +154,10 @@ class AiConvertRuntime {
   ) {
     if (this.busy || !this.voice) {
       node.port.postMessage({ type: "out", samples }, [samples.buffer]);
+      this.set({
+        convertRatio: 0,
+        hopMs: (samples.length / Math.max(8000, sr)) * 1000,
+      });
       return;
     }
     this.busy = true;
@@ -166,7 +176,11 @@ class AiConvertRuntime {
       });
       const pcm = out && out.length ? matchLength(out, samples.length) : samples;
       node.port.postMessage({ type: "out", samples: pcm }, [pcm.buffer]);
-      this.set({ lastInferMs: performance.now() - t0 });
+      this.set({
+        lastInferMs: performance.now() - t0,
+        convertRatio: out && out.length ? 1 : 0,
+        hopMs: (samples.length / Math.max(8000, sr)) * 1000,
+      });
     } catch (e) {
       console.error(e);
       node.port.postMessage({ type: "out", samples }, [samples.buffer]);
@@ -176,6 +190,14 @@ class AiConvertRuntime {
   }
 
   pitch = 0;
+
+  setTap(hz: number) {
+    const f0Hz = hz > 50 ? hz : 0;
+    this.set({
+      f0Hz,
+      convertRatio: this.voice ? this.state.convertRatio : this.state.convertRatio * 0.85,
+    });
+  }
 
   setPitch(n: number) {
     this.pitch = n;
