@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DevicePanel } from "@/components/editor/device-panel";
+import { MidiGuide } from "@/components/editor/midi-guide";
 import { useEditorStore } from "@/lib/store/editor-store";
 import {
   formatHz,
@@ -247,6 +248,8 @@ export function RangePanel() {
           )}
         </p>
       </section>
+
+      <MidiGuide />
 
       {mediaRangeResult && (
         <section className="rounded-2xl border border-dashed border-border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
