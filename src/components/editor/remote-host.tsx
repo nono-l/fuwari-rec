@@ -38,10 +38,29 @@ export function RemoteHost() {
       }
     };
     void tick();
-    const id = window.setInterval(() => void tick(), 500);
+    const id = window.setInterval(() => void tick(), 1000);
+    let worker: Worker | null = null;
+    try {
+      const blob = new Blob(
+        ["setInterval(function(){postMessage(1)},1000)"],
+        { type: "text/javascript" },
+      );
+      worker = new Worker(URL.createObjectURL(blob));
+      worker.onmessage = () => {
+        void tick();
+      };
+    } catch {
+      /* no worker */
+    }
+    const vis = () => {
+      if (document.visibilityState === "visible") void tick();
+    };
+    document.addEventListener("visibilitychange", vis);
     return () => {
       stop = true;
       window.clearInterval(id);
+      worker?.terminate();
+      document.removeEventListener("visibilitychange", vis);
     };
   }, [open, code, recall]);
 

@@ -28,6 +28,7 @@ import { Route as ApiRemoteRoomRouteImport } from './routes/api/remote-room'
 import { Route as AuthAcceptRouteImport } from './routes/auth/accept'
 import { Route as AuthBridgeRouteImport } from './routes/auth/bridge'
 import { Route as CSoulIdRouteImport } from './routes/c.$soulId'
+import { Route as RemoteIndexRouteImport } from './routes/remote.index'
 import { Route as RemoteCodeRouteImport } from './routes/remote.$code'
 import { Route as SongdbIndexRouteImport } from './routes/songdb.index'
 import { Route as SongdbCodeRouteImport } from './routes/songdb.$code'
@@ -130,6 +131,11 @@ const CSoulIdRoute = CSoulIdRouteImport.update({
   path: '/c/$soulId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RemoteIndexRoute = RemoteIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => RemoteRoute,
+} as any)
 const RemoteCodeRoute = RemoteCodeRouteImport.update({
   id: '/$code',
   path: '/$code',
@@ -184,6 +190,7 @@ export interface FileRoutesByFullPath {
   '/remote/$code': typeof RemoteCodeRoute
   '/songdb/$code': typeof SongdbCodeRoute
   '/u/$slug': typeof USlugRoute
+  '/remote/': typeof RemoteIndexRoute
   '/songdb/': typeof SongdbIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/soundfont/$id': typeof ApiSoundfontIdRoute
@@ -199,7 +206,6 @@ export interface FileRoutesByTo {
   '/obs': typeof ObsRoute
   '/profile': typeof ProfileRoute
   '/range': typeof RangeRoute
-  '/remote': typeof RemoteRouteWithChildren
   '/terms': typeof TermsRoute
   '/api/auth-public-config': typeof ApiAuthPublicConfigRoute
   '/api/obs-overlay': typeof ApiObsOverlayRoute
@@ -210,6 +216,7 @@ export interface FileRoutesByTo {
   '/remote/$code': typeof RemoteCodeRoute
   '/songdb/$code': typeof SongdbCodeRoute
   '/u/$slug': typeof USlugRoute
+  '/remote': typeof RemoteIndexRoute
   '/songdb': typeof SongdbIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/soundfont/$id': typeof ApiSoundfontIdRoute
@@ -238,6 +245,7 @@ export interface FileRoutesById {
   '/remote/$code': typeof RemoteCodeRoute
   '/songdb/$code': typeof SongdbCodeRoute
   '/u/$slug': typeof USlugRoute
+  '/remote/': typeof RemoteIndexRoute
   '/songdb/': typeof SongdbIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/soundfont/$id': typeof ApiSoundfontIdRoute
@@ -267,6 +275,7 @@ export interface FileRouteTypes {
     | '/remote/$code'
     | '/songdb/$code'
     | '/u/$slug'
+    | '/remote/'
     | '/songdb/'
     | '/api/auth/$'
     | '/api/soundfont/$id'
@@ -282,7 +291,6 @@ export interface FileRouteTypes {
     | '/obs'
     | '/profile'
     | '/range'
-    | '/remote'
     | '/terms'
     | '/api/auth-public-config'
     | '/api/obs-overlay'
@@ -293,6 +301,7 @@ export interface FileRouteTypes {
     | '/remote/$code'
     | '/songdb/$code'
     | '/u/$slug'
+    | '/remote'
     | '/songdb'
     | '/api/auth/$'
     | '/api/soundfont/$id'
@@ -320,6 +329,7 @@ export interface FileRouteTypes {
     | '/remote/$code'
     | '/songdb/$code'
     | '/u/$slug'
+    | '/remote/'
     | '/songdb/'
     | '/api/auth/$'
     | '/api/soundfont/$id'
@@ -485,6 +495,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CSoulIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/remote/': {
+      id: '/remote/'
+      path: '/'
+      fullPath: '/remote/'
+      preLoaderRoute: typeof RemoteIndexRouteImport
+      parentRoute: typeof RemoteRoute
+    }
     '/remote/$code': {
       id: '/remote/$code'
       path: '/$code'
@@ -532,10 +549,12 @@ declare module '@tanstack/react-router' {
 
 interface RemoteRouteChildren {
   RemoteCodeRoute: typeof RemoteCodeRoute
+  RemoteIndexRoute: typeof RemoteIndexRoute
 }
 
 const RemoteRouteChildren: RemoteRouteChildren = {
   RemoteCodeRoute: RemoteCodeRoute,
+  RemoteIndexRoute: RemoteIndexRoute,
 }
 
 const RemoteRouteWithChildren =

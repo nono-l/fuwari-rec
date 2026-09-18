@@ -47,8 +47,17 @@ export async function postRemoteRoom(body: {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
+    cache: "no-store",
   });
-  const data = (await res.json()) as RemoteRoomState & { error?: string };
+  const text = await res.text();
+  let data: (RemoteRoomState & { error?: string }) | null = null;
+  try {
+    data = JSON.parse(text) as RemoteRoomState & { error?: string };
+  } catch {
+    throw new Error(
+      res.ok ? "応答が読めません" : `接続できません（${res.status}）`,
+    );
+  }
   if (!res.ok) throw new Error(data.error || "リモコンに繋がっていません");
   return data;
 }

@@ -33,15 +33,27 @@ function view(r: Room, now: number): RemoteRoomState {
   return {
     code: r.code,
     scene: r.scene,
-    host: now - r.hostAt < 8000,
-    pad: now - r.padAt < 12000,
+    host: now - r.hostAt < 45000,
+    pad: now - r.padAt < 20000,
   };
+}
+
+async function ensureTable(sql: Awaited<ReturnType<typeof getSql>>) {
+  await sql.query(
+    `create table if not exists fuwari_remote_rooms (
+      code text primary key,
+      scene text not null default 'talk',
+      host_at bigint not null,
+      pad_at bigint not null default 0
+    )`,
+  );
 }
 
 async function readRoom(code: string): Promise<Room | null> {
   const mem = roomsMem().get(code);
   try {
     const sql = await getSql();
+    await ensureTable(sql);
     const rows = await sql.query<{
       code: string;
       scene: string;
@@ -70,6 +82,7 @@ async function writeRoom(room: Room) {
   roomsMem().set(room.code, room);
   try {
     const sql = await getSql();
+    await ensureTable(sql);
     await sql.query(
       `insert into fuwari_remote_rooms (code, scene, host_at, pad_at)
        values ($1, $2, $3, $4)
@@ -92,10 +105,21 @@ export const Route = createFileRoute("/api/remote-room")({
           status: 204,
           headers: {
             "access-control-allow-origin": "*",
-            "access-control-allow-methods": "POST, OPTIONS",
+            "access-control-allow-methods": "GET, POST, OPTIONS",
             "access-control-allow-headers": "content-type",
           },
         }),
+      GET: async ({ request }) => {
+        const url = new URL(request.url);
+        const code = String(url.searchParams.get("code") ?? "")
+          .trim()
+          .toUpperCase()
+          .replace(/[^2-9A-Z]/g, "");
+        if (code.length < 4) return json({ error: "コードが不正です" }, 400);
+        const room = await readRoom(code);
+        if (!room) return json({ error: "部屋がありません" }, 404);
+        return json(view(room, Date.now()));
+      },
       POST: async ({ request }) => {
         let body: { code?: string; role?: string; scene?: string } = {};
         try {

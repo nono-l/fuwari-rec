@@ -54,7 +54,21 @@ export function RemotePad({ code }: { code: string }) {
           {host ? " · PC 接続中" : " · PC 待ち"}
         </p>
       </div>
-      {error && <p className="text-[12px] text-danger">{error}</p>}
+        {error && (
+          <div className="rounded-xl border border-danger/40 bg-danger/10 px-3 py-2 text-[12px] text-danger">
+            {error}
+            <button
+              type="button"
+              className="ml-2 underline"
+              onClick={() => void postRemoteRoom({ code, role: "pad" }).then((s) => {
+                setHost(s.host);
+                setError(null);
+              }).catch((e) => setError(e instanceof Error ? e.message : "繋がっていません"))}
+            >
+              再試行
+            </button>
+          </div>
+        )}
       <div className="grid gap-3">
         {SCENES.map((sc) => (
           <button
