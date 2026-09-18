@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { SCENES, type SceneId } from "@/lib/audio/scenes";
 import { obsOverlayUrl } from "@/lib/audio/obs-overlay-bus";
+import { RemoteHost } from "@/components/editor/remote-host";
 import { useEditorStore } from "@/lib/store/editor-store";
 
 export function SceneBar({ compact = false }: { compact?: boolean }) {
@@ -106,6 +107,7 @@ export function SceneBar({ compact = false }: { compact?: boolean }) {
         })}
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
+        <RemoteHost />
         <Button type="button" size="sm" variant="secondary" onClick={() => void copyObs()}>
           OBSソース
         </Button>

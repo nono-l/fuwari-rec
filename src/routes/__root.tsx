@@ -52,8 +52,9 @@ export const Route = createRootRoute({
 });
 
 function RootComponent() {
-  const obs =
-    typeof window !== "undefined" && window.location.pathname === "/obs";
+  const overlay =
+    typeof window !== "undefined" &&
+    (window.location.pathname === "/obs" || window.location.pathname === "/remote");
   return (
     <html lang="ja">
       <head>
@@ -62,8 +63,8 @@ function RootComponent() {
       <body>
         <AuthProvider>
           <Outlet />
-          {!obs && <YoutubePlayerHost />}
-          {!obs && <CreatedWithGrokBanner />}
+          {!overlay && <YoutubePlayerHost />}
+          {!overlay && <CreatedWithGrokBanner />}
         </AuthProvider>
         <Scripts />
       </body>
