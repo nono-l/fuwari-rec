@@ -113,8 +113,8 @@ export function SceneBar({ compact = false }: { compact?: boolean }) {
         </Button>
         <p className="text-[10px] leading-relaxed text-muted-foreground">
           {copied
-            ? "URL をコピーしました。ブラウザソースに貼って透明をオン"
-            : "スペクトラムとシーン名の透過ページ。このタブを開いたまま OBS のブラウザソースへ"}
+            ? "URL をコピーしました。OBS のブラウザソースに貼って、背景を透明に"
+            : "このタブを開いたまま、OBS へブラウザソースとして追加します"}
         </p>
       </div>
     </div>

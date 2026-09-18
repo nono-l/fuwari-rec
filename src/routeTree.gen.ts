@@ -23,6 +23,7 @@ import { Route as RemoteRouteImport } from './routes/remote'
 import { Route as SongdbRouteImport } from './routes/songdb'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as ApiAuthPublicConfigRouteImport } from './routes/api/auth-public-config'
+import { Route as ApiObsOverlayRouteImport } from './routes/api/obs-overlay'
 import { Route as ApiRemoteRoomRouteImport } from './routes/api/remote-room'
 import { Route as AuthAcceptRouteImport } from './routes/auth/accept'
 import { Route as AuthBridgeRouteImport } from './routes/auth/bridge'
@@ -103,6 +104,11 @@ const ApiAuthPublicConfigRoute = ApiAuthPublicConfigRouteImport.update({
   path: '/api/auth-public-config',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiObsOverlayRoute = ApiObsOverlayRouteImport.update({
+  id: '/api/obs-overlay',
+  path: '/api/obs-overlay',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiRemoteRoomRoute = ApiRemoteRoomRouteImport.update({
   id: '/api/remote-room',
   path: '/api/remote-room',
@@ -164,6 +170,7 @@ export interface FileRoutesByFullPath {
   '/songdb': typeof SongdbRouteWithChildren
   '/terms': typeof TermsRoute
   '/api/auth-public-config': typeof ApiAuthPublicConfigRoute
+  '/api/obs-overlay': typeof ApiObsOverlayRoute
   '/api/remote-room': typeof ApiRemoteRoomRoute
   '/auth/accept': typeof AuthAcceptRoute
   '/auth/bridge': typeof AuthBridgeRoute
@@ -188,6 +195,7 @@ export interface FileRoutesByTo {
   '/remote': typeof RemoteRoute
   '/terms': typeof TermsRoute
   '/api/auth-public-config': typeof ApiAuthPublicConfigRoute
+  '/api/obs-overlay': typeof ApiObsOverlayRoute
   '/api/remote-room': typeof ApiRemoteRoomRoute
   '/auth/accept': typeof AuthAcceptRoute
   '/auth/bridge': typeof AuthBridgeRoute
@@ -214,6 +222,7 @@ export interface FileRoutesById {
   '/songdb': typeof SongdbRouteWithChildren
   '/terms': typeof TermsRoute
   '/api/auth-public-config': typeof ApiAuthPublicConfigRoute
+  '/api/obs-overlay': typeof ApiObsOverlayRoute
   '/api/remote-room': typeof ApiRemoteRoomRoute
   '/auth/accept': typeof AuthAcceptRoute
   '/auth/bridge': typeof AuthBridgeRoute
@@ -241,6 +250,7 @@ export interface FileRouteTypes {
     | '/songdb'
     | '/terms'
     | '/api/auth-public-config'
+    | '/api/obs-overlay'
     | '/api/remote-room'
     | '/auth/accept'
     | '/auth/bridge'
@@ -265,6 +275,7 @@ export interface FileRouteTypes {
     | '/remote'
     | '/terms'
     | '/api/auth-public-config'
+    | '/api/obs-overlay'
     | '/api/remote-room'
     | '/auth/accept'
     | '/auth/bridge'
@@ -290,6 +301,7 @@ export interface FileRouteTypes {
     | '/songdb'
     | '/terms'
     | '/api/auth-public-config'
+    | '/api/obs-overlay'
     | '/api/remote-room'
     | '/auth/accept'
     | '/auth/bridge'
@@ -316,6 +328,7 @@ export interface RootRouteChildren {
   SongdbRoute: typeof SongdbRouteWithChildren
   TermsRoute: typeof TermsRoute
   ApiAuthPublicConfigRoute: typeof ApiAuthPublicConfigRoute
+  ApiObsOverlayRoute: typeof ApiObsOverlayRoute
   ApiRemoteRoomRoute: typeof ApiRemoteRoomRoute
   AuthAcceptRoute: typeof AuthAcceptRoute
   AuthBridgeRoute: typeof AuthBridgeRoute
@@ -425,6 +438,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthPublicConfigRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/obs-overlay': {
+      id: '/api/obs-overlay'
+      path: '/api/obs-overlay'
+      fullPath: '/api/obs-overlay'
+      preLoaderRoute: typeof ApiObsOverlayRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/remote-room': {
       id: '/api/remote-room'
       path: '/api/remote-room'
@@ -519,6 +539,7 @@ const rootRouteChildren: RootRouteChildren = {
   SongdbRoute: SongdbRouteWithChildren,
   TermsRoute: TermsRoute,
   ApiAuthPublicConfigRoute: ApiAuthPublicConfigRoute,
+  ApiObsOverlayRoute: ApiObsOverlayRoute,
   ApiRemoteRoomRoute: ApiRemoteRoomRoute,
   AuthAcceptRoute: AuthAcceptRoute,
   AuthBridgeRoute: AuthBridgeRoute,
