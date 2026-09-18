@@ -1,5 +1,5 @@
 import type { OrtModule, OrtSession } from "./ai-infer";
-import { lastSpokenText } from "./live-transcript";
+import { consumeUtterance, peekUtterance } from "./live-transcript";
 
 const ZH = [
   "E","En","a","ai","an","ang","ao","b","c","ch","d","e","ei","en","eng","er",
@@ -178,8 +178,13 @@ export async function convertSbVits(
   ort: OrtModule,
   voice: OrtSession,
   text: string,
-): Promise<{ pcm: Float32Array; rate: number; used: string } | { error: string; tried: string }> {
-  const spoken = (text || lastSpokenText() || "テスト").slice(0, 40);
+): Promise<
+  | { pcm: Float32Array; rate: number; used: string }
+  | { skip: true }
+  | { error: string; tried: string }
+> {
+  const spoken = (text || peekUtterance()).trim().slice(0, 48);
+  if (!spoken) return { skip: true };
   const phones = textToPhones(spoken);
   const ids = phonesToIds(phones);
   const t = ids.length;
@@ -229,6 +234,7 @@ export async function convertSbVits(
       const data = out.data as Float32Array;
       if (!data?.length) throw new Error("無音出力");
       cached = combo;
+      consumeUtterance(spoken);
       return { pcm: Float32Array.from(data), rate: 44100, used: label };
     } catch (e) {
       last = e instanceof Error ? e.message : String(e);
@@ -249,6 +255,7 @@ export async function convertSbVits(
             const data = out.data as Float32Array;
             if (!data?.length) throw new Error("無音出力");
             cached = { intKind, bshape, sshape, sc };
+            consumeUtterance(spoken);
             return { pcm: Float32Array.from(data), rate: 44100, used: label };
           } catch (e) {
             last = e instanceof Error ? e.message : String(e);

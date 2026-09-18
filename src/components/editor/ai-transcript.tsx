@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { AiConvertState } from "@/lib/audio/ai-convert-runtime";
 import {
+  clearTranscript,
   speechRecognitionAvailable,
   startLiveTranscript,
 } from "@/lib/audio/live-transcript";
@@ -11,18 +12,26 @@ export function AiContentTranscript({ convert }: { convert: AiConvertState }) {
   const [finalText, setFinal] = useState("");
   const [interim, setInterim] = useState("");
   const [error, setError] = useState("");
+  const [queued, setQueued] = useState(0);
   const can = speechRecognitionAvailable();
 
   useEffect(() => {
-    if (!on) return;
+    if (!on) {
+      clearTranscript();
+      return;
+    }
     const handle = startLiveTranscript({
-      onUpdate: ({ finalText: f, interim: i, error: e }) => {
+      onUpdate: ({ finalText: f, interim: i, error: e, queued: q }) => {
         setFinal(f);
         setInterim(i);
         setError(e);
+        setQueued(q);
       },
     });
-    return () => handle.stop();
+    return () => {
+      handle.stop();
+      clearTranscript();
+    };
   }, [on]);
 
   const hasContent = convert.contentFrames > 0;
@@ -31,7 +40,7 @@ export function AiContentTranscript({ convert }: { convert: AiConvertState }) {
     <div className="space-y-2 rounded-lg border border-border bg-background px-2.5 py-2">
       <p className="text-[10px] text-muted-foreground">内容エンコーダ / 文字起こし</p>
       <p className="text-[10px] leading-relaxed text-muted-foreground">
-        HuBERT は文章ではなく特徴量です。Style-Bert-VITS2 の声モデルは、下の文字起こしの文章をその声で合成します。
+        一文が確定するたびに合成します。履歴は貯めず、合成が終わった文は捨てます。
       </p>
       <div className="rounded-md bg-muted/40 px-2 py-1.5 font-mono text-[12px] leading-none tracking-widest text-foreground">
         {hasContent ? convert.contentBars : "————————"}
@@ -44,7 +53,9 @@ export function AiContentTranscript({ convert }: { convert: AiConvertState }) {
             : "内容エンコーダの .onnx が未設定です"}
       </p>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-medium text-foreground">文字起こし</span>
+        <span className="text-[11px] font-medium text-foreground">
+          文字起こし{queued ? ` · 待ち ${queued}` : ""}
+        </span>
         <Button
           type="button"
           size="sm"
@@ -63,7 +74,7 @@ export function AiContentTranscript({ convert }: { convert: AiConvertState }) {
       )}
       {error && <p className="text-[11px] text-danger">{error}</p>}
       <p className="min-h-10 whitespace-pre-wrap text-[13px] leading-relaxed text-foreground">
-        {finalText || (on ? "" : "開始すると、今の発話がここに出ます")}
+        {finalText || (on ? "…聞いています（確定した文だけ合成）" : "開始すると、今の発話がここに出ます")}
         {interim ? (
           <span className="text-muted-foreground"> {interim}</span>
         ) : null}

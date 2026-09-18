@@ -268,7 +268,9 @@ export async function convertPcm(opts: {
   voiceName?: string;
   hubertName?: string;
   rmvpeName?: string;
-}): Promise<{ pcm: Float32Array; content?: ContentSnap } | { fail: ConvertFail }> {
+}): Promise<
+  { pcm: Float32Array; content?: ContentSnap } | { fail: ConvertFail } | { skip: true }
+> {
   const { pcm, sampleRate, pitch, voice, hubert } = opts;
   if (!voice) {
     return {
@@ -290,6 +292,7 @@ export async function convertPcm(opts: {
   if (kind === "sbvits") {
     const { convertSbVits } = await import("./sbvits");
     const out = await convertSbVits(ort, voice, "");
+    if ("skip" in out) return { skip: true };
     if ("pcm" in out) {
       return { pcm: resampleLinear(out.pcm, out.rate, sampleRate) };
     }

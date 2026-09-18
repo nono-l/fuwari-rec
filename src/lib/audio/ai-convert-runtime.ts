@@ -8,7 +8,7 @@ import {
   type ConvertKind,
   type OrtSession,
 } from "./ai-infer";
-import { loadVoiceModel } from "./ai-voice-idb";
+import { peekUtterance } from "./live-transcript";
 
 export type AiConvertStatus =
   | "off"
@@ -96,6 +96,7 @@ class AiConvertRuntime {
   private lastFail = "";
   private lastSkipUi = 0;
   private pulse: number | null = null;
+  private ttsHoldUntil = 0;
 
   private pushLog(line: string) {
     const log = [...this.state.log, line].slice(-8);
@@ -274,10 +275,16 @@ class AiConvertRuntime {
     if (this.busy || !this.voice) {
       node.port.postMessage({ type: "skip" });
       this.set({
-        convertRatio: 0,
+        convertRatio: this.state.convertRatio,
         hopMs: (samples.length / Math.max(8000, sr)) * 1000,
       });
       return;
+    }
+    if (this.voiceKind === "sbvits") {
+      if (performance.now() < this.ttsHoldUntil || !peekUtterance()) {
+        node.port.postMessage({ type: "skip" });
+        return;
+      }
     }
     this.busy = true;
     if (this.state.status === "ready") {
@@ -299,6 +306,10 @@ class AiConvertRuntime {
         hubertName: this.hubertName,
         rmvpeName: this.rmvpeName,
       });
+      if ("skip" in out) {
+        node.port.postMessage({ type: "skip" });
+        return;
+      }
       if ("pcm" in out && out.pcm.length) {
         const raw = out.pcm;
         const pcm =
@@ -306,6 +317,9 @@ class AiConvertRuntime {
             ? raw
             : matchLength(raw, samples.length);
         node.port.postMessage({ type: "out", samples: pcm }, [pcm.buffer]);
+        if (this.voiceKind === "sbvits") {
+          this.ttsHoldUntil = performance.now() + (pcm.length / Math.max(8000, sr)) * 1000;
+        }
         this.lastFail = "";
         this.set({
           lastInferMs: performance.now() - t0,
