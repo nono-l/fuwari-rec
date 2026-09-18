@@ -258,9 +258,7 @@ export class AudioEngine {
           (i.filter.kind === "band-pitch" || i.filter.kind === "band-autotune")) ||
         (i.family === "ai" && Math.abs(i.voice.pitch) >= 0.05),
     );
-    const needsAi = items.some(
-      (i) => i.family === "ai" && i.voice.enabled && i.voice.modelBytes > 0,
-    );
+    const needsAi = items.some((i) => i.family === "ai" && i.voice.enabled);
     if ((needsPitch && !this.livePitchReady) || (needsAi && !this.aiConvertReady)) {
       this.insertRack?.setLiveFx(items);
       void Promise.all([
@@ -290,9 +288,7 @@ export class AudioEngine {
       void this.ensurePitchWorklet().then(() => this.rebuildExtraPipelines());
       return;
     }
-    const needsAi = pipelines.some(
-      (p) => p.aiVoice && p.aiVoice.enabled && p.aiVoice.modelBytes > 0,
-    );
+    const needsAi = pipelines.some((p) => p.aiVoice && p.aiVoice.enabled);
     if (needsAi && !this.aiConvertReady) {
       this.rebuildExtraPipelines();
       void this.ensureAiConvertWorklet().then(() => this.rebuildExtraPipelines());

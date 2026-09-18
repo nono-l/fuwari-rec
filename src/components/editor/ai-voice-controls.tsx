@@ -119,7 +119,7 @@ export function AiVoiceControl({
           </Button>
         )}
         <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground">
-          .onnx だけが声変換します。.pth / .pt は素通りです。
+          .onnx が読めたときだけモデル変換します。それ以外は内蔵の声色です。
           {convert.detail ? ` ${convert.detail}` : ""}
         </p>
         <div className="mt-2">
@@ -144,6 +144,25 @@ export function AiVoiceControl({
           value={[Math.round(voice.mix * 100)]}
           onValueChange={([n]) => onPatch({ mix: (n ?? 100) / 100 })}
         />
+      </div>
+
+      <div>
+        <div className="mb-1 flex justify-between text-[11px] text-muted-foreground">
+          <span>声色（フォルマント）</span>
+          <span className="tabular-nums text-foreground">
+            {(voice.formant ?? 1.22).toFixed(2)}
+          </span>
+        </div>
+        <Slider
+          min={70}
+          max={160}
+          step={1}
+          value={[Math.round((voice.formant ?? 1.22) * 100)]}
+          onValueChange={([n]) => onPatch({ formant: (n ?? 122) / 100 })}
+        />
+        <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+          1.00 が原音。上げると高い声、下げると太い声。モデル無しでもここで変わります
+        </p>
       </div>
 
       <div>

@@ -13,6 +13,8 @@ export type AiVoiceInsert = {
   enabled: boolean;
   /** Semitone key of this stage (−12…+12). */
   pitch: number;
+  /** Built-in formant ratio (0.7–1.6). 1 = ほぼ原音。 */
+  formant: number;
   /** Model wet/dry (0–1). */
   mix: number;
   modelName: string;
@@ -52,6 +54,7 @@ export function newAiVoiceInsert(patch?: Partial<AiVoiceInsert>): AiVoiceInsert 
     name: patch?.name?.trim() || "AIボイス",
     enabled: patch?.enabled !== false,
     pitch: clampPitch(patch?.pitch ?? 0),
+    formant: clampFormant(patch?.formant ?? 1.22),
     mix: Math.max(0, Math.min(1, patch?.mix ?? 1)),
     modelName: String(patch?.modelName ?? "").slice(0, 200),
     modelBytes: Math.max(0, Math.round(Number(patch?.modelBytes) || 0)),
@@ -64,16 +67,23 @@ export function clampPitch(n: number) {
   return Math.max(-12, Math.min(12, Math.round(v * 10) / 10));
 }
 
+export function clampFormant(n: number) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return 1.22;
+  return Math.max(0.7, Math.min(1.6, Math.round(v * 100) / 100));
+}
+
 export function aiVoiceSummary(v: AiVoiceInsert) {
   const key =
     Math.abs(v.pitch) < 0.05
       ? "キー 0"
       : `キー ${v.pitch > 0 ? "+" : ""}${v.pitch.toFixed(1)}`;
+  const form = ` · 声色 ${v.formant.toFixed(2)}`;
   const mix = v.mix >= 0.995 ? "" : ` · 混ぜ ${Math.round(v.mix * 100)}%`;
   const name = v.modelName.trim();
-  if (!name) return `モデル未選択 · ${key}${mix}`;
+  if (!name) return `内蔵声色 · ${key}${form}${mix}`;
   const size = formatModelSize(v.modelBytes);
-  return `${name}${size ? ` ${size}` : ""} · ${key}${mix}`;
+  return `${name}${size ? ` ${size}` : ""} · ${key}${form}${mix}`;
 }
 
 export type AiVoiceHandle = {
@@ -140,8 +150,7 @@ export function createAiVoiceHandle(
   };
 
   const wantPitch = (v: AiVoiceInsert) => Math.abs(v.pitch) >= 0.05;
-  const wantConvert = (v: AiVoiceInsert) =>
-    live && !!v.modelName.trim() && v.modelBytes > 0;
+  const wantConvert = () => live;
 
   const mixGains = (v: AiVoiceInsert) => {
     const m = Math.max(0, Math.min(1, v.mix));
@@ -154,7 +163,7 @@ export function createAiVoiceHandle(
     mixGains(v);
     const shift = wantPitch(v);
     if (shift && !pitch) pitch = tryWorklet(ctx, "pitch-shift");
-    if (wantConvert(v) && !convert) convert = tryWorklet(ctx, "ai-convert");
+    if (wantConvert() && !convert) convert = tryWorklet(ctx, "ai-convert");
     if (shift && pitch) {
       pitch.port.postMessage({
         type: "rate",
@@ -170,18 +179,19 @@ export function createAiVoiceHandle(
       head.connect(convert);
       convert.connect(wet);
       const file = getAiModelFile(v.id) ?? null;
+      const onnx = /\.onnx$/i.test(v.modelName);
+      convert.port.postMessage({ type: "formant", value: clampFormant(v.formant ?? 1.22) });
+      convert.port.postMessage({ type: "onnx", value: onnx });
       runtime?.bind(convert, v.id, v.modelName, file);
       runtime?.setPitch(v.pitch);
-      const onnx = /\.onnx$/i.test(v.modelName);
-      runtime?.setBypass(convert, !onnx);
-      dryDelay.delayTime.value = onnx ? 4096 / ctx.sampleRate : 0;
+      dryDelay.delayTime.value = onnx ? 4096 / ctx.sampleRate : 512 / ctx.sampleRate;
       void runtime?.ensure(v.id, v.modelName, file);
     } else {
       head.connect(wet);
       dryDelay.delayTime.value = 0;
     }
     keyed = shift;
-    modelKey = `${v.id}:${v.modelName}:${v.modelBytes}`;
+    modelKey = `${v.id}:${v.modelName}:${v.modelBytes}:${v.formant}`;
   };
 
   wire(voice);
@@ -189,7 +199,7 @@ export function createAiVoiceHandle(
   let tapRaf = 0;
   let tapDisposed = false;
   let retryId = 0;
-  if (live && wantConvert(voice) && !convert) {
+  if (live && wantConvert() && !convert) {
     retryId = window.setInterval(() => {
       if (tapDisposed || convert) {
         if (retryId) window.clearInterval(retryId);
@@ -223,20 +233,22 @@ export function createAiVoiceHandle(
     apply: (next) => {
       mixGains(next);
       runtime?.setPitch(next.pitch);
-      const nextKey = `${next.id}:${next.modelName}:${next.modelBytes}`;
+      const nextKey = `${next.id}:${next.modelName}:${next.modelBytes}:${next.formant}`;
       const shift = wantPitch(next);
       const hadConvert = Boolean(convert);
-      if (wantConvert(next) && !convert) convert = tryWorklet(ctx, "ai-convert");
+      if (wantConvert() && !convert) convert = tryWorklet(ctx, "ai-convert");
       if (
         nextKey !== modelKey ||
         shift !== keyed ||
         Boolean(convert) !== hadConvert ||
-        wantConvert(next) !== Boolean(convert)
+        wantConvert() !== Boolean(convert)
       ) {
         wire(next);
         return;
       }
-      if (convert && wantConvert(next)) {
+      if (convert) {
+        convert.port.postMessage({ type: "formant", value: clampFormant(next.formant ?? 1.22) });
+        convert.port.postMessage({ type: "onnx", value: /\.onnx$/i.test(next.modelName) });
         const file = getAiModelFile(next.id) ?? null;
         runtime?.bind(convert, next.id, next.modelName, file);
         runtime?.setBypass(convert, !/\.onnx$/i.test(next.modelName));
