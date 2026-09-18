@@ -6,6 +6,7 @@ import { TransportBar } from "@/components/editor/transport-bar";
 import { useEditorStore } from "@/lib/store/editor-store";
 import { useAiRuntimeStore } from "@/lib/store/ai-runtime-store";
 import { sceneByKey } from "@/lib/audio/scenes";
+import { FxLinkBoot } from "@/components/editor/fx-link-boot";
 
 export function AppShell({
   title,
@@ -75,6 +76,7 @@ export function AppShell({
 
   return (
     <div className="min-h-dvh bg-background text-foreground">
+      <FxLinkBoot />
       <AppHeader />
       <main className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-6">
         <div className="mb-4 animate-page-enter">

@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { BookmarkPlus, FileCode2, FolderOpen, Save, Share2, Trash2 } from "lucide-react";
+import { BookmarkPlus, FileCode2, FolderOpen, QrCode, Save, Share2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEditorStore } from "@/lib/store/editor-store";
 import {
@@ -11,6 +11,7 @@ import {
   type FxSnapshot,
 } from "@/lib/audio/fx-snapshot";
 import { FxXmlDialog } from "@/components/editor/fx-xml-dialog";
+import { FxLinkDialog } from "@/components/editor/fx-link-dialog";
 
 export function FxLibraryPanel() {
   const captureFxSnapshot = useEditorStore((s) => s.captureFxSnapshot);
@@ -18,6 +19,7 @@ export function FxLibraryPanel() {
   const [name, setName] = useState("");
   const [library, setLibrary] = useState<FxSnapshot[]>([]);
   const [xmlOpen, setXmlOpen] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
   const [exportSnap, setExportSnap] = useState<FxSnapshot | null>(null);
 
   useEffect(() => {
@@ -60,6 +62,11 @@ export function FxLibraryPanel() {
     setXmlOpen(true);
   };
 
+  const openLink = (snap?: FxSnapshot) => {
+    setExportSnap(snap ?? captureFxSnapshot(name.trim() || defaultName()));
+    setLinkOpen(true);
+  };
+
   return (
     <section className="rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-5">
       <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
@@ -80,6 +87,15 @@ export function FxLibraryPanel() {
         >
           <FileCode2 className="size-3.5" />
           XML
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          onClick={() => openLink()}
+        >
+          <QrCode className="size-3.5" />
+          リンク／QR
         </Button>
       </div>
 
@@ -133,6 +149,15 @@ export function FxLibraryPanel() {
                 <FolderOpen className="size-3.5" />
                 読み出す
               </Button>
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                aria-label="リンクを作る"
+                onClick={() => openLink(p)}
+              >
+                <QrCode className="size-3.5" />
+              </Button>
               <Button asChild size="icon-sm" variant="ghost">
                 <Link to="/profile" aria-label="プロフィールで公開">
                   <Share2 className="size-3.5" />
@@ -159,6 +184,13 @@ export function FxLibraryPanel() {
           current={exportSnap}
           library={library}
           onImport={onImport}
+        />
+      )}
+      {linkOpen && exportSnap && (
+        <FxLinkDialog
+          open
+          snap={exportSnap}
+          onClose={() => setLinkOpen(false)}
         />
       )}
     </section>
