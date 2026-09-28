@@ -79,6 +79,15 @@ function enqueue(raw: string) {
   if (queue.length > MAX_QUEUE) queue = queue.slice(-MAX_QUEUE);
 }
 
+/** 定型句を合成キューと字幕に積む。マイクの認識とは別。 */
+export function queuePhrase(raw: string) {
+  const text = raw.trim().slice(0, MAX_UTTER);
+  if (!text) return;
+  queue.push(text);
+  if (queue.length > 8) queue.shift();
+  pushCaption(text);
+}
+
 export function lastSpokenText() {
   return queue[0] ?? "";
 }

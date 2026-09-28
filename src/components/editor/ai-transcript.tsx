@@ -6,6 +6,7 @@ import {
   speechRecognitionAvailable,
   startLiveTranscript,
 } from "@/lib/audio/live-transcript";
+import { PhraseStock } from "@/components/editor/phrase-stock";
 
 export function AiContentTranscript({ convert }: { convert: AiConvertState }) {
   const [on, setOn] = useState(false);
@@ -37,6 +38,7 @@ export function AiContentTranscript({ convert }: { convert: AiConvertState }) {
   const hasContent = convert.contentFrames > 0;
 
   return (
+    <>
     <div className="space-y-2 rounded-lg border border-border bg-background px-2.5 py-2">
       <p className="text-[10px] text-muted-foreground">内容エンコーダ / 文字起こし</p>
       <p className="text-[10px] leading-relaxed text-muted-foreground">
@@ -80,5 +82,9 @@ export function AiContentTranscript({ convert }: { convert: AiConvertState }) {
         ) : null}
       </p>
     </div>
+    <div className="mt-2">
+      <PhraseStock latest={finalText} />
+    </div>
+    </>
   );
 }
