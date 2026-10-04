@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 
 const WINDOW_MS = 2000;
 const CUE_MS = 220;
-const HOLD_MS = 160;
+const STABLE_NEED = 700;
 const PERFECT = 25;
 const GOOD = 50;
 const CLOSE = 100;
@@ -66,6 +66,7 @@ export function VocalTrainPanel() {
   const [best, setBest] = useState(0);
   const [hits, setHits] = useState(0);
   const [tries, setTries] = useState(0);
+  const [stable, setStable] = useState(0);
   const [error, setError] = useState("");
   const stopRef = useRef(false);
 
@@ -127,11 +128,15 @@ export function VocalTrainPanel() {
       setCents(null);
       setJudge(null);
       setLeft(WINDOW_MS);
+      setStable(0);
       cueTone(hz);
       const started = performance.now();
       let holdFrom = 0;
-      let matched = false;
+      let lastGood = 0;
+      let bestStable = 0;
       let bestAbs = 999;
+      let wobble = 0;
+      let holdCents: number[] = [];
       while (!stopRef.current && performance.now() - started < WINDOW_MS) {
         const buf = engine.readPitchTimeDomain();
         const sr = engine.getSampleRate();
@@ -146,25 +151,45 @@ export function VocalTrainPanel() {
             setCents(Math.round(c));
             if (abs < bestAbs) bestAbs = abs;
             if (abs <= GOOD) {
-              if (!holdFrom) holdFrom = now;
-              if (now - holdFrom >= HOLD_MS) matched = true;
-            } else {
+              if (!holdFrom) {
+                holdFrom = now;
+                holdCents = [];
+              }
+              lastGood = now;
+              holdCents.push(c);
+              const held = now - holdFrom;
+              if (held > bestStable) {
+                bestStable = held;
+                const mean = holdCents.reduce((a, b) => a + b, 0) / holdCents.length;
+                wobble = Math.sqrt(
+                  holdCents.reduce((a, b) => a + (b - mean) ** 2, 0) / holdCents.length,
+                );
+              }
+            } else if (holdFrom && now - lastGood > 120) {
               holdFrom = 0;
+              holdCents = [];
             }
+          } else if (holdFrom && now - lastGood > 120) {
+            holdFrom = 0;
+            holdCents = [];
           }
         }
+        setStable(Math.min(1, bestStable / STABLE_NEED));
         await new Promise((r) => requestAnimationFrame(() => r(null)));
       }
       if (stopRef.current) break;
-      const verdict: Judge =
-        matched && bestAbs <= PERFECT
+      const stableEnough = bestStable >= STABLE_NEED;
+      const verdict: Judge = !stableEnough
+        ? bestAbs <= CLOSE
+          ? "close"
+          : "miss"
+        : bestAbs <= PERFECT && wobble <= 18
           ? "perfect"
-          : matched
-            ? "good"
-            : bestAbs <= CLOSE
-              ? "close"
-              : "miss";
-      const add = verdict === "perfect" ? 100 : verdict === "good" ? 70 : verdict === "close" ? 40 : 0;
+          : "good";
+      const stability = Math.min(1, bestStable / 1200);
+      const add = !stableEnough
+        ? 0
+        : Math.round((verdict === "perfect" ? 100 : 70) * (0.65 + 0.35 * stability));
       localCombo = add >= 70 ? localCombo + 1 : 0;
       localBest = Math.max(localBest, localCombo);
       localScore += add + (add >= 70 ? localCombo * 5 : 0);
@@ -188,11 +213,11 @@ export function VocalTrainPanel() {
       : judge === "good"
         ? "合ってる"
         : judge === "close"
-          ? "惜しい"
+          ? "不安定"
           : judge === "miss"
             ? "外れ"
             : running
-              ? "声で返して"
+              ? "0.7秒、高さを保つ"
               : "スタートで開始";
 
   return (
@@ -205,7 +230,7 @@ export function VocalTrainPanel() {
               指定音に声で合わせる
             </h2>
             <p className="mt-1 max-w-xl text-sm leading-relaxed text-muted-foreground">
-              見本の音が鳴ったら、2秒以内に同じ高さで声を返します。リズムゲーの判定です。±25centでぴったり、±50centで合格。
+              見本の音が鳴ったら、2秒以内に同じ高さで声を返します。±50centを0.7秒以上保てないと不合格です。揺れが小さいほど高得点です。同じ音×4も同じ基準です。
             </p>
           </div>
           {!running ? (
@@ -299,6 +324,13 @@ export function VocalTrainPanel() {
               {cents != null ? ` · ${cents > 0 ? "+" : ""}${cents} cent` : ""}
               {running ? ` · 残り ${(left / 1000).toFixed(1)}秒` : ""}
             </p>
+            <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full bg-primary transition-[width] duration-75"
+                style={{ width: `${Math.round(stable * 100)}%` }}
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground">安定バーが埋まると合格</p>
             <div className="grid grid-cols-3 gap-2 text-center">
               <Stat label="得点" value={String(score)} />
               <Stat label="コンボ" value={String(combo)} />
