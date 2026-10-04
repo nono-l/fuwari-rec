@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
+  AudioLines,
   ListMusic,
   Mic2,
   Music2,
@@ -21,6 +22,7 @@ const NAV = [
   { to: "/effector", label: "エフェクター", icon: SlidersHorizontal },
   { to: "/AI", label: "AI", icon: Sparkles },
   { to: "/range", label: "声域測定", icon: Music2 },
+  { to: "/train", label: "ボイトレ", icon: AudioLines },
   { to: "/analyze", label: "音源解析", icon: ScanSearch },
   { to: "/songdb", label: "楽曲リスト", icon: ListMusic },
   { to: "/profile", label: "プロフィール", icon: UserRound },

@@ -22,6 +22,7 @@ import { Route as RangeRouteImport } from './routes/range'
 import { Route as RemoteRouteImport } from './routes/remote'
 import { Route as SongdbRouteImport } from './routes/songdb'
 import { Route as TermsRouteImport } from './routes/terms'
+import { Route as TrainRouteImport } from './routes/train'
 import { Route as ApiAuthPublicConfigRouteImport } from './routes/api/auth-public-config'
 import { Route as ApiObsOverlayRouteImport } from './routes/api/obs-overlay'
 import { Route as ApiRemoteRoomRouteImport } from './routes/api/remote-room'
@@ -99,6 +100,11 @@ const SongdbRoute = SongdbRouteImport.update({
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TrainRoute = TrainRouteImport.update({
+  id: '/train',
+  path: '/train',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthPublicConfigRoute = ApiAuthPublicConfigRouteImport.update({
@@ -181,6 +187,7 @@ export interface FileRoutesByFullPath {
   '/remote': typeof RemoteRouteWithChildren
   '/songdb': typeof SongdbRouteWithChildren
   '/terms': typeof TermsRoute
+  '/train': typeof TrainRoute
   '/api/auth-public-config': typeof ApiAuthPublicConfigRoute
   '/api/obs-overlay': typeof ApiObsOverlayRoute
   '/api/remote-room': typeof ApiRemoteRoomRoute
@@ -207,6 +214,7 @@ export interface FileRoutesByTo {
   '/profile': typeof ProfileRoute
   '/range': typeof RangeRoute
   '/terms': typeof TermsRoute
+  '/train': typeof TrainRoute
   '/api/auth-public-config': typeof ApiAuthPublicConfigRoute
   '/api/obs-overlay': typeof ApiObsOverlayRoute
   '/api/remote-room': typeof ApiRemoteRoomRoute
@@ -236,6 +244,7 @@ export interface FileRoutesById {
   '/remote': typeof RemoteRouteWithChildren
   '/songdb': typeof SongdbRouteWithChildren
   '/terms': typeof TermsRoute
+  '/train': typeof TrainRoute
   '/api/auth-public-config': typeof ApiAuthPublicConfigRoute
   '/api/obs-overlay': typeof ApiObsOverlayRoute
   '/api/remote-room': typeof ApiRemoteRoomRoute
@@ -266,6 +275,7 @@ export interface FileRouteTypes {
     | '/remote'
     | '/songdb'
     | '/terms'
+    | '/train'
     | '/api/auth-public-config'
     | '/api/obs-overlay'
     | '/api/remote-room'
@@ -292,6 +302,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/range'
     | '/terms'
+    | '/train'
     | '/api/auth-public-config'
     | '/api/obs-overlay'
     | '/api/remote-room'
@@ -320,6 +331,7 @@ export interface FileRouteTypes {
     | '/remote'
     | '/songdb'
     | '/terms'
+    | '/train'
     | '/api/auth-public-config'
     | '/api/obs-overlay'
     | '/api/remote-room'
@@ -349,6 +361,7 @@ export interface RootRouteChildren {
   RemoteRoute: typeof RemoteRouteWithChildren
   SongdbRoute: typeof SongdbRouteWithChildren
   TermsRoute: typeof TermsRoute
+  TrainRoute: typeof TrainRoute
   ApiAuthPublicConfigRoute: typeof ApiAuthPublicConfigRoute
   ApiObsOverlayRoute: typeof ApiObsOverlayRoute
   ApiRemoteRoomRoute: typeof ApiRemoteRoomRoute
@@ -451,6 +464,13 @@ declare module '@tanstack/react-router' {
       path: '/terms'
       fullPath: '/terms'
       preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/train': {
+      id: '/train'
+      path: '/train'
+      fullPath: '/train'
+      preLoaderRoute: typeof TrainRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth-public-config': {
@@ -587,6 +607,7 @@ const rootRouteChildren: RootRouteChildren = {
   RemoteRoute: RemoteRouteWithChildren,
   SongdbRoute: SongdbRouteWithChildren,
   TermsRoute: TermsRoute,
+  TrainRoute: TrainRoute,
   ApiAuthPublicConfigRoute: ApiAuthPublicConfigRoute,
   ApiObsOverlayRoute: ApiObsOverlayRoute,
   ApiRemoteRoomRoute: ApiRemoteRoomRoute,
