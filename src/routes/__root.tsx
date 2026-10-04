@@ -9,6 +9,7 @@ import appCss from "../styles.css?url";
 import { CreatedWithGrokBanner } from "@/components/created-with-grok-banner";
 import { YoutubePlayerHost } from "@/components/editor/youtube-player-host";
 import { AuthProvider } from "@/lib/auth/provider";
+import { articleDateHead, lastModifiedHeader, pageDateForPath } from "@/lib/page-date";
 
 const APP_NAME = "Fuwari REC";
 const APP_DESCRIPTION =
@@ -18,7 +19,14 @@ const host = import.meta.env.VITE_PUBLIC_HOSTNAME as string | undefined;
 const ogImage = host ? `https://${host}/og.jpg` : undefined;
 
 export const Route = createRootRoute({
-  head: () => ({
+  headers: ({ matches }) => {
+    const path = matches.at(-1)?.pathname ?? "/";
+    return lastModifiedHeader(pageDateForPath(path));
+  },
+  head: ({ matches }) => {
+    const path = matches.at(-1)?.pathname ?? "/";
+    const dates = articleDateHead(pageDateForPath(path));
+    return {
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
@@ -42,12 +50,15 @@ export const Route = createRootRoute({
             { name: "twitter:image", content: ogImage },
           ]
         : [{ name: "twitter:card", content: "summary" }]),
+      ...dates.meta,
     ],
     links: [
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
       { rel: "stylesheet", href: appCss },
     ],
-  }),
+    scripts: dates.scripts,
+    };
+  },
   component: RootComponent,
 });
 

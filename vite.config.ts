@@ -6,6 +6,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { nitro } from "nitro/vite";
 // @ts-expect-error JS plugin alongside the TS vite config
 import { grokPwaPlugin } from "./scripts/grok-pwa-plugin.mjs";
+import { isPageSource, stampPageDates } from "./scripts/page-dates.mjs";
 
 function formatBuildAtJst(d = new Date()): string {
   // e.g. 2026/08/17 10:07
@@ -18,6 +19,34 @@ function formatBuildAtJst(d = new Date()): string {
     minute: "2-digit",
     hour12: false,
   }).format(d);
+}
+
+function pageDatesPlugin(): Plugin {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stamp = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      try {
+        stampPageDates();
+      } catch (err) {
+        console.error("[page-dates]", err);
+      }
+    }, 150);
+  };
+  return {
+    name: "page-dates",
+    buildStart() {
+      stampPageDates();
+    },
+    configureServer(server) {
+      const on = (file: string) => {
+        if (isPageSource(file)) stamp();
+      };
+      server.watcher.on("change", on);
+      server.watcher.on("add", on);
+      server.watcher.on("unlink", on);
+    },
+  };
 }
 
 /**
@@ -157,6 +186,7 @@ export default defineConfig(({ command }) => ({
     __APP_BUILD_AT__: JSON.stringify(formatBuildAtJst()),
   },
   plugins: [
+    pageDatesPlugin(),
     pgliteBootstrapPlugin(),
     // Before tanstackStart so /auth/popup never falls through to the SPA.
     authPopupPlugin(),
