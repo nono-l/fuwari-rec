@@ -47,3 +47,43 @@ export function audioBufferToWav(buffer: AudioBuffer): Blob {
 
   return new Blob([arrayBuffer], { type: "audio/wav" });
 }
+
+/** Stereo 16-bit WAV from post-FX float samples in -1..1. */
+export function floatPcmToWav(
+  left: Float32Array,
+  right: Float32Array,
+  sampleRate: number,
+): Blob {
+  const samples = Math.min(left.length, right.length);
+  const numChannels = 2;
+  const blockAlign = numChannels * 2;
+  const dataLength = samples * blockAlign;
+  const arrayBuffer = new ArrayBuffer(44 + dataLength);
+  const view = new DataView(arrayBuffer);
+  const writeString = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  };
+  writeString(0, "RIFF");
+  view.setUint32(4, 36 + dataLength, true);
+  writeString(8, "WAVE");
+  writeString(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * blockAlign, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, 16, true);
+  writeString(36, "data");
+  view.setUint32(40, dataLength, true);
+  let offset = 44;
+  for (let i = 0; i < samples; i++) {
+    for (const ch of [left, right]) {
+      let sample = Math.max(-1, Math.min(1, ch[i] ?? 0));
+      sample = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+      view.setInt16(offset, sample, true);
+      offset += 2;
+    }
+  }
+  return new Blob([arrayBuffer], { type: "audio/wav" });
+}

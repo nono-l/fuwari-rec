@@ -1,5 +1,5 @@
 import type { MasterFx, Track } from "./types";
-import { audioBufferToWav } from "./wav-export";
+import { audioBufferToWav, floatPcmToWav } from "./wav-export";
 import { decodeMediaFile } from "./media-decode";
 import { openMicStream } from "./mic";
 import {
@@ -31,6 +31,19 @@ import dynamicsWorkletUrl from "./worklets/obs-dynamics.js?url";
 import limiterWorkletUrl from "./worklets/peak-limiter.js?url";
 import aiConvertWorkletUrl from "./worklets/ai-convert.js?url";
 import duckWorkletUrl from "./worklets/sidechain-duck.js?url";
+import pcmCaptureUrl from "./worklets/pcm-capture.js?url";
+
+function concatFloats(chunks: Float32Array[]): Float32Array {
+  let n = 0;
+  for (const c of chunks) n += c.length;
+  const out = new Float32Array(n);
+  let o = 0;
+  for (const c of chunks) {
+    out.set(c, o);
+    o += c.length;
+  }
+  return out;
+}
 
 function createImpulse(ctx: BaseAudioContext, duration = 1.8, decay = 2.2) {
   const rate = ctx.sampleRate;
@@ -138,6 +151,12 @@ export class AudioEngine {
   private kNodes: AudioNode[] = [];
   private safetyNode: AudioNode | null = null;
   private safetyIn: GainNode | null = null;
+  private captureNode: AudioWorkletNode | null = null;
+  private captureMute: GainNode | null = null;
+  private captureChunksL: Float32Array[] = [];
+  private captureChunksR: Float32Array[] = [];
+  private captureOn = false;
+  private captureReady = false;
   private outputSafe = true;
   private outputCeilingDb = DEFAULT_OUTPUT_CEILING_DB;
   private msHist: number[] = [];
@@ -680,6 +699,7 @@ export class AudioEngine {
     }
     if (!this.outputSafe) {
       tap.connect(ctx.destination);
+      this.rewirePostFxCapture();
       return;
     }
     const ceil = dbToLin(this.outputCeilingDb);
@@ -701,6 +721,7 @@ export class AudioEngine {
       tap.connect(node);
       node.connect(ctx.destination);
       this.safetyNode = node;
+      this.rewirePostFxCapture();
       return;
     } catch {
       /* compressor fallback */
@@ -714,6 +735,69 @@ export class AudioEngine {
     tap.connect(comp);
     comp.connect(ctx.destination);
     this.safetyNode = comp;
+    this.rewirePostFxCapture();
+  }
+
+  private rewirePostFxCapture() {
+    if (!this.captureOn || !this.captureNode || !this.captureMute) return;
+    const from = this.safetyNode ?? this.safetyIn;
+    if (!from) return;
+    try {
+      this.captureNode.disconnect();
+    } catch {
+      /* noop */
+    }
+    from.connect(this.captureNode);
+    this.captureNode.connect(this.captureMute);
+  }
+
+  async startPostFxCapture(): Promise<void> {
+    const ctx = this.getContext();
+    if (!this.captureReady) {
+      await ctx.audioWorklet.addModule(pcmCaptureUrl);
+      this.captureReady = true;
+    }
+    if (!this.captureNode) {
+      this.captureNode = new AudioWorkletNode(ctx, "pcm-capture", {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [2],
+        channelCount: 2,
+        channelCountMode: "explicit",
+      });
+      this.captureMute = ctx.createGain();
+      this.captureMute.gain.value = 0;
+      this.captureMute.connect(ctx.destination);
+      this.captureNode.port.onmessage = (e: MessageEvent) => {
+        if (!this.captureOn) return;
+        const data = e.data as { l?: Float32Array; r?: Float32Array };
+        if (data?.l) this.captureChunksL.push(data.l);
+        if (data?.r) this.captureChunksR.push(data.r);
+      };
+    }
+    this.captureChunksL = [];
+    this.captureChunksR = [];
+    this.captureOn = true;
+    this.rewirePostFxCapture();
+  }
+
+  async stopPostFxCapture(): Promise<Blob | null> {
+    if (!this.captureOn) return null;
+    this.captureNode?.port.postMessage("flush");
+    await new Promise((r) => setTimeout(r, 50));
+    this.captureOn = false;
+    try {
+      this.captureNode?.disconnect();
+    } catch {
+      /* noop */
+    }
+    const left = concatFloats(this.captureChunksL);
+    const right = concatFloats(this.captureChunksR);
+    this.captureChunksL = [];
+    this.captureChunksR = [];
+    const sr = this.ctx?.sampleRate ?? 48000;
+    if (left.length < sr * 0.05) return null;
+    return floatPcmToWav(left, right, sr);
   }
 
   applyMasterFx(fx: MasterFx) {

@@ -14,7 +14,7 @@ function EffectorPage() {
   return (
     <AppShell
       title="エフェクター"
-      description="録音なしでも使えるライブエフェクト。スペクトラム解析とフィルターでハウリングも消せます。"
+      description="録音なしでも使えるライブエフェクト。通したあとの音はWAVで保存できます。"
     >
       <div className="space-y-4">
         <DevicePanel />

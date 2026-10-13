@@ -439,6 +439,7 @@ function makeTrack(partial?: Partial<Track>): Track {
 let ytClockRaf = 0;
 let ytKeepAt = 0;
 let liveMeterRaf = 0;
+let fxWavTimer = 0;
 let rangeRaf = 0;
 let deviceUnsub: (() => void) | null = null;
 let midiRenderTimer = 0;
@@ -639,6 +640,8 @@ export interface EditorState {
 
   liveFxActive: boolean;
   liveFxBusy: boolean;
+  fxWavRecording: boolean;
+  fxWavSeconds: number;
   liveLevel: number;
   lufsMomentary: number;
   lufsShort: number;
@@ -784,6 +787,8 @@ export interface EditorState {
   startLiveFx: () => Promise<void>;
   stopLiveFx: () => void;
   toggleLiveFx: () => Promise<void>;
+  startFxWav: () => Promise<void>;
+  stopFxWav: () => Promise<void>;
   setLufsTarget: (id: LufsTargetId) => void;
   setOutputSafe: (on: boolean) => void;
   setOutputCeilingDb: (n: number) => void;
@@ -1139,6 +1144,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   liveFxActive: false,
   liveFxBusy: false,
+  fxWavRecording: false,
+  fxWavSeconds: 0,
   liveLevel: 0,
   lufsMomentary: -70,
   lufsShort: -70,
@@ -2913,6 +2920,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   stopLiveFx: () => {
+    if (get().fxWavRecording) void get().stopFxWav();
     try {
       getAudioEngine().stopLiveFx();
     } catch {
@@ -2929,6 +2937,51 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   toggleLiveFx: async () => {
     if (get().liveFxActive) get().stopLiveFx();
     else await get().startLiveFx();
+  },
+
+  startFxWav: async () => {
+    if (get().fxWavRecording) return;
+    if (!get().liveFxActive) await get().startLiveFx();
+    if (!get().liveFxActive) return;
+    try {
+      await getAudioEngine().startPostFxCapture();
+    } catch (e) {
+      set({
+        statusMessage: e instanceof Error ? e.message : "WAV録音を開始できませんでした",
+      });
+      return;
+    }
+    if (fxWavTimer) window.clearInterval(fxWavTimer);
+    set({
+      fxWavRecording: true,
+      fxWavSeconds: 0,
+      statusMessage: "エフェクト後の音をWAV録音中",
+    });
+    fxWavTimer = window.setInterval(() => {
+      set({ fxWavSeconds: get().fxWavSeconds + 1 });
+    }, 1000);
+  },
+
+  stopFxWav: async () => {
+    if (!get().fxWavRecording) return;
+    if (fxWavTimer) {
+      window.clearInterval(fxWavTimer);
+      fxWavTimer = 0;
+    }
+    set({ fxWavRecording: false, statusMessage: "WAVを書き出しています…" });
+    try {
+      const blob = await getAudioEngine().stopPostFxCapture();
+      if (!blob) {
+        set({ statusMessage: "録音が短すぎます" });
+        return;
+      }
+      downloadBlob(blob, `fuwari-fx-${Date.now()}.wav`);
+      set({ statusMessage: "エフェクト後のWAVを保存しました" });
+    } catch (e) {
+      set({
+        statusMessage: e instanceof Error ? e.message : "WAV保存に失敗しました",
+      });
+    }
   },
 
   setLufsTarget: (id) => {

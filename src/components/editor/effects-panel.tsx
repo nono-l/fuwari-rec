@@ -17,6 +17,7 @@ import { SceneBar } from "@/components/editor/scene-bar";
 import { LatencyMeter } from "@/components/editor/latency-meter";
 import {
   AudioLines,
+  Download,
   Power,
   RotateCcw,
   SlidersHorizontal,
@@ -48,6 +49,10 @@ export function EffectsPanel({
   const inputEnabled = useEditorStore((s) => s.inputEnabled);
   const outputEnabled = useEditorStore((s) => s.outputEnabled);
   const toggleLiveFx = useEditorStore((s) => s.toggleLiveFx);
+  const fxWavRecording = useEditorStore((s) => s.fxWavRecording);
+  const fxWavSeconds = useEditorStore((s) => s.fxWavSeconds);
+  const startFxWav = useEditorStore((s) => s.startFxWav);
+  const stopFxWav = useEditorStore((s) => s.stopFxWav);
   const roomProfile = useEditorStore((s) => s.roomProfile);
   const roomAmount = useEditorStore((s) => s.roomAmount);
   const roomCapturing = useEditorStore((s) => s.roomCapturing);
@@ -135,22 +140,37 @@ export function EffectsPanel({
             </p>
           </div>
 
-          <Button
-            type="button"
-            size="lg"
-            variant={liveFxActive ? "danger" : "default"}
-            disabled={liveFxBusy || !inputEnabled}
-            onClick={() => void toggleLiveFx()}
-            className="min-w-[10.5rem] shrink-0"
-            aria-pressed={liveFxActive}
-          >
-            <Power className="size-4" />
-            {liveFxBusy
-              ? "接続中…"
-              : liveFxActive
-                ? "エフェクト OFF"
-                : "エフェクト ON"}
-          </Button>
+          <div className="flex shrink-0 flex-col gap-2 sm:items-end">
+            <Button
+              type="button"
+              size="lg"
+              variant={liveFxActive ? "danger" : "default"}
+              disabled={liveFxBusy || !inputEnabled}
+              onClick={() => void toggleLiveFx()}
+              className="min-w-[10.5rem]"
+              aria-pressed={liveFxActive}
+            >
+              <Power className="size-4" />
+              {liveFxBusy
+                ? "接続中…"
+                : liveFxActive
+                  ? "エフェクト OFF"
+                  : "エフェクト ON"}
+            </Button>
+            <Button
+              type="button"
+              size="lg"
+              variant={fxWavRecording ? "danger" : "secondary"}
+              disabled={liveFxBusy || !inputEnabled}
+              onClick={() => void (fxWavRecording ? stopFxWav() : startFxWav())}
+              className="min-w-[10.5rem]"
+            >
+              <Download className="size-4" />
+              {fxWavRecording
+                ? `停止してWAV ${Math.floor(fxWavSeconds / 60)}:${String(fxWavSeconds % 60).padStart(2, "0")}`
+                : "エフェクト後をWAV"}
+            </Button>
+          </div>
         </div>
 
         <div className="mt-4 space-y-2">
