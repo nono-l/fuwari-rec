@@ -756,6 +756,7 @@ export interface EditorState {
   setMaster: (patch: Partial<MasterFx>) => void;
   applyPreset: (id: MixPresetId) => void;
   exportWav: () => Promise<void>;
+  exportTracksWav: () => Promise<void>;
   setLoopPoint: (which: "a" | "b" | "clear") => void;
   setYoutubeInput: (v: string) => void;
   loadYoutube: (videoId: string, source?: string) => void;
@@ -2462,6 +2463,56 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       set({
         statusMessage:
           e instanceof Error ? e.message : "書き出しに失敗しました",
+      });
+    } finally {
+      set({ isExporting: false });
+    }
+  },
+
+  exportTracksWav: async () => {
+    const { tracks, master, isExporting } = get();
+    if (isExporting) return;
+    if (!tracks.some((t) => t.buffer && !t.muted)) {
+      set({ statusMessage: "書き出すトラックがありません" });
+      return;
+    }
+    set({ isExporting: true, statusMessage: "エフェクトを通してトラックを書き出し中…" });
+    try {
+      if (get().status === "playing") get().pause();
+      const engine = getAudioEngine();
+      engine.setOutputSafety(get().outputSafe, get().outputCeilingDb);
+      const files = await engine.exportEffectedTracks(
+        tracks,
+        master,
+        {
+          profile: get().roomProfile,
+          amount: get().roomAmount,
+        },
+        applyFxSolo(
+          assembleLiveFx(
+            get().liveChain,
+            get().spectrumFilters,
+            get().obsInserts,
+            get().aiVoice,
+            get().cableInserts,
+            get().deviceInserts,
+          ),
+          get().fxSoloId,
+        ),
+        get().extraPipelines,
+      );
+      for (const file of files) {
+        downloadBlob(file.blob, `fuwari-${file.name}.wav`);
+        await new Promise((r) => setTimeout(r, 300));
+      }
+      set({
+        statusMessage: `エフェクト付きトラックを${files.length}本保存しました`,
+      });
+    } catch (e) {
+      console.error(e);
+      set({
+        statusMessage:
+          e instanceof Error ? e.message : "トラック書き出しに失敗しました",
       });
     } finally {
       set({ isExporting: false });

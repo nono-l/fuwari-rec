@@ -32,6 +32,7 @@ export function TransportBar() {
   const loadFileToTrack = useEditorStore((s) => s.loadFileToTrack);
   const loadMidiToTrack = useEditorStore((s) => s.loadMidiToTrack);
   const exportWav = useEditorStore((s) => s.exportWav);
+  const exportTracksWav = useEditorStore((s) => s.exportTracksWav);
   const setBpm = useEditorStore((s) => s.setBpm);
 
   const recording = status === "recording";
@@ -248,6 +249,17 @@ export function TransportBar() {
               >
                 <Download className="size-3.5" />
                 {isExporting ? "書き出し中…" : "WAV書き出し"}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={isExporting}
+                title="各トラックを、今のエフェクターを通したWAVで保存します"
+                onClick={() => void exportTracksWav()}
+              >
+                <Download className="size-3.5" />
+                エフェクト付きトラック
               </Button>
             </div>
           </div>

@@ -1850,8 +1850,10 @@ export class AudioEngine {
     room?: { profile: RoomProfile | null; amount: number },
     liveFx: LiveFxItem[] = [],
     extraPipelines: ExtraPipeline[] = [],
+    opts?: { onlyTrackId?: string; lengthSec?: number; safety?: boolean },
   ): Promise<Blob> {
     this.updateDuration(tracks);
+    if (opts?.lengthSec && opts.lengthSec > 0) this.duration = opts.lengthSec;
     if (this.duration <= 0) {
       throw new Error("書き出す音源がありません");
     }
@@ -1970,16 +1972,21 @@ export class AudioEngine {
     reverb.connect(wet);
     dry.connect(master);
     wet.connect(master);
-    master.connect(offline.destination);
+    this.connectOfflineTail(offline, master, opts?.safety === true);
 
     const rate = Math.pow(2, fx.pitchSemitones / 12);
     const anySolo = tracks.some((t) => t.solo);
     const roomAmt = room?.amount ?? 0;
+    const onlyId = opts?.onlyTrackId;
 
     for (const track of tracks) {
       if (!track.buffer) continue;
-      if (track.muted) continue;
-      if (anySolo && !track.solo) continue;
+      if (onlyId) {
+        if (track.id !== onlyId) continue;
+      } else {
+        if (track.muted) continue;
+        if (anySolo && !track.solo) continue;
+      }
 
       const src = offline.createBufferSource();
       src.buffer =
@@ -2004,6 +2011,79 @@ export class AudioEngine {
     mainRack.dispose();
     cables.dispose();
     return audioBufferToWav(rendered);
+  }
+
+  /** One WAV per audible track, printed through the current effector. */
+  async exportEffectedTracks(
+    tracks: Track[],
+    fx: MasterFx,
+    room?: { profile: RoomProfile | null; amount: number },
+    liveFx: LiveFxItem[] = [],
+    extraPipelines: ExtraPipeline[] = [],
+  ): Promise<{ name: string; blob: Blob }[]> {
+    const prev = this.duration;
+    this.updateDuration(tracks);
+    const span = this.duration;
+    try {
+      const picked = tracks.filter((t) => t.buffer && !t.muted);
+      if (!picked.length || span <= 0) {
+        throw new Error("書き出すトラックがありません");
+      }
+      const files: { name: string; blob: Blob }[] = [];
+      for (const track of picked) {
+        const blob = await this.exportMix(tracks, fx, room, liveFx, extraPipelines, {
+          onlyTrackId: track.id,
+          lengthSec: span,
+          safety: this.outputSafe,
+        });
+        const safe = track.name.replace(/[\\/:*?"<>|]+/g, " ").trim().slice(0, 40);
+        files.push({ name: safe || "track", blob });
+      }
+      return files;
+    } finally {
+      this.duration = prev;
+    }
+  }
+
+  private connectOfflineTail(
+    offline: OfflineAudioContext,
+    master: GainNode,
+    safety: boolean,
+  ) {
+    if (!safety) {
+      master.connect(offline.destination);
+      return;
+    }
+    const ceil = dbToLin(this.outputCeilingDb);
+    try {
+      const node = new AudioWorkletNode(offline, "peak-limiter", {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [2],
+      });
+      const set = (name: string, value: number) => {
+        const p = node.parameters.get(name);
+        if (p) p.value = value;
+      };
+      set("ceiling", ceil);
+      set("lookahead", 3);
+      set("release", 50);
+      set("makeup", 1);
+      set("mix", 1);
+      master.connect(node);
+      node.connect(offline.destination);
+      return;
+    } catch {
+      /* compressor fallback */
+    }
+    const comp = offline.createDynamicsCompressor();
+    comp.threshold.value = this.outputCeilingDb;
+    comp.knee.value = 0.3;
+    comp.ratio.value = 20;
+    comp.attack.value = 0.001;
+    comp.release.value = 0.05;
+    master.connect(comp);
+    comp.connect(offline.destination);
   }
 
   dispose() {
