@@ -2502,7 +2502,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         get().extraPipelines,
       );
       for (const file of files) {
-        downloadBlob(file.blob, `fuwari-${file.name}.wav`);
+        downloadBlob(file.blob, `fuwari-エフェクト付き-${file.name}.wav`);
         await new Promise((r) => setTimeout(r, 300));
       }
       set({
